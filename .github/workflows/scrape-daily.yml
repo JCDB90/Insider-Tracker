@@ -1,0 +1,30 @@
+name: Daily Scraper
+
+on:
+  schedule:
+    - cron: '0 17 * * 1-5'  # 6 PM CET, Monday-Friday
+  workflow_dispatch:  # Manual trigger button
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: |
+          npm install node-fetch@2
+          npm install cheerio
+          npm install @supabase/supabase-js
+      
+      - name: Run Netherlands scraper
+        run: node scrapers/netherlands.js
+      
+      - name: Run Germany scraper
+        run: node scrapers/germany.js
