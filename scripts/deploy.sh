@@ -28,7 +28,7 @@ set -euo pipefail
 
 # ── Config — edit these before running ───────────────────────────────────────
 
-GITHUB_REPO="https://github.com/YOUR_USERNAME/Insider-Tracker.git"   # ← change this
+GITHUB_REPO="https://github.com/JCDB90/Insider-Tracker.git"
 APP_DIR="/opt/insider-tracker"
 APP_USER="insider"          # dedicated system user (not root)
 CRON_SCHEDULE="0 22 * * *" # 22:00 UTC = 23:00 CET
