@@ -1,30 +1,189 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily Insider Tracker Scraper
+#
+# Schedule: 23:00 CET every day (22:00 UTC winter / adjust manually for summer)
+# Budget:   ~23 scrapers × ~2 min each = ~50 min/day = ~1,500 min/month
+#           Well within GitHub Actions free tier (2,000 min/month).
+#
+# Secrets required (Settings → Secrets → Actions):
+#   SUPABASE_URL   https://xxxx.supabase.co
+#   SUPABASE_KEY   your service_role or anon key
+# ─────────────────────────────────────────────────────────────────────────────
+
 name: Daily Scraper
 
 on:
   schedule:
-    - cron: '0 17 * * 1-5'  # 6 PM CET, Monday-Friday
-  workflow_dispatch:  # Manual trigger button
+    - cron: '0 22 * * *'   # 22:00 UTC = 23:00 CET (UTC+1)
+
+  workflow_dispatch:        # Manual trigger from the Actions tab
+    inputs:
+      country:
+        description: 'Single country code to test (NL, DE, FR …) — leave empty to run all'
+        required: false
+        default: ''
+
+# Pass Supabase credentials to every step via env
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  NODE_ENV: production
 
 jobs:
   scrape:
+    name: Scrape all markets
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 90     # Hard cap; full run should finish in ~60 min
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      # ── Setup ──────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
+          cache: 'npm'      # Cache node_modules between runs (saves ~30 sec)
+
       - name: Install dependencies
-        run: |
-          npm install node-fetch@2
-          npm install cheerio
-          npm install @supabase/supabase-js
-      
-      - name: Run Netherlands scraper
+        run: npm ci
+
+      # ── Europe ─────────────────────────────────────────────────────────────
+      - name: 🇳🇱 Netherlands (AFM)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NL' }}
+        continue-on-error: true
         run: node scrapers/netherlands.js
-      
-      - name: Run Germany scraper
+
+      - name: 🇩🇪 Germany (BaFin)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'DE' }}
+        continue-on-error: true
         run: node scrapers/germany.js
+
+      - name: 🇵🇱 Poland (KNF)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'PL' }}
+        continue-on-error: true
+        run: node scrapers/poland.js
+
+      - name: 🇮🇪 Ireland (CBI)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'IE' }}
+        continue-on-error: true
+        run: node scrapers/ireland.js
+
+      - name: 🇦🇹 Austria (FMA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AT' }}
+        continue-on-error: true
+        run: node scrapers/austria.js
+
+      - name: 🇵🇹 Portugal (CMVM)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'PT' }}
+        continue-on-error: true
+        run: node scrapers/portugal.js
+
+      - name: 🇩🇰 Denmark (Finanstilsynet)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'DK' }}
+        continue-on-error: true
+        run: node scrapers/denmark.js
+
+      - name: 🇸🇪 Sweden (Finansinspektionen)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SE' }}
+        continue-on-error: true
+        run: node scrapers/sweden.js
+
+      - name: 🇫🇷 France (AMF)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FR' }}
+        continue-on-error: true
+        run: node scrapers/france.js
+
+      - name: 🇨🇿 Czech Republic (CNB)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CZ' }}
+        continue-on-error: true
+        run: node scrapers/czech.js
+
+      - name: 🇱🇺 Luxembourg (CSSF)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'LU' }}
+        continue-on-error: true
+        run: node scrapers/luxembourg.js
+
+      - name: 🇫🇮 Finland (FIN-FSA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FI' }}
+        continue-on-error: true
+        run: node scrapers/finland.js
+
+      - name: 🇪🇸 Spain (CNMV)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'ES' }}
+        continue-on-error: true
+        run: node scrapers/spain.js
+
+      - name: 🇮🇹 Italy (CONSOB)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'IT' }}
+        continue-on-error: true
+        run: node scrapers/italy.js
+
+      - name: 🇨🇭 Switzerland (FINMA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CH' }}
+        continue-on-error: true
+        run: node scrapers/switzerland.js
+
+      - name: 🇳🇴 Norway (Finanstilsynet)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NO' }}
+        continue-on-error: true
+        run: node scrapers/norway.js
+
+      # ── Asia-Pacific ────────────────────────────────────────────────────────
+      - name: 🇦🇺 Australia (ASIC)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AU' }}
+        continue-on-error: true
+        run: node scrapers/australia.js
+
+      - name: 🇭🇰 Hong Kong (SFC)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'HK' }}
+        continue-on-error: true
+        run: node scrapers/hongkong.js
+
+      - name: 🇯🇵 Japan (FSA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'JP' }}
+        continue-on-error: true
+        run: node scrapers/japan.js
+
+      - name: 🇰🇷 South Korea (FSS)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'KR' }}
+        continue-on-error: true
+        run: node scrapers/southkorea.js
+
+      - name: 🇸🇬 Singapore (MAS)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SG' }}
+        continue-on-error: true
+        run: node scrapers/singapore.js
+
+      # ── Americas ────────────────────────────────────────────────────────────
+      - name: 🇨🇦 Canada (SEDAR)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CA' }}
+        continue-on-error: true
+        run: node scrapers/canada.js
+
+      # ── Africa ──────────────────────────────────────────────────────────────
+      - name: 🇿🇦 South Africa (FSCA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'ZA' }}
+        continue-on-error: true
+        run: node scrapers/southafrica.js
+
+      # ── Maintenance ─────────────────────────────────────────────────────────
+      - name: 🧹 Cleanup records older than 90 days
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scrapers/cleanup.js
+
+      # ── Summary ─────────────────────────────────────────────────────────────
+      - name: 📊 Run summary
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Insider Tracker — scrape run complete"
+          echo "  Triggered by: ${{ github.event_name }}"
+          echo "  Country filter: ${{ github.event.inputs.country || 'all' }}"
+          echo "  Ref: ${{ github.sha }}"
+          echo "  Time: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Check individual step results above for per-country status."
+          echo "Steps with continue-on-error: true won't fail the overall job."
