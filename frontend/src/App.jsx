@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import './App.css';
 
 const supabase = createClient(
   'https://loqmxllfjvdwamwicoow.supabase.co',
@@ -17,50 +18,66 @@ function App() {
         .select('*')
         .order('announced_date', { ascending: false });
       
-      if (error) {
-        console.error('Error:', error);
-      } else {
-        setBuybacks(data);
-      }
+      if (!error) setBuybacks(data);
       setLoading(false);
     }
-    
     fetchBuybacks();
   }, []);
 
-  if (loading) return <div style={{padding: 40}}>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="loading">
+        <div className="spinner"></div>
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{padding: 40, fontFamily: 'system-ui'}}>
-      <h1>Insider Tracker - Buyback Programs</h1>
-      <p>Total programs: {buybacks.length}</p>
-      
-      {buybacks.length === 0 ? (
-        <p>No data yet. Run the scrapers to populate!</p>
-      ) : (
-        <table style={{width: '100%', borderCollapse: 'collapse'}}>
-          <thead>
-            <tr style={{borderBottom: '2px solid #ccc'}}>
-              <th style={{padding: 10, textAlign: 'left'}}>Country</th>
-              <th style={{padding: 10, textAlign: 'left'}}>Company</th>
-              <th style={{padding: 10, textAlign: 'left'}}>Ticker</th>
-              <th style={{padding: 10, textAlign: 'left'}}>Announced</th>
-              <th style={{padding: 10, textAlign: 'left'}}>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {buybacks.map(bb => (
-              <tr key={bb.id} style={{borderBottom: '1px solid #eee'}}>
-                <td style={{padding: 10}}>{bb.country_code}</td>
-                <td style={{padding: 10}}>{bb.company}</td>
-                <td style={{padding: 10}}>{bb.ticker}</td>
-                <td style={{padding: 10}}>{bb.announced_date}</td>
-                <td style={{padding: 10, fontSize: 12, color: '#666'}}>{bb.source}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <div className="app">
+      <header className="header">
+        <div className="container">
+          <div className="logo">
+            <h1>Insider Tracker</h1>
+            <span className="beta">BETA</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="main">
+        <div className="container">
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Ticker</th>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {buybacks.map(bb => (
+                  <tr key={bb.id}>
+                    <td className="company-cell">{bb.company}</td>
+                    <td className="ticker-cell">{bb.ticker}</td>
+                    <td><span className="country-badge">{bb.country_code}</span></td>
+                    <td>{new Date(bb.announced_date).toLocaleDateString()}</td>
+                    <td className="source-cell">{bb.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <footer className="footer">
+        <div className="container">
+          <p>Tracking {buybacks.length} programs across multiple markets</p>
+        </div>
+      </footer>
     </div>
   );
 }
