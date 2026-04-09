@@ -14,7 +14,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'PL';
 const SOURCE         = 'KNF Poland';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CURRENCY       = 'PLN';
 
 function isoDate(d) {

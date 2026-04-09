@@ -15,7 +15,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const DELAY_MS       = 600;
 const BASE           = 'https://marknadssok.fi.se/publiceringsklient/en/Search';
 const HEADERS        = {

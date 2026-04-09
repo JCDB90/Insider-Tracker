@@ -14,7 +14,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'CZ';
 const SOURCE         = 'CNB Czech Republic';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CURRENCY       = 'CZK';
 
 function isoDate(d) {

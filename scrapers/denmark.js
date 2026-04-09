@@ -14,7 +14,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Finanstilsynet Denmark';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CURRENCY       = 'DKK';
 
 function isoDate(d) {

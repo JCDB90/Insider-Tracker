@@ -14,7 +14,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'HK';
 const SOURCE         = 'HKEX Hong Kong';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CURRENCY       = 'HKD';
 
 function isoDate(d) {

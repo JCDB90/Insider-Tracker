@@ -14,7 +14,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'CH';
 const SOURCE         = 'SIX Exchange Regulation';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CURRENCY       = 'CHF';
 
 function isoDate(d) {

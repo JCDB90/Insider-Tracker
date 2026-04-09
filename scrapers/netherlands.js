@@ -27,7 +27,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 
 const EXPORT_URL =
   'https://www.afm.nl/export.aspx?type=0ee836dc-5520-459d-bcf4-a4a689de6614&format=xml';

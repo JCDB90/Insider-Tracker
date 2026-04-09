@@ -28,7 +28,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const COUNTRY_CODE   = 'DE';
 const SOURCE         = 'BaFin Germany';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = 14;
 const CONCURRENCY    = 4;   // simultaneous letter-fetches
 
 const BASE_URL  = 'portal.mvp.bafin.de';
