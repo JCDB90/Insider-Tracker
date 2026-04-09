@@ -1,31 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * CZ — Insider Transactions Scraper
+ *
+ * Source: CNB Czech Republic
+ * URL: https://www.cnb.cz/en/supervision-financial-market/trading-market/
+ *
+ * CNB — insider transactions in CZ published via PSE (Prague Stock Exchange) announcements system.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'CZ';
+const SOURCE         = 'CNB Czech Republic';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'CZK';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeCZ() {
-  console.log('🇨🇿 Scraping CNB Czech Republic...');
-  
-  try {
-    // Czech National Bank
-    const url = 'https://www.cnb.cz/en/';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched CNB page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('CNB') || html.includes('Czech')) {
-      console.log('✅ Confirmed: This is Czech Republic\'s official central bank');
-      console.log('\nKeywords to filter: "zpětný odkup akcií", "program zpětného odkupu"');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇨🇿  CNB Czech Republic');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: CNB — insider transactions in CZ published via PSE (Prague Stock Exchange) announcements system.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.cnb.cz/en/supervision-financial-market/trading-market/
+  // Alternative: https://www.pse.cz/en/company-filings
+
+  console.log('  ⚠  Scraper not yet implemented for CZ.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeCZ();
+scrapeCZ().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

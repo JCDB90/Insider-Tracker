@@ -1,62 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * NO — Insider Transactions Scraper
+ *
+ * Source: Finanstilsynet Norway
+ * URL: https://www.finanstilsynet.no/markedstilsyn/innsidehandel/
+ *
+ * Finanstilsynet insider register — need to find correct data endpoint. Try HTML table pagination.
+ */
+'use strict';
 
-async function scrapeNorway() {
-  console.log('Scraping Oslo Bors...');
-  
-  try {
-    // Try the public API endpoint
-    const url = 'https://newsweb.oslobors.no/api/messages/search';
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        markets: ['XOSL'],
-        messageTypes: [],
-        fromDate: '2025-01-01',
-        toDate: new Date().toISOString().split('T')[0],
-        size: 100
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const buybacks = [];
-    
-    const messages = data.items || data.messages || [];
-    
-    for (const msg of messages) {
-      const title = (msg.title || msg.messageTitle || '').toLowerCase();
-      
-      if (title.includes('tilbakekjøp') || 
-          title.includes('buyback') ||
-          title.includes('repurchase')) {
-        
-        buybacks.push({
-          ticker: msg.ticker || msg.issuerTicker,
-          company: msg.issuerName,
-          date: (msg.publishedDate || msg.publishedTime || '').split('T')[0],
-          title: msg.title || msg.messageTitle,
-        });
-      }
-    }
-    
-    console.log(`Found ${buybacks.length} buybacks`);
-    if (buybacks.length > 0) {
-      console.log(JSON.stringify(buybacks, null, 2));
-    } else {
-      console.log('No buyback announcements found in the date range.');
-    }
-    
-  } catch (error) {
-    console.error('Error:', error.message);
-    console.log('\nNote: Oslo Bors API may have changed. You can manually check: https://newsweb.oslobors.no/');
-  }
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'NO';
+const SOURCE         = 'Finanstilsynet Norway';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'NOK';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
+
+async function scrapeNO() {
+  console.log('🇳🇴  Finanstilsynet Norway');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: Finanstilsynet insider register — need to find correct data endpoint. Try HTML table pagination.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.finanstilsynet.no/markedstilsyn/innsidehandel/
+  // Alternative: https://www.oslobors.no/markedsaktivitet/#/list/insider/quotelist/ob
+
+  console.log('  ⚠  Scraper not yet implemented for NO.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeNorway();
+scrapeNO().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

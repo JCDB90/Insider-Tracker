@@ -1,31 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * SG — Insider Transactions Scraper
+ *
+ * Source: SGX Singapore
+ * URL: https://www.sgx.com/securities/company-announcements
+ *
+ * SGX company announcements — insider dealings filed as Form 5. SGX has a search API.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'SG';
+const SOURCE         = 'SGX Singapore';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'SGD';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeSG() {
-  console.log('🇸🇬 Scraping SGX Singapore...');
-  
-  try {
-    const url = 'https://www.sgx.com/';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched SGX page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('SGX') || html.includes('Singapore')) {
-      console.log('✅ Confirmed: Singapore Exchange');
-      console.log('\nKeywords: "share buyback mandate", "share purchase mandate"');
-      console.log('Official source: SGXNet announcements');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇸🇬  SGX Singapore');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: SGX company announcements — insider dealings filed as Form 5. SGX has a search API.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.sgx.com/securities/company-announcements
+  // SGX API: https://api.sgx.com/securities/v1.0/announcements?category=insider-dealings
+
+  console.log('  ⚠  Scraper not yet implemented for SG.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeSG();
+scrapeSG().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

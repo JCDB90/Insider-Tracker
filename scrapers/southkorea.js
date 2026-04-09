@@ -1,32 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * KR — Insider Transactions Scraper
+ *
+ * Source: DART South Korea
+ * URL: https://opendart.fss.or.kr/api/majorstock.json
+ *
+ * DART (Data Analysis Retrieval and Transfer) has a free JSON API. Requires free API key from opendart.fss.or.kr.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'KR';
+const SOURCE         = 'DART South Korea';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'KRW';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeKR() {
-  console.log('🇰🇷 Scraping KRX South Korea...');
-  
-  try {
-    // Korea Exchange
-    const url = 'http://global.krx.co.kr/';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched KRX page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('KRX') || html.includes('Korea')) {
-      console.log('✅ Confirmed: Korea Exchange (KOSPI/KOSDAQ)');
-      console.log('\nKeywords: "자사주 매입" (treasury stock purchase), "buyback"');
-      console.log('Note: Samsung, Hyundai, LG - huge market!');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇰🇷  DART South Korea');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: DART (Data Analysis Retrieval and Transfer) has a free JSON API. Requires free API key from opendart.fss.or.kr.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://opendart.fss.or.kr/api/majorstock.json
+  // Set DART_API_KEY env var. Register at https://opendart.fss.or.kr/intro/main.do
+
+  console.log('  ⚠  Scraper not yet implemented for KR.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeKR();
+scrapeKR().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

@@ -1,32 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * AU — Insider Transactions Scraper
+ *
+ * Source: ASX Australia
+ * URL: https://www.asx.com.au/markets/announcements
+ *
+ * ASX Appendix 3Y (director interest change) filings. Filter company announcements by type=3Y.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'AU';
+const SOURCE         = 'ASX Australia';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'AUD';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeAU() {
-  console.log('🇦🇺 Scraping ASX Australia...');
-  
-  try {
-    // ASX Company Announcements Platform
-    const url = 'https://www.asx.com.au/asx/statistics/announcements.do';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched ASX page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('ASX') || html.includes('Australian')) {
-      console.log('✅ Confirmed: Official Australian Securities Exchange');
-      console.log('\nKeywords: "share buyback", "on-market buyback", "Appendix 3E"');
-      console.log('Note: Competitor stopped tracking AU in Jan 2024 - HUGE opportunity!');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇦🇺  ASX Australia');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: ASX Appendix 3Y (director interest change) filings. Filter company announcements by type=3Y.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.asx.com.au/markets/announcements
+  // ASX JSON API: https://www.asx.com.au/asx/1/share/{ticker}/announcements?type=3Y
+
+  console.log('  ⚠  Scraper not yet implemented for AU.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeAU();
+scrapeAU().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

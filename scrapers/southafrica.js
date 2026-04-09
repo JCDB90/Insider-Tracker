@@ -1,33 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * ZA — Insider Transactions Scraper
+ *
+ * Source: JSE South Africa
+ * URL: https://www.jse.co.za/services/market-data/company-news
+ *
+ * JSE SENS (Securities Exchange News Service) — director dealings published as SENS announcements.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'ZA';
+const SOURCE         = 'JSE South Africa';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'ZAR';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeZA() {
-  console.log('🇿🇦 Scraping JSE South Africa...');
-  
-  try {
-    // Johannesburg Stock Exchange
-    const url = 'https://www.jse.co.za/';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched JSE page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('JSE') || html.includes('Johannesburg') || html.includes('South Africa')) {
-      console.log('✅ Confirmed: Johannesburg Stock Exchange');
-      console.log('\nKeywords: "share buy-back", "share repurchase"');
-      console.log('Official source: JSE SENS (Stock Exchange News Service)');
-      console.log('Note: Naspers, Standard Bank, FirstRand - major African market!');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇿🇦  JSE South Africa');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: JSE SENS (Securities Exchange News Service) — director dealings published as SENS announcements.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.jse.co.za/services/market-data/company-news
+  // SENS search: https://senspdf.jse.co.za/ — filter by announcement type "Director Dealings"
+
+  console.log('  ⚠  Scraper not yet implemented for ZA.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeZA();
+scrapeZA().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

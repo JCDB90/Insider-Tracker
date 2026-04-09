@@ -1,30 +1,40 @@
-const fetch = require('node-fetch');
+/**
+ * IE — Insider Transactions Scraper
+ *
+ * Source: CBI Ireland / Euronext Dublin
+ * URL: https://www.ise.ie/market-data-announcements/equities/company-announcements/
+ *
+ * Irish insider transactions published via Euronext Dublin (ISE) company announcements. Filter by MAR.
+ */
+'use strict';
+
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
+const { saveInsiderTransactions } = require('./lib/db');
+
+const COUNTRY_CODE   = 'IE';
+const SOURCE         = 'CBI Ireland / Euronext Dublin';
+const RETENTION_DAYS = 90;
+const CURRENCY       = 'EUR';
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
 async function scrapeIE() {
-  console.log('🇮🇪 Scraping Euronext Dublin (Ireland)...');
-  
-  try {
-    const url = 'https://www.ise.ie/Market-Data-Announcements/Company-Announcements/';
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-    
-    const html = await response.text();
-    
-    console.log('✅ Successfully fetched Euronext Dublin page');
-    console.log('Page length:', html.length, 'characters');
-    
-    if (html.includes('Announcements') || html.includes('Euronext') || html.includes('ISE')) {
-      console.log('✅ Confirmed: This is the official Irish stock exchange announcement portal');
-      console.log('\nKeywords to filter: "share buyback", "repurchase programme"');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-  }
+  console.log('🇮🇪  CBI Ireland / Euronext Dublin');
+  const t0 = Date.now();
+  const co = cutoff();
+
+  // TODO: Irish insider transactions published via Euronext Dublin (ISE) company announcements. Filter by MAR.
+  // Implement HTTP scraping or Puppeteer for this market.
+  // Regulatory portal: https://www.ise.ie/market-data-announcements/equities/company-announcements/
+  // Try: https://direct.euronext.com/Company/Announcements?isin=IE&category=MAR
+
+  console.log('  ⚠  Scraper not yet implemented for IE.');
+  console.log('  ℹ  0 rows saved.');
+  return { saved: 0 };
 }
 
-scrapeIE();
+scrapeIE().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
