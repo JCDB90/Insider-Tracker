@@ -1,18 +1,23 @@
 /**
  * LU — Insider Transactions Scraper
  *
- * Source: CSSF Luxembourg — Commission de Surveillance du Secteur Financier
- * URL: https://www.cssf.lu/en/supervision/financial-markets/
- * Alternative: Luxembourg Stock Exchange (LuxSE) announcements
+ * Source: Luxembourg Stock Exchange (LuxSE) — FNS Manager Transaction Statements
+ * API: https://graphqlaz.luxse.com/v1/graphql  (Apollo GraphQL)
+ * Query: GetLatestFnsDocuments with type="MATS" (Manager Transaction Statements)
  *
- * CSSF does not publish a machine-readable insider transaction register.
- * MAR Article 19 notifications for Luxembourg-listed stocks are published via
- * the LuxSE (Bourse de Luxembourg) announcements system.
+ * Discovered by reverse-engineering /dist/bdl-port-luxse-ssr/static/js/main.*.chunk.js
+ * The LuxSE React SPA uses Apollo GraphQL with endpoint graphqlaz.luxse.com.
  *
- * LuxSE API: https://www.luxse.com/api/announcements/search
- * Category filter for insider: type="DIR" or similar
+ * MATS documents contain:
+ *   - id: document ID
+ *   - description: often contains "Manager Transaction Notification - <Name>"
+ *   - publishDate: filing date
+ *   - referenceDate: transaction date
+ *   - complement: issuer name (may include ISIN for LU-listed stocks)
  *
- * To enable: reverse-engineer the LuxSE announcements API or implement Puppeteer.
+ * Structured fields (shares, price, transaction type) are in PDF attachments only.
+ * The publicationPeriod filter "TWO_WEEKS_AGO" covers the 14-day retention window.
+ * Use pageable:false to get all results without pagination issues.
  */
 'use strict';
 
@@ -20,7 +25,7 @@ const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'LU';
-const SOURCE         = 'CSSF Luxembourg / LuxSE';
+const SOURCE         = 'LuxSE — Manager Transactions';
 const RETENTION_DAYS = 14;
 const CURRENCY       = 'EUR';
 
@@ -29,94 +34,167 @@ function isoDate(d) {
 }
 function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
-function tryLuxSeApi(from, to) {
+const GQL_QUERY = `
+  query GetLatestFnsDocuments(
+    $pageable: Boolean!, $pageNumber: Int!, $pageSize: Int!,
+    $statOnly: Boolean!, $type: String, $category: String, $publicationPeriod: String
+  ) {
+    latestFNSDocuments(
+      pageable: $pageable, pageNumber: $pageNumber, pageSize: $pageSize,
+      statOnly: $statOnly, type: $type, category: $category, publicationPeriod: $publicationPeriod
+    ) {
+      resultSize
+      resultTotalSize
+      resultList {
+        id
+        description
+        publishDate
+        referenceDate
+        documentTypeCode
+        documentPublicTypeCode
+        complement
+        language
+      }
+    }
+  }
+`;
+
+function fetchMats(publicationPeriod) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({
-      type: 'INSIDER', dateFrom: from, dateTo: to, page: 0, size: 100,
-    });
+    const body = Buffer.from(JSON.stringify({
+      query: GQL_QUERY,
+      variables: {
+        pageable: false,
+        pageNumber: 1,
+        pageSize: 200,
+        statOnly: false,
+        type: 'MATS',
+        category: null,
+        publicationPeriod,
+      },
+    }));
+
     const req = https.request({
-      hostname: 'www.luxse.com',
-      path: '/api/announcements/search',
+      hostname: 'graphqlaz.luxse.com',
+      path: '/v1/graphql',
       method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'Origin': 'https://www.luxse.com',
         'Referer': 'https://www.luxse.com/',
+        'Content-Length': body.length,
       },
     }, res => {
-      const ct = res.headers['content-type'] || '';
-      let d = ''; res.on('data', c => d += c);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
-        if (res.statusCode !== 200 || !ct.includes('json')) return resolve(null);
-        try { resolve(JSON.parse(d)); } catch { resolve(null); }
+        if (res.statusCode !== 200) return resolve(null);
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+        catch { resolve(null); }
       });
     });
     req.on('error', () => resolve(null));
-    req.setTimeout(20000, () => { req.destroy(); resolve(null); });
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
     req.write(body);
     req.end();
   });
 }
 
+function parseInsiderName(description) {
+  if (!description) return null;
+  // "Manager Transaction Notification - Lisa Graver"
+  // "Reporting on securities transaction - François Gillet"
+  const m = description.match(/[-–]\s+(.+)$/);
+  if (m) return m[1].trim();
+  return null;
+}
+
+function parseCompany(complement) {
+  if (!complement) return null;
+  // "ALVOTECH"
+  // "LUXEMPART S.A. - LU2605908552 Luxempart"
+  // "BANK OF CYPRUS HOLDINGS PUBLIC LIMITED COMPANY, BANK OF CYPRUS PUBLIC COMPANY LIMITED (2 issuers)"
+  // Take the first company name before comma or dash+ISIN
+  const stripped = complement.replace(/\s*\([^)]*issuers?\)/i, '').trim();
+  const parts = stripped.split(',');
+  return parts[0].replace(/\s*-\s*[A-Z]{2}[A-Z0-9]{10}\s.*$/, '').trim() || null;
+}
+
+function extractIsin(complement) {
+  if (!complement) return '';
+  const m = complement.match(/\b([A-Z]{2}[A-Z0-9]{10})\b/);
+  return m ? m[1] : '';
+}
+
 async function scrapeLU() {
-  console.log('🇱🇺  CSSF Luxembourg / LuxSE — insider transactions');
-  const t0  = Date.now();
-  const co  = cutoff();
+  console.log('🇱🇺  LuxSE — MATS Manager Transaction Statements (GraphQL API)');
+  const t0   = Date.now();
+  const co   = cutoff();
   const from = isoDate(co);
   const to   = isoDate(new Date());
   console.log(`  Fetching ${from} → ${to}…`);
 
-  const data = await tryLuxSeApi(from, to);
-  if (!data) {
-    console.log('  ⚠  LuxSE API not accessible (endpoint unknown or requires browser session).');
-    console.log('  ℹ  CSSF: https://www.cssf.lu/en/supervision/financial-markets/');
-    console.log('  ℹ  LuxSE: https://www.luxse.com/');
-    console.log('  ℹ  To enable: identify the LuxSE announcements API endpoint or use Puppeteer.');
+  const result = await fetchMats('TWO_WEEKS_AGO');
+
+  if (!result) {
+    console.log('  ⚠  LuxSE GraphQL API not accessible.');
     console.log('  ℹ  0 rows saved.');
     return { saved: 0 };
   }
 
-  const items = data.content || data.announcements || (Array.isArray(data) ? data : []);
-  if (!items.length) { console.log('  No data.'); return { saved: 0 }; }
+  const docs = (result.data && result.data.latestFNSDocuments && result.data.latestFNSDocuments.resultList) || [];
+  console.log(`  API returned ${docs.length} MATS documents`);
 
+  if (!docs.length) {
+    console.log('  No MATS documents in window.');
+    return { saved: 0 };
+  }
+
+  // Filter to retention window (referenceDate >= cutoff)
+  const cutoffStr = from;
   const seen = new Set();
   const dbRows = [];
-  for (const r of items) {
-    const txIso = (r.date || r.publishDate || r.publishedAt || '').slice(0, 10) || from;
-    const fid   = `LU-${r.id || r.isin + '-' + txIso}`;
-    if (seen.has(fid)) continue; seen.add(fid);
 
-    const txType = (() => {
-      const t = (r.transactionType || r.type || '').toLowerCase();
-      if (t.includes('acqui') || t.includes('buy') || t.includes('souscri')) return 'BUY';
-      if (t.includes('dispos') || t.includes('sell') || t.includes('cessi')) return 'SELL';
-      return 'UNKNOWN';
-    })();
+  for (const r of docs) {
+    const txIso  = (r.referenceDate || r.publishDate || '').slice(0, 10);
+    if (txIso && txIso < cutoffStr) continue;
+
+    const fid = `LU-${r.id}`;
+    if (seen.has(fid)) continue;
+    seen.add(fid);
+
+    const insiderName = parseInsiderName(r.description);
+    const company     = parseCompany(r.complement);
+    const isin        = extractIsin(r.complement);
+    const publishIso  = (r.publishDate || '').slice(0, 10);
 
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           r.isin || r.issuerCode || null,
-      company:          r.issuerName || r.company || null,
-      insider_name:     r.personName || r.declarant || null,
-      insider_role:     r.position || r.function || null,
-      transaction_type: txType,
-      transaction_date: txIso,
-      shares:           r.quantity != null ? Math.round(Math.abs(Number(r.quantity))) : null,
-      price_per_share:  r.price != null ? Number(r.price) : null,
-      total_value:      r.amount != null ? Math.round(Math.abs(Number(r.amount))) : null,
-      currency:         r.currency || CURRENCY,
-      filing_url:       r.url || `https://www.luxse.com/`,
+      ticker:           isin,
+      company,
+      insider_name:     insiderName,
+      insider_role:     null,     // in PDF only
+      transaction_type: 'UNKNOWN', // in PDF only
+      transaction_date: txIso || publishIso || from,
+      shares:           null,
+      price_per_share:  null,
+      total_value:      null,
+      currency:         CURRENCY,
+      filing_url:       `https://www.luxse.com/market-overview/market-news?type=MATS`,
       source:           SOURCE,
     });
   }
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
+
   const { error } = await saveInsiderTransactions(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
+  console.log(`  ℹ  Note: structured fields (shares, price, type) require PDF parsing.`);
   return { saved: dbRows.length };
 }
 
