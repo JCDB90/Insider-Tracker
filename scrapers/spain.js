@@ -2,16 +2,20 @@
  * ES — Insider Transactions Scraper
  *
  * Source: CNMV Spain — Portal de la Comisión Nacional del Mercado de Valores
- * URL: https://www.cnmv.es/portal/Consultas/MAR/ListaOperaciones.aspx
- * API: /ServiciosPublicacion/ServicioGratuito/GetNotificacionesInsidersMAR  (POST, ASP.NET)
+ * URL: https://www.cnmv.es/Portal/MAR/Operaciones-Directivos
  *
- * The CNMV portal uses ASP.NET with __VIEWSTATE. The MAR insider transactions
- * portal redirects requests without a valid ViewState to an error page (CVFE).
- * The portal appears to have moved — direct URL access results in redirects to
- * /Portal/Error.aspx?errorcode=CVFE.
+ * The CNMV MAR portal is geo-restricted to EU IPs. It works from GitHub Actions
+ * (Azure EU runners) but not from other regions.
  *
- * To enable: obtain valid __VIEWSTATE + __EVENTVALIDATION tokens via Puppeteer,
- * then POST form data to the search endpoint.
+ * Approach (2-step):
+ *   1. GET the page to capture ASP.NET session cookies and the AJAX endpoint
+ *      from inline JavaScript (looks for API URL patterns in the page source).
+ *   2. POST to the discovered API endpoint with date range + session cookie.
+ *
+ * The old endpoint (/ServiciosPublicacion/ServicioGratuito/GetNotificacionesInsidersMAR)
+ * returned 404. The new endpoint is discovered from the page's JavaScript.
+ *
+ * If geo-blocked (CVFE error) or endpoint not discovered, exits gracefully.
  *
  * Fields: fecha, emisor, ISIN, declarante, cargo, tipo, número, precio, importe
  */
@@ -30,34 +34,86 @@ function isoDate(d) {
 }
 function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 
-function tryGetAPI(from, to) {
+function get(path, headers = {}) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({
-      FechaDesde: from, FechaHasta: to, Pagina: 1, NumFilas: 100,
-    });
-    const req = https.request({
+    const req = https.get({
       hostname: 'www.cnmv.es',
-      path: '/ServiciosPublicacion/ServicioGratuito/GetNotificacionesInsidersMAR',
-      method: 'POST',
+      path,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Referer': 'https://www.cnmv.es/portal/Consultas/MAR/ListaOperaciones.aspx',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        ...headers,
       },
     }, res => {
-      const ct = res.headers['content-type'] || '';
-      let d = ''; res.on('data', c => d += c);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        body: Buffer.concat(chunks).toString('utf8'),
+        cookies: res.headers['set-cookie'] || [],
+      }));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+function post(path, body, cookieStr, extraHeaders = {}) {
+  return new Promise((resolve) => {
+    const data = Buffer.from(body);
+    const req = https.request({
+      hostname: 'www.cnmv.es',
+      path,
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Content-Type': 'application/json; charset=utf-8',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookieStr,
+        'Referer': 'https://www.cnmv.es/Portal/MAR/Operaciones-Directivos',
+        ...extraHeaders,
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
-        if (res.statusCode !== 200 || !ct.includes('json')) return resolve(null);
-        try { resolve(JSON.parse(d)); } catch { resolve(null); }
+        if (res.statusCode !== 200) return resolve(null);
+        const ct = res.headers['content-type'] || '';
+        if (!ct.includes('json')) return resolve(null);
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+        catch { resolve(null); }
       });
     });
     req.on('error', () => resolve(null));
-    req.setTimeout(20000, () => { req.destroy(); resolve(null); });
-    req.write(body);
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
+    req.write(data);
     req.end();
   });
+}
+
+function extractCookieStr(setCookieHeaders) {
+  if (!setCookieHeaders || !setCookieHeaders.length) return '';
+  return setCookieHeaders
+    .map(c => c.split(';')[0])
+    .join('; ');
+}
+
+function findApiEndpoint(html) {
+  // Look for AJAX URL patterns in page JavaScript
+  const patterns = [
+    /url\s*:\s*["']([^"']*(?:GetOperaciones|GetMAR|ListaOperaciones|GetTransacciones|MAR)[^"']*)["']/i,
+    /["']([^"']*\/Portal\/MAR\/[^"']*(?:Get|Search|List)[^"']*)["']/i,
+    /["']([^"']*\/ServiciosPublicacion\/[^"']+)["']/i,
+    /["']([^"']*GetNotificaciones[^"']*)["']/i,
+  ];
+  for (const pat of patterns) {
+    const m = html.match(pat);
+    if (m && m[1]) return m[1];
+  }
+  return null;
 }
 
 async function scrapeES() {
@@ -68,22 +124,83 @@ async function scrapeES() {
   const to   = isoDate(new Date());
   console.log(`  Fetching ${from} → ${to}…`);
 
-  const data = await tryGetAPI(from, to);
-  if (!data) {
-    console.log('  ⚠  CNMV portal requires ASP.NET ViewState session (portal blocked without browser).');
-    console.log('  ℹ  Portal: https://www.cnmv.es/portal/Consultas/MAR/ListaOperaciones.aspx');
-    console.log('  ℹ  To enable: implement Puppeteer to obtain ViewState and POST form.');
+  // Step 1: GET the MAR page to get session cookie + discover API endpoint
+  const pagePaths = [
+    '/Portal/MAR/Operaciones-Directivos',
+    '/portal/Consultas/MAR/ListaOperaciones.aspx',
+  ];
+
+  let pageHtml = null;
+  let cookieStr = '';
+
+  for (const pagePath of pagePaths) {
+    const res = await get(pagePath);
+    if (!res) continue;
+
+    // Geo-block check
+    if (res.status === 403 || (res.body || '').includes('errorcode=CVFE') || (res.body || '').includes('CVFE')) {
+      console.log('  ⚠  CNMV portal is geo-restricted to EU IPs (CVFE error).');
+      console.log('  ℹ  This scraper works on GitHub Actions EU runners but not from all networks.');
+      console.log('  ℹ  0 rows saved.');
+      return { saved: 0 };
+    }
+
+    if (res.status === 200 && res.body && res.body.length > 1000) {
+      pageHtml = res.body;
+      cookieStr = extractCookieStr(res.cookies);
+      console.log(`  ✓ Got page (${res.body.length} bytes), cookie: ${cookieStr ? 'yes' : 'no'}`);
+      break;
+    }
+  }
+
+  if (!pageHtml) {
+    console.log('  ⚠  CNMV MAR page not accessible (network issue or geo-block).');
     console.log('  ℹ  0 rows saved.');
     return { saved: 0 };
   }
 
-  const items = data.Datos || data.data || data.results || (Array.isArray(data) ? data : []);
+  // Step 2: Find API endpoint from page JavaScript
+  const discoveredEndpoint = findApiEndpoint(pageHtml);
+
+  // Known endpoints to try (in order)
+  const endpoints = [
+    ...(discoveredEndpoint ? [discoveredEndpoint] : []),
+    '/Portal/MAR/Operaciones-Directivos/GetOperaciones',
+    '/Portal/MAR/GetOperaciones',
+    '/portal/Consultas/MAR/ListaOperaciones.aspx/GetOperaciones',
+    '/portal/Consultas/MAR/ListaOperaciones.aspx/Search',
+    '/ServiciosPublicacion/ServicioGratuito/GetNotificacionesInsidersMAR',
+  ];
+
+  const bodyPayload = JSON.stringify({
+    FechaDesde: from, FechaHasta: to, Pagina: 1, NumFilas: 100,
+  });
+
+  let data = null;
+  for (const endpoint of endpoints) {
+    console.log(`  Trying: ${endpoint}`);
+    const result = await post(endpoint, bodyPayload, cookieStr);
+    if (result) {
+      data = result;
+      console.log(`  ✓ API responded`);
+      break;
+    }
+  }
+
+  if (!data) {
+    console.log('  ⚠  CNMV MAR API endpoint not found or not accessible.');
+    console.log('  ℹ  The page loaded but no working JSON API was found.');
+    console.log('  ℹ  0 rows saved.');
+    return { saved: 0 };
+  }
+
+  const items = data.Datos || data.data || data.results || data.Items || (Array.isArray(data) ? data : []);
   if (!items.length) { console.log('  No data.'); return { saved: 0 }; }
 
   const seen = new Set();
   const dbRows = [];
   for (const r of items) {
-    const txIso = (r.Fecha || r.fecha || '').slice(0, 10) || from;
+    const txIso = (r.Fecha || r.fecha || r.FechaOperacion || '').slice(0, 10) || from;
     const shares = r.NumAcciones != null ? Math.round(Math.abs(Number(r.NumAcciones))) : null;
     const price  = r.Precio != null ? Number(r.Precio) : null;
     const total  = r.Importe != null ? Math.round(Math.abs(Number(r.Importe))) : (shares && price ? Math.round(shares * price) : null);
@@ -91,7 +208,7 @@ async function scrapeES() {
     if (seen.has(fid)) continue; seen.add(fid);
 
     const txType = (() => {
-      const t = (r.TipoOperacion || r.Tipo || '').toLowerCase();
+      const t = (r.TipoOperacion || r.Tipo || r.tipo || '').toLowerCase();
       if (t.includes('acqui') || t.includes('compra') || t.includes('suscri')) return 'BUY';
       if (t.includes('transmis') || t.includes('venta') || t.includes('dispos')) return 'SELL';
       return 'OTHER';
@@ -100,7 +217,7 @@ async function scrapeES() {
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           r.ISIN || null,
+      ticker:           r.ISIN || '',
       company:          r.Emisor || r.NombreEmisor || null,
       insider_name:     r.Declarante || r.NombreDeclarante || null,
       insider_role:     r.Cargo || r.Funcion || null,
@@ -110,7 +227,7 @@ async function scrapeES() {
       price_per_share:  price,
       total_value:      total,
       currency:         r.Divisa || CURRENCY,
-      filing_url:       `https://www.cnmv.es/portal/Consultas/MAR/ListaOperaciones.aspx`,
+      filing_url:       `https://www.cnmv.es/Portal/MAR/Operaciones-Directivos`,
       source:           SOURCE,
     });
   }
