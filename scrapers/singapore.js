@@ -21,6 +21,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'SG';
 const SOURCE         = 'SGX Singapore';
@@ -104,7 +105,7 @@ async function scrapeSG() {
       ticker:           r.issuerCode || r.stockCode || null,
       company:          r.issuerName || r.companyName || null,
       insider_name:     r.personName || null,
-      insider_role:     r.position || null,
+      insider_role:     translateRole(r.position) || null,
       transaction_type: mapType(r.category || r.announcementType || r.headline || ''),
       transaction_date: txIso,
       shares:           r.noOfShares != null ? Math.round(Math.abs(Number(r.noOfShares))) : null,

@@ -22,6 +22,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'IE';
 const SOURCE         = 'CBI Ireland / Euronext Dublin';
@@ -98,7 +99,7 @@ async function scrapeIE() {
       ticker:           r.issuerCode || r.isin || null,
       company:          r.issuerName || r.company || null,
       insider_name:     r.personName || r.declarant || null,
-      insider_role:     r.position || null,
+      insider_role:     translateRole(r.position) || null,
       transaction_type: txType,
       transaction_date: txIso,
       shares:           r.quantity != null ? Math.round(Math.abs(Number(r.quantity))) : null,

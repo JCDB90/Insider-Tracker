@@ -23,6 +23,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ZA';
 const SOURCE         = 'JSE South Africa / SENS';
@@ -109,7 +110,7 @@ async function scrapeZA() {
       ticker:           r.ticker || r.stockCode || null,
       company:          r.company || r.issuerName || null,
       insider_name:     r.directorName || r.personName || null,
-      insider_role:     r.designation || r.position || null,
+      insider_role:     translateRole(r.designation || r.position) || null,
       transaction_type: mapType(r.dealingType || r.transactionType || r.headline || ''),
       transaction_date: txIso,
       shares:           r.numberOfShares != null ? Math.round(Math.abs(Number(r.numberOfShares))) : null,

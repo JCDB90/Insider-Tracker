@@ -21,6 +21,7 @@
 const fetch  = require('node-fetch');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ function buildRow(e) {
     ticker:           getTicker(e.company),
     company:          e.company,
     insider_name:     e.insiderName || null,
-    insider_role:     e.role        || null,
+    insider_role:     translateRole(e.role) || null,
     transaction_type: 'UNKNOWN',     // AFM XML doesn't include direction; detail pages require JS
     transaction_date: e.date,
     shares:           null,          // Not in XML

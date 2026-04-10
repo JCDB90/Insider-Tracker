@@ -22,6 +22,7 @@
 const https    = require('https');
 const cheerio  = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -259,7 +260,7 @@ function parseCsv(csvText, letter) {
       company,
       isin:             isin || null,
       insider_name:     insider || null,
-      insider_role:     role   || null,
+      insider_role:     translateRole(role) || null,
       transaction_type: txType,
       transaction_date: txDateIso,
       shares,

@@ -12,6 +12,7 @@
 const fetch   = require('node-fetch');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
@@ -118,7 +119,7 @@ async function scrapeSE() {
     dbRows.push({
       filing_id: fid, country_code: COUNTRY_CODE,
       ticker: getTicker(r.company), company: r.company || null,
-      insider_name: r.insider || null, insider_role: r.position || null,
+      insider_name: r.insider || null, insider_role: translateRole(r.position) || null,
       transaction_type: mapType(r.nature), transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
       price_per_share: price, total_value: total, currency: r.currency,

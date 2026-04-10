@@ -20,6 +20,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'CZ';
 const SOURCE         = 'CNB Czech Republic / PSE';
@@ -99,7 +100,7 @@ async function scrapeCZ() {
       ticker:           r.isin || r.ticker || null,
       company:          r.issuerName || r.company || null,
       insider_name:     r.personName || r.declarant || null,
-      insider_role:     r.position || r.function || null,
+      insider_role:     translateRole(r.position || r.function) || null,
       transaction_type: mapType(r.transactionType || r.type || ''),
       transaction_date: txIso,
       shares,

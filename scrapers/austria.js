@@ -18,6 +18,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'AT';
 const SOURCE         = 'FMA Austria';
@@ -96,7 +97,7 @@ async function scrapeAT() {
       ticker:           r.isin || null,
       company:          r.company || r.issuer || null,
       insider_name:     r.person || r.personName || null,
-      insider_role:     r.position || r.function || null,
+      insider_role:     translateRole(r.position || r.function) || null,
       transaction_type: txType,
       transaction_date: txIso,
       shares,

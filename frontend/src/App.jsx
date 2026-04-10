@@ -29,11 +29,22 @@ const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const CURRENCY_SYMBOLS = {
+  EUR: '€', USD: '$', GBP: '£', JPY: '¥', KRW: '₩',
+  AUD: 'A$', CAD: 'C$', HKD: 'HK$', SGD: 'S$', ZAR: 'R',
+  CHF: 'CHF\u00a0', SEK: 'SEK\u00a0', DKK: 'DKK\u00a0', NOK: 'NOK\u00a0',
+  PLN: 'PLN\u00a0', CZK: 'CZK\u00a0', HUF: 'HUF\u00a0', RON: 'RON\u00a0',
+};
+
+function currencySymbol(currency) {
+  return CURRENCY_SYMBOLS[currency] ?? (currency ? currency + '\u00a0' : '€');
+}
+
 function formatValue(value, currency = 'EUR') {
   if (value == null || value === '' || isNaN(value)) return '—';
   const num = Number(value);
   if (num === 0) return '—';
-  const sym = currency === 'USD' ? '$' : currency === 'GBP' ? '£' : '€';
+  const sym = currencySymbol(currency);
   if (num >= 1e9) return `${sym}${(num / 1e9).toFixed(1)}B`;
   if (num >= 1e6) return `${sym}${(num / 1e6).toFixed(0)}M`;
   if (num >= 1e3) return `${sym}${(num / 1e3).toFixed(0)}K`;
@@ -42,7 +53,7 @@ function formatValue(value, currency = 'EUR') {
 
 function formatPrice(value, currency = 'EUR') {
   if (value == null || isNaN(value)) return '—';
-  const sym = currency === 'USD' ? '$' : currency === 'GBP' ? '£' : '€';
+  const sym = currencySymbol(currency);
   return `${sym}${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 

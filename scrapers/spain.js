@@ -23,6 +23,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
@@ -220,7 +221,7 @@ async function scrapeES() {
       ticker:           r.ISIN || '',
       company:          r.Emisor || r.NombreEmisor || null,
       insider_name:     r.Declarante || r.NombreDeclarante || null,
-      insider_role:     r.Cargo || r.Funcion || null,
+      insider_role:     translateRole(r.Cargo || r.Funcion) || null,
       transaction_type: txType,
       transaction_date: txIso,
       shares,

@@ -13,6 +13,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
@@ -268,7 +269,7 @@ async function scrapeDK() {
       ticker:           (det && det.isin) || '',
       company:          r.company || null,
       insider_name:     det && det.insiderName ? det.insiderName : null,
-      insider_role:     det && det.insiderRole ? det.insiderRole : null,
+      insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
       transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
       transaction_date: txIso,
       shares:           det ? det.shares : null,

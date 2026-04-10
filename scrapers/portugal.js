@@ -20,6 +20,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'PT';
 const SOURCE         = 'CMVM Portugal';
@@ -98,7 +99,7 @@ async function scrapePT() {
       ticker:           r.isin || null,
       company:          r.emitente || r.nomeEmitente || null,
       insider_name:     r.declarante || r.nomePessoa || null,
-      insider_role:     r.cargo || r.funcao || null,
+      insider_role:     translateRole(r.cargo || r.funcao) || null,
       transaction_type: mapType(r.tipoOperacao || r.natureza || ''),
       transaction_date: txIso,
       shares,

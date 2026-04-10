@@ -18,6 +18,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'CONSOB Italy';
@@ -97,7 +98,7 @@ async function scrapeIT() {
       ticker:           r.isin || null,
       company:          r.emittente || r.nomeEmittente || null,
       insider_name:     r.soggetto || r.nomeSoggetto || null,
-      insider_role:     r.qualifica || r.carica || null,
+      insider_role:     translateRole(r.qualifica || r.carica) || null,
       transaction_type: txType,
       transaction_date: txIso,
       shares,
