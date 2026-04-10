@@ -1,19 +1,13 @@
 /**
  * DK — Insider Transactions Scraper
  *
- * Source: Finanstilsynet Denmark — Indsideregisteret
- * URL: https://www.finanstilsynet.dk/finansielle-temaer/kapitalmarked/mar-for-ledende-medarbejdere
- * Disclosure portal: https://offentliggoerelse.finanstilsynet.dk/
+ * Source: Nasdaq Copenhagen — Managers' Transactions (MAR Article 19)
+ * API:    https://api.news.eu.nasdaq.com/news/query.action (JSONP)
+ *         market=Main+Market%2C+Copenhagen
+ *         cnsCategory=Managers%27+Transactions
  *
- * The Danish insider disclosure portal (offentliggoerelse.finanstilsynet.dk) has no
- * IPv4 DNS record (ENODATA) — unreachable from most networks. The main Finanstilsynet
- * website is accessible but has no machine-readable data API for insider transactions.
- *
- * Nasdaq Copenhagen publishes company announcements including insider dealings, which
- * can be scraped from the Nasdaq Nordic feeds.
- *
- * To enable: use the Nasdaq OMX Nordic announcements API for XCSE (Copenhagen).
- * API: https://www.nasdaqomxnordic.com/news/companynews?exchange=XCSE&category=9
+ * Full notification HTML fetched from view.news.eu.nasdaq.com for structured data.
+ * Returns up to 200 items per page; paginated via start= offset.
  */
 'use strict';
 
@@ -21,97 +15,280 @@ const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'DK';
-const SOURCE         = 'Finanstilsynet Denmark / Nasdaq Copenhagen';
+const SOURCE         = 'Nasdaq Copenhagen / MAR';
 const RETENTION_DAYS = 14;
 const CURRENCY       = 'DKK';
+const MARKET         = 'Main Market, Copenhagen';
+const CONCURRENCY    = 8;
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
+
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
-  if (l.includes('acqui') || l.includes('køb') || l.includes('subscribe') || l.includes('grant')) return 'BUY';
-  if (l.includes('dispos') || l.includes('salg') || l.includes('sell')) return 'SELL';
+  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
+      l.includes('subscribe') || l.includes('exercise') || l.includes('buy')) return 'BUY';
+  if (l.includes('dispos') || l.includes('sale') || l.includes('sell')) return 'SELL';
   return 'OTHER';
 }
 
-function fetchNasdaqCPH(from, to) {
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function grabAfter(text, ...patterns) {
+  for (const pat of patterns) {
+    const m = text.match(pat);
+    if (m && m[1] && m[1].trim().length > 0) return m[1].trim();
+  }
+  return null;
+}
+
+function parseNotificationText(text) {
+  const insiderName = grabAfter(text,
+    /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
+    /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
+    /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
+  );
+
+  // position/role
+  const insiderRole = grabAfter(text,
+    /\bPosition\s*[:|]\s*([^\n|]+?)(?=\s+(?:Issuer|LEI|ISIN|Reference|Notification type|Name)\s*[:|])/i,
+    /Position\s*\/\s*status\s*[:|]\s*([^\n|]{2,80})/i,
+  );
+
+  const isin = grabAfter(text,
+    /\bISIN\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
+    /ISIN\s+code\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
+  );
+
+  const nature = grabAfter(text,
+    /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]+?)(?=\s+Transaction\s+details|\s+Volume|\s*$)/i,
+    /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]{2,120})/i,
+  );
+
+  const txDateRaw = grabAfter(text,
+    /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{4}-\d{2}-\d{2})/i,
+    /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/i,
+  );
+  let txDate = null;
+  if (txDateRaw) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(txDateRaw)) {
+      txDate = txDateRaw;
+    } else {
+      const parts = txDateRaw.split(/[.\/-]/);
+      if (parts.length === 3) txDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+    }
+  }
+
+  const volRaw = grabAfter(text,
+    /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
+  );
+  let shares = null;
+  if (volRaw) {
+    const n = parseFloat(volRaw.replace(/[\s,]/g, ''));
+    if (!isNaN(n) && n > 0) shares = Math.round(n);
+  }
+
+  const priceRaw = grabAfter(text,
+    /Unit\s+price\s*[:|]\s*([\d,\.]+)/i,
+    /Price\s*\(s\)\s*[:|]\s*([\d,\.]+)/i,
+    /\bPrice\s*[:|]\s*([\d,\.]+)/i,
+  );
+  let price = null;
+  if (priceRaw) {
+    const n = parseFloat(priceRaw.replace(/,/g, '.').replace(/\s/g, ''));
+    if (!isNaN(n)) price = n;
+  }
+
+  return { insiderName, insiderRole, isin, txDate, shares, price, nature, transactionType: mapType(nature || '') };
+}
+
+function get(hostname, path, headers = {}) {
   return new Promise((resolve) => {
-    // Nasdaq Nordic company news feed for Copenhagen (XCSE), category 9 = insider dealings
-    const qs = `exchange=XCSE&category=9&startDate=${from}&endDate=${to}&start=0&limit=100`;
-    const req = https.get({
-      hostname: 'www.nasdaqomxnordic.com',
-      path: `/api/v1/news?${qs}`,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://www.nasdaqomxnordic.com/',
-      },
-    }, res => {
-      const ct = res.headers['content-type'] || '';
-      let d = ''; res.on('data', c => d += c);
-      res.on('end', () => {
-        if (res.statusCode !== 200 || !ct.includes('json')) return resolve(null);
-        try { resolve(JSON.parse(d)); } catch { resolve(null); }
-      });
+    const req = https.get({ hostname, path, headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'text/html,application/json,*/*',
+      ...headers,
+    }}, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', () => resolve(null));
-    req.setTimeout(20000, () => { req.destroy(); resolve(null); });
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
   });
 }
 
+async function fetchNasdaqPage(fromDate, toDate, start) {
+  const qs = new URLSearchParams({
+    countResults: 'true',
+    globalGroup: 'exchangeNotice',
+    displayLanguage: 'en',
+    timeZone: 'CET',
+    dateMask: 'yyyy-MM-dd HH:mm:ss',
+    limit: '200',
+    start: String(start),
+    dir: 'DESC',
+    globalName: 'NordicAllMarkets',
+    cnsCategory: "Managers' Transactions",
+    market: MARKET,
+    fromDate,
+    toDate,
+    callback: 'handleResponse',
+  }).toString();
+
+  const res = await get('api.news.eu.nasdaq.com', `/news/query.action?${qs}`);
+  if (!res || res.status !== 200) return null;
+
+  let body = res.body.trim();
+  if (body.startsWith('handleResponse(')) {
+    body = body.slice('handleResponse('.length);
+    if (body.endsWith(')')) body = body.slice(0, -1);
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNotificationDetails(messageUrl) {
+  try {
+    const url = new URL(messageUrl);
+    const res = await get(url.hostname, url.pathname + url.search, { 'Accept': 'text/html' });
+    if (!res || res.status !== 200) return null;
+    return parseNotificationText(stripHtml(res.body));
+  } catch {
+    return null;
+  }
+}
+
+async function pMap(items, fn, concurrency) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
 async function scrapeDK() {
-  console.log('🇩🇰  Finanstilsynet Denmark / Nasdaq Copenhagen — insider dealings');
-  const t0  = Date.now();
-  const co  = cutoff();
+  console.log('🇩🇰  Nasdaq Copenhagen — Managers\' Transactions (MAR Article 19)');
+  const t0   = Date.now();
+  const co   = cutoff();
   const from = isoDate(co);
   const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to} via Nasdaq OMX Nordic…`);
+  console.log(`  Fetching ${from} → ${to} (market: ${MARKET})…`);
 
-  const data = await fetchNasdaqCPH(from, to);
-  if (!data) {
-    console.log('  ⚠  Nasdaq OMX Nordic API not accessible (endpoint changed or not available).');
-    console.log('  ℹ  Disclosure portal: https://offentliggoerelse.finanstilsynet.dk/ (no IPv4 DNS)');
-    console.log('  ℹ  Alternative: implement direct FT portal scraping with browser automation.');
-    console.log('  ℹ  0 rows saved.');
-    return { saved: 0 };
+  // Paginate newest-first; API ignores fromDate/toDate so we stop by item date.
+  // Items include multiple Nordic markets — filter by item.market === MARKET.
+  const allItems = [];
+  const seenIds = new Set();
+  let start = 0;
+  const PAGE = 200;
+  const MAX_PAGES = 50;
+  let page = 0;
+  while (page < MAX_PAGES) {
+    const data = await fetchNasdaqPage(from, to, start);
+    if (!data) {
+      if (start === 0) {
+        console.log('  ⚠  Nasdaq Nordic API not accessible.');
+        console.log('  ℹ  0 rows saved.');
+        return { saved: 0 };
+      }
+      break;
+    }
+    const items = (data.results && data.results.item) || [];
+    if (!items.length) break;
+
+    let added = 0;
+    let allBefore = true;
+    for (const item of items) {
+      const itemDate = (item.releaseTime || item.published || '').slice(0, 10);
+      if (itemDate >= from) allBefore = false;
+      if (itemDate < from) continue;
+      if (item.market !== MARKET) continue;
+      const id = String(item.disclosureId || item.id || '');
+      if (id && seenIds.has(id)) continue;
+      seenIds.add(id);
+      allItems.push(item);
+      added++;
+    }
+    console.log(`  Page start=${start}: ${items.length} raw, ${added} in window+market`);
+
+    if (allBefore) { console.log('  All items before cutoff, stopping pagination.'); break; }
+    if (items.length < PAGE) break;
+    start += PAGE;
+    page++;
   }
 
-  const items = data.items || data.news || data.results || (Array.isArray(data) ? data : []);
-  if (!items.length) { console.log('  No data.'); return { saved: 0 }; }
+  if (!allItems.length) {
+    console.log('  No manager transactions found.');
+    return { saved: 0 };
+  }
+  console.log(`  Total from API: ${allItems.length} items. Fetching details…`);
+
+  const details = await pMap(allItems, async (item) => {
+    if (!item.messageUrl) return null;
+    return fetchNotificationDetails(item.messageUrl);
+  }, CONCURRENCY);
 
   const seen = new Set();
   const dbRows = [];
-  for (const r of items) {
-    const txIso  = (r.publishedDate || r.date || r.published || '').slice(0, 10) || from;
-    const fid    = `DK-${r.id || r.messageId || r.issuer + '-' + txIso}`;
+  for (let i = 0; i < allItems.length; i++) {
+    const r   = allItems[i];
+    const det = details[i];
+
+    const publishIso = (r.releaseTime || r.published || '').slice(0, 10) || from;
+    const txIso      = (det && det.txDate) || publishIso;
+    const fid        = `DK-${r.disclosureId || r.id || i}`;
     if (seen.has(fid)) continue; seen.add(fid);
 
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           r.issuerCode || r.ticker || null,
-      company:          r.issuerName || r.company || null,
-      insider_name:     null,
-      insider_role:     null,
-      transaction_type: mapType(r.category || r.headline || ''),
+      ticker:           (det && det.isin) || '',
+      company:          r.company || null,
+      insider_name:     det && det.insiderName ? det.insiderName : null,
+      insider_role:     det && det.insiderRole ? det.insiderRole : null,
+      transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
       transaction_date: txIso,
-      shares:           null,
-      price_per_share:  null,
-      total_value:      null,
+      shares:           det ? det.shares : null,
+      price_per_share:  det ? det.price : null,
+      total_value:      (det && det.shares && det.price) ? Math.round(det.shares * det.price) : null,
       currency:         CURRENCY,
-      filing_url:       r.url || r.link || `https://www.nasdaqomxnordic.com/news/companynews`,
+      filing_url:       r.messageUrl || `https://view.news.eu.nasdaq.com/`,
       source:           SOURCE,
     });
   }
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
+
   const { error } = await saveInsiderTransactions(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
+  const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
+  const other = dbRows.filter(r => r.transaction_type === 'OTHER').length;
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL, ${other} OTHER)`);
   return { saved: dbRows.length };
 }
 
