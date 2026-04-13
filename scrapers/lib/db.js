@@ -28,9 +28,16 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 async function saveInsiderTransactions(rows) {
   if (!rows || rows.length === 0) return { inserted: 0 };
 
+  // Only save rows with a clear direction — drop OTHER, UNKNOWN, etc.
+  const filtered = rows.filter(r => r.transaction_type === 'BUY' || r.transaction_type === 'SELL');
+  if (filtered.length < rows.length) {
+    console.log(`  ℹ  Dropped ${rows.length - filtered.length} non-BUY/SELL rows (OTHER/UNKNOWN)`);
+  }
+  if (filtered.length === 0) return { inserted: 0 };
+
   const { data, error } = await supabase
     .from('insider_transactions')
-    .upsert(rows, { onConflict: 'filing_id', ignoreDuplicates: true });
+    .upsert(filtered, { onConflict: 'filing_id', ignoreDuplicates: true });
 
   if (error) {
     console.error('  DB error (insider_transactions):', error.message);

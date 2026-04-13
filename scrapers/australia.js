@@ -122,8 +122,15 @@ async function scrapeAU() {
     // Infer type from headline where possible
     const h = (r.header || '').toLowerCase();
     let txType = 'UNKNOWN';
-    if (h.includes('becoming') || h.includes('acquiring') || h.includes('purchase')) txType = 'BUY';
-    else if (h.includes('ceasing') || h.includes('disposal') || h.includes('sell')) txType = 'SELL';
+    if (
+      h.includes('becoming') || h.includes('acquiring') || h.includes('acquisition') ||
+      h.includes('purchase') || h.includes('on-market buy') || h.includes('exercise') ||
+      h.includes('initial director') || h.includes('initial substantial')
+    ) txType = 'BUY';
+    else if (
+      h.includes('ceasing') || h.includes('disposal') || h.includes('sell') ||
+      h.includes('final director') || h.includes('final substantial') || h.includes('sold')
+    ) txType = 'SELL';
 
     dbRows.push({
       filing_id:        fid,
@@ -152,7 +159,8 @@ async function scrapeAU() {
   const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
   const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
   const unk   = dbRows.filter(r => r.transaction_type === 'UNKNOWN').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL, ${unk} UNKNOWN)`);
+  console.log(`  ${dbRows.length} rows: ${buys} BUY, ${sells} SELL, ${unk} UNKNOWN (will be dropped)`);
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${buys + sells} saved (BUY/SELL only)`);
   console.log(`  Sample: ${dbRows.slice(0,3).map(r=>`${r.ticker}/${r.company}`).join(', ')}`);
   return { saved: dbRows.length };
 }
