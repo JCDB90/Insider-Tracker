@@ -18,6 +18,7 @@
     "scrape:fi": "node scrapers/finland.js",
     "scrape:es": "node scrapers/spain.js",
     "scrape:be": "node scrapers/belgium.js",
+    "scrape:gb": "node scrapers/uk.js",
     "scrape:it": "node scrapers/italy.js",
     "scrape:au": "node scrapers/australia.js",
     "scrape:hk": "node scrapers/hongkong.js",
@@ -35,6 +36,8 @@
     "cheerio": "^1.2.0",
     "node-fetch": "^2.7.0",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^24.40.0"
+    "puppeteer": "^24.40.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
