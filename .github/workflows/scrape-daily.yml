@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install system tools
+        run: sudo apt-get install -y poppler-utils
+
       # ── Europe ─────────────────────────────────────────────────────────────
       - name: 🇳🇱 Netherlands (AFM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NL' }}
@@ -114,6 +117,16 @@ jobs:
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'ES' }}
         continue-on-error: true
         run: node scrapers/spain.js
+
+      - name: 🇧🇪 Belgium (FSMA)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'BE' }}
+        continue-on-error: true
+        run: node scrapers/belgium.js
+
+      - name: 🇬🇧 United Kingdom (FCA NSM)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
+        continue-on-error: true
+        run: node scrapers/uk.js
 
       - name: 🇮🇹 Italy (CONSOB)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'IT' }}

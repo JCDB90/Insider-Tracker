@@ -96,6 +96,7 @@ const ROLE_RULES = [
 
   // ── Board Member ─────────────────────────────────────────────────────────────
   [/non.executive\s+director/i,                 'Non-Executive Director'],
+  [/member\s+of\s+(?:the\s+)?(?:administrative|management|supervisory)/i, 'Board Member'],  // FSMA BE
   [/board\s+(?:of\s+directors\s+)?member/i,     'Board Member'],
   [/member\s+of\s+the\s+board/i,                'Board Member'],
   [/aufsichtsratsmitglied/i,                    'Board Member'],  // DE
@@ -143,6 +144,10 @@ const ROLE_RULES = [
   [/major\s+shareholder/i,                      'Major Shareholder'],
   [/hauptaktionär/i,                            'Major Shareholder'],  // DE
   [/großaktionär/i,                             'Major Shareholder'],  // DE
+
+  // ── Senior Executive ──────────────────────────────────────────────────────────
+  [/\bsenior\s+executive\b/i,                   'Senior Executive'],  // FSMA BE
+  [/\bsenior\s+manager\b/i,                     'Senior Executive'],
 
   // ── Related Party ────────────────────────────────────────────────────────────
   [/closely\s+associated/i,                     'Related Party'],
