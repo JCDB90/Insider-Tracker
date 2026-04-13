@@ -8,11 +8,11 @@
  *
  * Approach:
  *   1. For each day in the retention window, fetch the document list.
- *   2. Filter for ordinanceCode=010 (Financial Instruments Act disclosures)
- *      and docTypeCode=36 (Insider trading notification / 大量保有報告書).
- *      Also catch docTypeCode=167 (変更報告書 = amendment).
- *   3. Save the filing metadata as BUY/SELL. Shares/price not available without
- *      downloading the full XBRL document — we save what we can.
+ *   2. Filter for docTypeCode 350 / 360 / 370 (large shareholder reports):
+ *        350 = 大量保有報告書       (Initial large-holding report, 5%+ threshold → BUY)
+ *        360 = 変更報告書           (Change report — holding increase or decrease)
+ *        370 = 訂正大量保有報告書   (Amendment)
+ *   3. Save the filing metadata. Shares/price require XBRL parsing (not implemented).
  *
  * Note: EDINET API hostname (disclosure.edinet-api.go.jp) may not resolve from
  * some networks / WSL2. It works fine from Linux VPS (Hetzner, etc.).
@@ -35,11 +35,11 @@ const CURRENCY       = 'JPY';
 const DELAY_MS       = 500;
 const API_BASE       = 'https://disclosure.edinet-api.go.jp/api/v2';
 
-// Document types related to insider/major shareholder reporting
-// 36 = 大量保有報告書 (Large shareholder report)
-// 38 = 変更報告書 (Change report for major shareholder)
-// 100 = 変更報告書 (another variant)
-const INSIDER_DOC_TYPES = new Set(['36', '38', '100', '167', '168']);
+// Document types for large shareholder reports (5%+ threshold):
+// 350 = 大量保有報告書       (Initial large-holding report → BUY)
+// 360 = 変更報告書           (Change report — increase or decrease)
+// 370 = 訂正大量保有報告書   (Amendment / correction)
+const INSIDER_DOC_TYPES = new Set(['350', '360', '370']);
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -108,10 +108,10 @@ async function scrapeJP() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    // EDINET reports large shareholder changes — these are mostly BUY/SELL of stock
-    // docTypeCode 36 = initial large holding report (likely BUY)
-    // docTypeCode 38/167 = amendment (could be BUY or SELL)
-    const txType = String(r.docTypeCode) === '36' ? 'BUY' : 'UNKNOWN';
+    // 350 = initial crossing of 5% threshold → BUY (acquiring a large position)
+    // 360 = change report → could be BUY or SELL; UNKNOWN without XBRL detail
+    // 370 = amendment → keep as UNKNOWN
+    const txType = String(r.docTypeCode) === '350' ? 'BUY' : 'UNKNOWN';
 
     dbRows.push({
       filing_id:        fid,
