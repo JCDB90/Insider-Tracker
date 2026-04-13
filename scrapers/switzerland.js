@@ -85,7 +85,7 @@ async function scrapeCH() {
   // Stop when all items on a page are older than the cutoff.
   const allItems = [];
   const seenIds  = new Set();
-  let page = 1;
+  let page = 0;  // SER-AG API is 0-indexed
 
   while (page <= MAX_PAGES) {
     const data = await fetchPage(page);

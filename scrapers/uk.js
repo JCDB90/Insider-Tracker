@@ -275,17 +275,21 @@ function parseDocumentContent(content, meta) {
 
   const company = issuerSec || meta.company || null;
 
+  // Fall back to filing submission date if transaction date couldn't be parsed
+  const effectiveDate = transDate || meta.submitted_date?.slice(0, 10) || null;
+  if (!effectiveDate) return [];  // Cannot determine date — skip row
+
   // Generate one row per PDMR (usually just one)
   return names.map((name, i) => ({
     filing_id:        names.length > 1 ? `${meta.id}-${i}` : meta.id,
     country_code:     COUNTRY_CODE,
     source:           SOURCE,
-    ticker:           isin || null,
+    ticker:           isin || '',
     company:          company || null,
     insider_name:     name,
     insider_role:     positions[i] || positions[0] || null,
     transaction_type: txType,
-    transaction_date: transDate,
+    transaction_date: effectiveDate,
     price_per_share:  price,
     currency:         'GBP',
     shares:           volume,
