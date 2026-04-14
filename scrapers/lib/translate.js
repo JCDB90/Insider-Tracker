@@ -165,6 +165,18 @@ const ROLE_RULES = [
   [/CTO|최고기술책임자/,                          'CTO'],        // KR
   [/주요주주/,                                   'Major Shareholder'], // KR: major shareholder
 
+  // ── Polish (PL) ──────────────────────────────────────────────────────────────
+  [/wiceprezes[a]?\s+zarz/i,                  'Vice President'],    // PL: Wiceprezes(a) Zarządu (BEFORE prezes)
+  [/\bprezes[a]?\s+zarz/i,                    'CEO'],               // PL: Prezes(a) Zarządu (\b prevents matching wiceprezes)
+  [/czł?onk[a]?\s+zarz/i,                    'Executive Director'],// PL: Członek/Członka Zarządu
+  [/dyrektor\s+(?:generaln|wykonawcz)/i,      'CEO'],               // PL: Dyrektor Generalny/Wykonawczy
+  [/dyrektor\s+finansow/i,                    'CFO'],               // PL: Dyrektor Finansowy
+  [/dyrektor\s+(?:zarz[aą]dzaj|ds\.)/i,       'Executive Director'],// PL: Dyrektor Zarządzający
+  [/przewodnicz[aą]cy?\s+rady\s+nadzor/i,    'Chairman'],          // PL: Przewodniczący Rady Nadzorczej
+  [/czł?onk[a]?\s+rady\s+nadzor/i,           'Board Member'],      // PL: Członek Rady Nadzorczej
+  [/rady\s+nadzorcz/i,                        'Board Member'],      // PL: catch-all Rada Nadzorcza
+  [/zarz[aą]d\b/i,                            'Board Member'],      // PL: catch-all Zarząd
+
   // ── Related Party ────────────────────────────────────────────────────────────
   [/closely\s+associated/i,                     'Related Party'],
   [/nahe\s+stehende\s+person/i,                 'Related Party'],  // DE

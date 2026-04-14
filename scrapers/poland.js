@@ -109,36 +109,79 @@ function fetchDetailHtml(geruId) {
  * Parse the GPW ESPI detail page HTML for structured fields.
  * Returns { insiderName, role, shares, price } — all can be null if not parseable.
  *
- * The report body text (in Polish) typically contains patterns like:
- *   "Pan/Pani Jan Kowalski, Prezes Zarządu, nabył 1.000 akcji po cenie 25,50 zł"
+ * GPW ESPI report body text patterns:
+ *   Polish: "od Pana Witolda Grabysza - Wiceprezesa Zarządu Spółki"
+ *           "przez Waldemara Lipkę - Prezesa Zarządu Emitenta"
+ *   English: "from Mr. Vatnak Vat-Ho - Member of the Management Board"
+ *
+ * Names in Polish are in genitive/accusative case.
+ * English version (if present) gives nominative form — prefer it.
  */
 function parseDetailPage(html) {
   if (!html) return {};
 
-  // Strip HTML tags, normalise whitespace
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  // Focus on the "Treść raportu" section to avoid false positives from nav text
+  const reportStart = html.indexOf('Treść raportu');
+  const section = reportStart > -1 ? html.slice(reportStart, reportStart + 12000) : html;
+  const text = section.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // ─── Insider name: "Pan" / "Pani" + Proper Name
   let insiderName = null;
-  const nameM = text.match(/\bPan(?:i)?\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę-]+){1,2})/u);
-  if (nameM) insiderName = nameM[1].trim();
-
-  // ─── Role: look for common Polish executive titles
   let role = null;
-  const roleM = text.match(/,\s*(Prezes\s+(?:Zarządu|Rady\s+Nadzorczej)?|Wiceprezes\s+(?:Zarządu)?|Członek\s+(?:Zarządu|Rady\s+Nadzorczej)|Dyrektor\s+(?:Generalny|Finansowy|ds\.[^,]+)|CFO|CEO|Przewodniczący\s+Rady\s+Nadzorczej|Akcjonariusz)[^,]/iu);
-  if (roleM) role = roleM[1].trim();
-
-  // ─── Shares: number + "akcji/udziałów/sztuk"
   let shares = null;
-  const sharesM = text.match(/([\d\s.]+)\s+(?:akcji|akcji\s+zwykłych|udziałów|sztuk)\b/i);
-  if (sharesM) {
-    const n = parseInt(sharesM[1].replace(/[\s.]/g, ''), 10);
-    if (!isNaN(n) && n > 0 && n < 1e9) shares = n;
+  let price = null;
+
+  // ─── 1. English section: "from Mr./Ms. [Name] - [Role] of the Company"
+  const enNameM = text.match(
+    /from\s+(?:Mr\.|Ms\.|Mrs\.)?\s*([A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+){1,4})\s*[-–]\s*((?:Member|President|Chairman|Chief|Director|Vice|Head|Officer)[^,\.\n]{2,60})/i
+  );
+  if (enNameM) {
+    insiderName = enNameM[1].trim();
+    role = enNameM[2].replace(/\s+(?:of\s+the\s+(?:Company|Management Board|Supervisory Board)|Spółki|Emitenta)\s*$/, '').trim();
   }
 
-  // ─── Price: "po cenie/kursie X zł/PLN" or "cena X zł"
-  let price = null;
-  const priceM = text.match(/(?:po\s+cenie|po\s+kursie|cenie\s+nabycia|kursie)\s+([\d\s,]+)\s*(?:zł|PLN|złotych)/i);
+  // ─── 2. Polish: "od Pana/Pani [Name] - [Role]"  (Pana = gen. of Pan = Mr.)
+  if (!insiderName) {
+    const plOdM = text.match(
+      /od\s+Pan\w*\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u
+    );
+    if (plOdM) {
+      insiderName = plOdM[1].trim();
+      role = plOdM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim();
+    }
+  }
+
+  // ─── 3. Polish: "przez [Name] - [Role]"
+  if (!insiderName) {
+    const plPrzezM = text.match(
+      /przez\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u
+    );
+    if (plPrzezM) {
+      insiderName = plPrzezM[1].trim();
+      role = plPrzezM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim();
+    }
+  }
+
+  // ─── Shares: delta from before/after holdings ─────────────────────────────
+  // English: "held X,000 shares ... holds Y,000 shares"
+  const enSharesM = text.match(/held\s+([\d,\s]+)\s+shares.*?holds?\s+([\d,\s]+)\s+shares/i);
+  if (enSharesM) {
+    const before = parseInt(enSharesM[1].replace(/[,\s]/g, ''), 10);
+    const after  = parseInt(enSharesM[2].replace(/[,\s]/g, ''), 10);
+    if (!isNaN(before) && !isNaN(after) && before !== after) shares = Math.abs(before - after);
+  }
+
+  // Polish: "posiadał(a) X akcji ... posiada Y akcji"
+  if (!shares) {
+    const plSharesM = text.match(/posiada[łl]a?\s+([\d\s]+)\s+akcji.*?posiada\s+([\d\s]+)\s+akcji/i);
+    if (plSharesM) {
+      const before = parseInt(plSharesM[1].replace(/\s/g, ''), 10);
+      const after  = parseInt(plSharesM[2].replace(/\s/g, ''), 10);
+      if (!isNaN(before) && !isNaN(after) && before !== after) shares = Math.abs(before - after);
+    }
+  }
+
+  // ─── Price: "po cenie/kursie X zł/PLN" (present in HTML for some filings)
+  const priceM = text.match(/(?:po\s+cenie|po\s+kursie|cenie\s+nabycia)\s+([\d\s,]+)\s*(?:zł|PLN|złotych)/i);
   if (priceM) {
     const n = parseFloat(priceM[1].replace(/\s/g, '').replace(',', '.'));
     if (!isNaN(n) && n > 0) price = n;

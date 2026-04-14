@@ -125,16 +125,30 @@ function parseNotificationText(text) {
 
   const transactionType = mapType(nature || '');
 
+  // Normalise "Surname, Firstname" → "Firstname Surname"
+  if (insiderName && insiderName.includes(',')) {
+    const parts = insiderName.split(',').map(s => s.trim());
+    if (parts.length === 2 && parts[1]) insiderName = `${parts[1]} ${parts[0]}`;
+  }
+
   return { insiderName, insiderRole, isin, txDate, shares, price, nature, transactionType };
 }
 
-function get(hostname, path, headers = {}) {
+function get(hostname, path, headers = {}, _redirects = 5) {
   return new Promise((resolve) => {
     const req = https.get({ hostname, path, headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': 'text/html,application/json,*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
       ...headers,
     }}, res => {
+      // Follow redirects (Nasdaq view server redirects to language-specific URL)
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && _redirects > 0) {
+        const loc = res.headers.location;
+        const target = loc.startsWith('http') ? new URL(loc) : new URL(`https://${hostname}${loc}`);
+        res.resume();
+        return resolve(get(target.hostname, target.pathname + target.search, headers, _redirects - 1));
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));

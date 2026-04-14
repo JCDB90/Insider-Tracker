@@ -119,7 +119,7 @@ async function scrapeAU() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    // Infer type from headline where possible
+    // Infer type from headline
     const h = (r.header || '').toLowerCase();
     let txType = 'UNKNOWN';
     if (
@@ -132,13 +132,20 @@ async function scrapeAU() {
       h.includes('final director') || h.includes('final substantial') || h.includes('sold')
     ) txType = 'SELL';
 
+    // Extract insider name from headline where possible.
+    // Common formats: "Appendix 3Y - John Smith" / "Change of Director's Interest Notice - Jane Doe"
+    let insiderName = null;
+    const header = r.header || '';
+    const dashMatch = header.match(/[-–]\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\s*$/);
+    if (dashMatch) insiderName = dashMatch[1].trim();
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker:           r.issuer_code || null,
       company:          r.issuer_full_name || r.issuer_short_name || null,
-      insider_name:     null,
-      insider_role:     null,
+      insider_name:     insiderName || 'Not disclosed',  // full data only in PDF
+      insider_role:     'Not disclosed',                 // only in PDF
       transaction_type: txType,
       transaction_date: txIso,
       shares:           null,

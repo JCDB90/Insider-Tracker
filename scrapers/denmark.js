@@ -59,21 +59,41 @@ function grabAfter(text, ...patterns) {
 }
 
 function parseNotificationText(text) {
-  const insiderName = grabAfter(text,
+  // ── Try structured MAR form first (used by Finnish-style disclosures on DK market) ──
+  let insiderName = grabAfter(text,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
     /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
     /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
   );
 
-  // position/role
-  const insiderRole = grabAfter(text,
+  let insiderRole = grabAfter(text,
     /\bPosition\s*[:|]\s*([^\n|]+?)(?=\s+(?:Issuer|LEI|ISIN|Reference|Notification type|Name)\s*[:|])/i,
     /Position\s*\/\s*status\s*[:|]\s*([^\n|]{2,80})/i,
   );
 
+  // ── Prose fallback: "X notifies [Company] that X has..." or "...that X, Chairman..." ──
+  if (!insiderName) {
+    // "where Flemming Nyenstad Enevoldsen notifies" or "that John Smith has..."
+    insiderName = grabAfter(text,
+      /where\s+([A-Z][a-zA-ZæøåÆØÅ\-]+(?:\s+[A-Z][a-zA-ZæøåÆØÅ\-]+){1,3})\s+notifies/,
+      /that\s+([A-Z][a-zA-ZæøåÆØÅ\-]+(?:\s+[A-Z][a-zA-ZæøåÆØÅ\-]+){1,3})\s+(?:has|have)\s+(?:purchased|sold|acquired|disposed|increased|decreased)/i,
+      /\bNotification\s+from\s+([A-Z][a-zA-ZæøåÆØÅ\-]+(?:\s+[A-Z][a-zA-ZæøåÆØÅ\-]+){1,3})\b/,
+    );
+  }
+
+  if (!insiderRole) {
+    // "is (the) Chairman/CEO/Director of" or "is a member of the board"
+    insiderRole = grabAfter(text,
+      /(?:is|as)\s+(?:the\s+)?([A-Z][a-zA-Z\s\-]{3,50}?)\s+(?:of|in)\s+[A-Z]/,
+      /(?:is\s+a\s+)(member\s+of\s+the\s+board[^,.]*)/i,
+      /(?:serving\s+as\s+|appointed\s+(?:as\s+)?)(CEO|CFO|CTO|COO|President|Chairman|Director|[A-Z][a-z]+\s+(?:Executive|Officer|Director|Manager)[^,.]*)/i,
+    );
+  }
+
   const isin = grabAfter(text,
     /\bISIN\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
     /ISIN\s+code\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
+    /\b(DK[A-Z0-9]{10})\b/,  // DK ISIN without label
   );
 
   const nature = grabAfter(text,
@@ -84,6 +104,7 @@ function parseNotificationText(text) {
   const txDateRaw = grabAfter(text,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{4}-\d{2}-\d{2})/i,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/i,
+    /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,  // "today... 10th April 2026"
   );
   let txDate = null;
   if (txDateRaw) {
@@ -95,36 +116,55 @@ function parseNotificationText(text) {
     }
   }
 
+  // Volume: structured "Volume: 6187" or prose "purchasing 616 shares"
+  let shares = null;
   const volRaw = grabAfter(text,
     /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
+    /(?:purchasing|selling|acquired|disposed\s+of|sold)\s+([\d][,\d\.]*)\s+shares/i,
+    /(?:increased|decreased)\s+(?:his|her|their|its)\s+shareholding.*?by\s+([\d][,\d\.]*)\s+shares/i,
   );
-  let shares = null;
   if (volRaw) {
     const n = parseFloat(volRaw.replace(/[\s,]/g, ''));
     if (!isNaN(n) && n > 0) shares = Math.round(n);
   }
 
-  const priceRaw = grabAfter(text,
-    /Unit\s+price\s*[:|]\s*([\d,\.]+)/i,
-    /Price\s*\(s\)\s*[:|]\s*([\d,\.]+)/i,
-    /\bPrice\s*[:|]\s*([\d,\.]+)/i,
-  );
+  // Price: structured "Unit price: X" or prose "at DKK X" / "at a price of X"
   let price = null;
+  const priceRaw = grabAfter(text,
+    /Unit\s+price\s*[:|]\s*([\d,\.]+)(?!\s*N\/A)/i,
+    /Price\s*\(s\)\s*[:|]\s*([\d,\.]+)/i,
+    /at\s+(?:a\s+price\s+of\s+)?(?:DKK|EUR|SEK|NOK)\s*([\d,\.]+)/i,
+    /at\s+(?:a\s+(?:share\s+)?price\s+of\s+)?([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK)/i,
+  );
   if (priceRaw) {
     const n = parseFloat(priceRaw.replace(/,/g, '.').replace(/\s/g, ''));
-    if (!isNaN(n)) price = n;
+    if (!isNaN(n) && n > 0) price = n;
+  }
+
+  // Normalise insider name: "Surname, Firstname" → "Firstname Surname"
+  if (insiderName && insiderName.includes(',')) {
+    const parts = insiderName.split(',').map(s => s.trim());
+    if (parts.length === 2 && parts[1]) insiderName = `${parts[1]} ${parts[0]}`;
   }
 
   return { insiderName, insiderRole, isin, txDate, shares, price, nature, transactionType: mapType(nature || '') };
 }
 
-function get(hostname, path, headers = {}) {
+function get(hostname, path, headers = {}, _redirects = 5) {
   return new Promise((resolve) => {
     const req = https.get({ hostname, path, headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': 'text/html,application/json,*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
       ...headers,
     }}, res => {
+      // Follow redirects (Nasdaq view server returns 302 to language-specific URL)
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && _redirects > 0) {
+        const loc = res.headers.location;
+        const target = loc.startsWith('http') ? new URL(loc) : new URL(`https://${hostname}${loc}`);
+        res.resume();
+        return resolve(get(target.hostname, target.pathname + target.search, headers, _redirects - 1));
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
