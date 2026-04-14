@@ -14,14 +14,23 @@
  *
  * Flow:
  *   1. list.json?pblntf_ty=D&pblntf_detail_ty=D003
- *      → {corp_name, flr_nm (filer=insider), rcept_dt, rcept_no}
+ *      → {corp_name, flr_nm, rcept_dt, rcept_no, rm}
  *   2. document.xml?rcept_no=<id>
- *      → Raw document XML/HTML containing transaction details
- *   3. Parse Korean HTML table for:
- *      변동이유 (change reason) → BUY / SELL
- *      변동수량 (change qty)   → shares
- *      단가 (unit price)       → price_per_share
- *      변동일 (change date)    → transaction_date
+ *      → ZIP archive containing HTML document file(s)
+ *   3. Extract HTML from ZIP (yauzl), decode EUC-KR if needed (iconv-lite)
+ *   4. Parse Korean HTML table for:
+ *        변동이유 (change reason)  → BUY (취득/매수) / SELL (처분/매도)
+ *        변동수량 (change qty)     → shares
+ *        단가 (unit price)         → price_per_share
+ *        변동일 (change date)      → transaction_date
+ *        직위 (position/role)      → insider_role
+ *        성명 (name)               → insider_name
+ *
+ * Key parsing notes:
+ *  - document.xml response is a ZIP (PK magic bytes 50 4B)
+ *  - Inside the ZIP: .htm/.html/.xml files, often EUC-KR encoded
+ *  - DART HTML labels use &nbsp; between characters: 변&nbsp;동&nbsp;수&nbsp;량
+ *  - Table structure: <td>LABEL</td><td>VALUE</td> — must match </td> before next <td>
  */
 'use strict';
 
@@ -33,12 +42,15 @@ const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
 const RETENTION_DAYS  = 14;
 const CONCURRENCY     = 3;
-const DELAY_MS        = 250;
+const DELAY_MS        = 300;
 const API_HOST        = 'opendart.fss.or.kr';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ─── Korean BUY/SELL keyword sets ────────────────────────────────────────────
+
+const BUY_KW  = /취득|매수|매입|인수|교부|배정|신주인수|스톡옵션.*행사|우리사주|장내매수/;
+const SELL_KW = /처분|매도|매각|양도|상환|소각|장내매도|장외매도/;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -48,14 +60,24 @@ function dartDate(d) {
 }
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Allow \s* between each character in a Korean string so we match
+ * labels with &nbsp; or spaces: "변동이유" → /변\s*동\s*이\s*유/
+ */
+function krPat(str) {
+  return str.split('').join('\\s*');
+}
+
+// ─── HTTP ─────────────────────────────────────────────────────────────────────
+
 function dartGet(path) {
   return new Promise((resolve) => {
     const req = https.get({
       hostname: API_HOST,
       path,
       headers: {
-        'User-Agent': 'InsiderTracker/1.0 (+https://github.com/insider-tracker)',
-        'Accept': 'application/json,application/xml,*/*',
+        'User-Agent': 'InsiderTracker/1.0',
+        'Accept': 'application/json,application/zip,application/xml,*/*',
       },
     }, res => {
       const chunks = [];
@@ -63,7 +85,7 @@ function dartGet(path) {
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
     });
     req.on('error', () => resolve(null));
-    req.setTimeout(20000, () => { req.destroy(); resolve(null); });
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
   });
 }
 
@@ -73,103 +95,212 @@ async function dartGetJson(path) {
   try { return JSON.parse(r.body.toString('utf8')); } catch { return null; }
 }
 
-// Fetch document XML for a filing — returns raw buffer (XML wrapping HTML content)
-async function dartGetDocument(apiKey, rcptNo) {
-  const r = await dartGet(`/api/document.xml?crtfc_key=${apiKey}&rcept_no=${encodeURIComponent(rcptNo)}`);
-  if (!r) return null;
-  return r.body.toString('utf8');
+// ─── Document fetch: ZIP → HTML extraction ───────────────────────────────────
+
+/**
+ * Detect encoding from a buffer's first 500 bytes and decode accordingly.
+ * DART documents are often EUC-KR encoded.
+ */
+function decodeKorean(buffer) {
+  const peek = buffer.slice(0, 500).toString('ascii');
+  if (/charset=['"]*euc-kr|encoding=['"]*euc-kr/i.test(peek)) {
+    try {
+      return require('iconv-lite').decode(buffer, 'EUC-KR');
+    } catch { /* iconv-lite not available, fall through */ }
+  }
+  return buffer.toString('utf8');
 }
 
-// ---------------------------------------------------------------------------
-// Korean text → structured data
-// ---------------------------------------------------------------------------
+/**
+ * Extract all HTML/XML file contents from a ZIP buffer using yauzl.
+ */
+function extractHtmlFromZip(buffer) {
+  return new Promise((resolve) => {
+    let yauzl;
+    try { yauzl = require('yauzl'); } catch { resolve(null); return; }
 
-// Try to extract the BUY/SELL/price/shares from a DART D003 document
-// The document is HTML (sometimes wrapped in XML) with Korean labels
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
+      if (err) { resolve(null); return; }
+      const parts = [];
+
+      zipfile.readEntry();
+
+      zipfile.on('entry', entry => {
+        if (/\.(html?|xml|htm)$/i.test(entry.fileName) &&
+            !entry.fileName.includes('__MACOSX')) {
+          zipfile.openReadStream(entry, (err, stream) => {
+            if (err) { zipfile.readEntry(); return; }
+            const chunks = [];
+            stream.on('data', c => chunks.push(c));
+            stream.on('end', () => {
+              parts.push(decodeKorean(Buffer.concat(chunks)));
+              zipfile.readEntry();
+            });
+            stream.on('error', () => zipfile.readEntry());
+          });
+        } else {
+          zipfile.readEntry();
+        }
+      });
+
+      zipfile.on('end',   () => resolve(parts.join('\n') || null));
+      zipfile.on('error', () => resolve(parts.join('\n') || null));
+    });
+  });
+}
+
+/**
+ * Fetch DART filing document.
+ * Returns raw text (HTML/XML) — handles both ZIP and plain-text responses.
+ */
+async function dartGetDocument(apiKey, rcptNo) {
+  const r = await dartGet(
+    `/api/document.xml?crtfc_key=${apiKey}&rcept_no=${encodeURIComponent(rcptNo)}`
+  );
+  if (!r) return null;
+
+  // ZIP magic bytes: PK\x03\x04 → 50 4B 03 04
+  if (r.body.length > 4 && r.body[0] === 0x50 && r.body[1] === 0x4B) {
+    return extractHtmlFromZip(r.body);
+  }
+
+  // Plain XML/HTML response
+  return decodeKorean(r.body);
+}
+
+// ─── Korean HTML table parser ─────────────────────────────────────────────────
+
+/**
+ * Parse a DART D003 document (HTML or XML) into structured fields.
+ *
+ * DART HTML structure:
+ *   <td>변&nbsp;동&nbsp;이&nbsp;유</td><td>취득(장내매수)</td>
+ *
+ * After decoding &nbsp; → space and normalizing whitespace:
+ *   <td>변 동 이 유 </td><td>취득(장내매수)</td>
+ *
+ * The grab() function matches:  LABEL_PATTERN </td> <td> VALUE
+ */
 function parseDocument(docContent) {
-  if (!docContent) return null;
+  if (!docContent || typeof docContent !== 'string') return null;
 
-  // Decode XML entities
+  // Normalize: decode all HTML entities first, then collapse whitespace
   const html = docContent
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&#xA;/g, '\n')
+    .replace(/&lt;/g,   '<')
+    .replace(/&gt;/g,   '>')
+    .replace(/&amp;/g,  '&')
+    .replace(/&nbsp;/g, ' ')     // ← critical: DART labels use &nbsp; between chars
+    .replace(/&#xA;/g,  ' ')
+    .replace(/&#[0-9]+;/g, ' ')
     .replace(/\s+/g, ' ');
 
-  function grab(labelPatterns, after = /<td[^>]*>/, maxLen = 200) {
-    for (const pat of labelPatterns) {
-      const m = html.match(new RegExp(pat + after.source + '([^<]{1,' + maxLen + '})'), 'i');
-      if (m && m[1]?.trim().length > 0) return m[1].trim();
+  /**
+   * Find the value in the <td> that immediately follows a <td> matching labelPat.
+   *
+   * Handles both:
+   *   <td>LABEL</td><td>VALUE</td>            (label in its own cell)
+   *   <td>LABEL</td><td colspan="3">VALUE      (value cell with attributes)
+   *
+   * Also handles the case where the label row is separate from the value row:
+   *   <tr><td colspan="4">변동이유</td></tr><tr><td colspan="4">취득</td></tr>
+   */
+  function grab(labelPats, maxLen = 300) {
+    for (const pat of labelPats) {
+      // Format A: label and value in adjacent <td> cells on same row
+      // Pattern: {label-text} </td> <td...> {value}
+      const reA = new RegExp(
+        pat + '[^<]{0,80}<\\/(?:td|th)[^>]*> ?<(?:td|th)[^>]*> ?([^<]{1,' + maxLen + '})',
+        'i'
+      );
+      let m = html.match(reA);
+      if (m?.[1]?.trim()) return m[1].trim();
+
+      // Format B: label in a header row spanning all columns, value in next row's first <td>
+      // Pattern: {label-text} </td></tr> <tr> <td...> {value}
+      const reB = new RegExp(
+        pat + '[^<]{0,80}<\\/(?:td|th)[^>]*>[^<]*<\\/tr>[^<]*<tr>[^<]*<(?:td|th)[^>]*> ?([^<]{1,' + maxLen + '})',
+        'i'
+      );
+      m = html.match(reB);
+      if (m?.[1]?.trim()) return m[1].trim();
     }
     return null;
   }
 
-  // Change reason: 변동이유 / 취득사유 / 소유주식변동사유
+  // ── Field extraction ────────────────────────────────────────────────────────
+
+  // 변동이유 / 취득처분사유 — reason for change (→ BUY/SELL)
   const reasonRaw = grab([
-    '변동\\s*이유',
-    '취득\\s*사유',
-    '소유주식\\s*변동\\s*사유',
-    '변동\\s*사유',
+    krPat('변동이유'),
+    krPat('변동사유'),
+    krPat('취득사유'),
+    krPat('처분사유'),
+    krPat('취득처분사유'),
+    krPat('소유주식변동사유'),
   ]);
 
-  // Change quantity: 변동수량 / 변동주식수
+  // 변동수량 / 변동주식수 — quantity of shares changed
   const changeQtyRaw = grab([
-    '변동\\s*수량',
-    '변동\\s*주식\\s*수',
-    '취득처분\\s*수량',
+    krPat('변동수량'),
+    krPat('변동주식수'),
+    krPat('취득처분수량'),
+    krPat('취득수량'),
+    krPat('처분수량'),
   ]);
 
-  // Unit price: 단가 / 취득단가
+  // 단가 / 취득단가 — unit price per share
   const priceRaw = grab([
-    '단\\s*가',
-    '취득\\s*단가',
-    '처분\\s*단가',
-    '거래\\s*단가',
+    krPat('단가'),
+    krPat('취득단가'),
+    krPat('처분단가'),
+    krPat('거래단가'),
+    krPat('1주당가격'),
   ]);
 
-  // Change date: 변동일 / 거래일 / 취득일
+  // 변동일 / 거래일 — date of transaction
   const dateRaw = grab([
-    '변동\\s*일',
-    '거래\\s*일',
-    '취득\\s*일',
-    '처분\\s*일',
+    krPat('변동일'),
+    krPat('거래일'),
+    krPat('취득일'),
+    krPat('처분일'),
+    krPat('변동발생일'),
   ]);
 
-  // Position/role: 직위 / 직함
+  // 직위 / 직함 — role/title
   const roleRaw = grab([
-    '직\\s*위',
-    '직\\s*함',
-    '지\\s*위',
+    krPat('직위'),
+    krPat('직함'),
+    krPat('지위'),
+    krPat('보고자직위'),
   ]);
 
-  // Filer name (person) from the document — more reliable than flr_nm
+  // 성명 / 보고자 — person name
   const nameRaw = grab([
-    '성\\s*명',
-    '보고\\s*자',
-    '신고\\s*인',
+    krPat('성명'),
+    krPat('보고자'),
+    krPat('신고인'),
   ]);
 
-  // Determine transaction type from reason
+  // ── Transaction type from reason ────────────────────────────────────────────
   let txType = 'OTHER';
   if (reasonRaw) {
     const r = reasonRaw.replace(/\s/g, '');
-    if (r.includes('취득') || r.includes('매수') || r.includes('인수') || r.includes('교부')) txType = 'BUY';
-    else if (r.includes('처분') || r.includes('매도') || r.includes('양도') || r.includes('상환')) txType = 'SELL';
+    if (BUY_KW.test(r))       txType = 'BUY';
+    else if (SELL_KW.test(r)) txType = 'SELL';
   }
 
-  // Parse numbers
+  // ── Number parsers ──────────────────────────────────────────────────────────
   function parseKrNum(s) {
     if (!s) return null;
-    const clean = s.replace(/[,\s원주]/g, '').trim();
+    const clean = s.replace(/[,\s원주株]/g, '').replace(/[^0-9\-]/g, '').trim();
     const n = parseInt(clean, 10);
     return isNaN(n) ? null : n;
   }
 
   function parseKrDate(s) {
     if (!s) return null;
-    const m = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-    if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    const m1 = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+    if (m1) return `${m1[1]}-${m1[2].padStart(2,'0')}-${m1[3].padStart(2,'0')}`;
     const m2 = s.match(/(\d{8})/);
     if (m2) return `${m2[1].slice(0,4)}-${m2[1].slice(4,6)}-${m2[1].slice(6,8)}`;
     return null;
@@ -177,17 +308,15 @@ function parseDocument(docContent) {
 
   return {
     txType,
-    shares: parseKrNum(changeQtyRaw),
-    price: parseKrNum(priceRaw),
-    transDate: parseKrDate(dateRaw),
-    role: roleRaw?.replace(/<[^>]+>/g, '').trim() || null,
+    shares:      parseKrNum(changeQtyRaw),
+    price:       parseKrNum(priceRaw),
+    transDate:   parseKrDate(dateRaw),
+    role:        roleRaw?.replace(/<[^>]+>/g, '').trim() || null,
     nameFromDoc: nameRaw?.replace(/<[^>]+>/g, '').trim() || null,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Batch concurrency helper
-// ---------------------------------------------------------------------------
+// ─── Batch concurrency helper ─────────────────────────────────────────────────
 
 async function runBatch(items, concurrency, fn) {
   const results = [];
@@ -199,27 +328,24 @@ async function runBatch(items, concurrency, fn) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, next));
-  return results.flat();
+  return results;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeKR() {
-  console.log('🇰🇷  DART Korea — 임원ㆍ주요주주 주식변동 (Executive stock change D003)');
+  console.log('🇰🇷  DART Korea — 임원ㆍ주요주주 주식변동 (D003)');
   const t0 = Date.now();
 
   const apiKey = process.env.DART_API_KEY;
   if (!apiKey) {
     console.log('  ⚠  DART_API_KEY not set.');
-    console.log('  ℹ  Register free at: https://opendart.fss.or.kr (KR) or https://engopendart.fss.or.kr (EN)');
-    console.log('  ℹ  After getting a key, set env DART_API_KEY=<your_key>');
+    console.log('  ℹ  Register: https://opendart.fss.or.kr (KR) / https://engopendart.fss.or.kr (EN)');
     console.log('  ℹ  0 rows saved.');
     return { saved: 0 };
   }
 
-  const today = new Date();
+  const today  = new Date();
   const cutoff = new Date(today.getTime() - RETENTION_DAYS * 86400000);
   const bgn = dartDate(cutoff);
   const end = dartDate(today);
@@ -236,16 +362,16 @@ async function scrapeKR() {
 
     if (!data) { console.error('  API error — no response'); break; }
     if (data.status !== '000') {
-      console.error(`  DART API error: ${data.status} — ${data.message}`);
+      console.error(`  DART API: ${data.status} — ${data.message}`);
       break;
     }
 
     const items = data.list || [];
     allListings.push(...items);
-    console.log(`  Page ${page}: ${items.length} items (${allListings.length} total)`);
 
     const total = parseInt(data.total_count || '0', 10);
     if (allListings.length >= total || items.length === 0) break;
+    console.log(`  Page ${page}: ${items.length} items (${allListings.length}/${total} total)`);
     page++;
     await delay(DELAY_MS);
   }
@@ -253,8 +379,8 @@ async function scrapeKR() {
   console.log(`  ${allListings.length} D003 filings found`);
   if (!allListings.length) { console.log('  No data.'); return { saved: 0 }; }
 
-  // ── 2. Fetch document details for each filing ──────────────────────────────
-  let fetched = 0, parsed = 0, failed = 0;
+  // ── 2. Fetch + parse each document ────────────────────────────────────────
+  let nFetched = 0, nParsed = 0, nFailed = 0;
 
   const processListing = async (listing) => {
     const rcptNo = listing.rcept_no;
@@ -262,61 +388,53 @@ async function scrapeKR() {
       ? `${rcptNo.slice(0,4)}-${rcptNo.slice(4,6)}-${rcptNo.slice(6,8)}`
       : null;
 
-    // Base row from list API
-    const base = {
-      rcptNo,
-      company: listing.corp_name || null,
-      insiderName: (listing.flr_nm || '').trim() || null,
-      corpCode: listing.corp_code || null,
-      corpCls: listing.corp_cls || null,  // Y=KOSPI, K=KOSDAQ, N=KONEX
-      filingDate,
-      remark: (listing.rm || '').trim(),
-    };
+    const company     = listing.corp_name?.trim() || null;
+    const insiderName = listing.flr_nm?.trim() || null;
+    const rm          = (listing.rm || '').trim();
 
-    // Quick BUY/SELL guess from remark field
+    // Quick BUY/SELL guess from remark (often empty for D003, but try)
     let quickType = 'OTHER';
-    if (base.remark) {
-      const rm = base.remark;
-      if (rm.includes('취득') || rm.includes('매수')) quickType = 'BUY';
-      else if (rm.includes('처분') || rm.includes('매도')) quickType = 'SELL';
-    }
+    if (BUY_KW.test(rm.replace(/\s/g,'')))       quickType = 'BUY';
+    else if (SELL_KW.test(rm.replace(/\s/g,''))) quickType = 'SELL';
 
-    // Try to get detailed document
     await delay(DELAY_MS);
     const docContent = await dartGetDocument(apiKey, rcptNo);
-    fetched++;
+    nFetched++;
 
     let txType = quickType;
     let shares = null, price = null, transDate = filingDate;
     let role = null, nameFromDoc = null;
 
-    if (docContent && !docContent.includes('"status":"010"') && !docContent.includes('잘못된')) {
-      const parsed_doc = parseDocument(docContent);
-      if (parsed_doc) {
-        txType = parsed_doc.txType !== 'OTHER' ? parsed_doc.txType : quickType;
-        shares = parsed_doc.shares;
-        price = parsed_doc.price;
-        if (parsed_doc.transDate) transDate = parsed_doc.transDate;
-        role = parsed_doc.role;
-        if (parsed_doc.nameFromDoc) nameFromDoc = parsed_doc.nameFromDoc;
-        parsed++;
+    if (docContent &&
+        !docContent.includes('"status":"010"') &&
+        !docContent.includes('잘못된')) {
+      const parsed = parseDocument(docContent);
+      if (parsed) {
+        if (parsed.txType !== 'OTHER') txType = parsed.txType;
+        else if (quickType !== 'OTHER') txType = quickType;
+        shares      = parsed.shares;
+        price       = parsed.price;
+        if (parsed.transDate)   transDate   = parsed.transDate;
+        if (parsed.role)        role        = parsed.role;
+        if (parsed.nameFromDoc) nameFromDoc = parsed.nameFromDoc;
+        nParsed++;
       }
     } else {
-      failed++;
+      nFailed++;
     }
 
-    const insiderName = nameFromDoc || base.insiderName;
-    if (!insiderName) return [];  // Skip if we can't identify the insider
+    const name = nameFromDoc || insiderName;
+    if (!name) return null;
 
-    const fid = `KR-${rcptNo || base.corpCode}-${transDate || filingDate}`;
+    const fid = `KR-${rcptNo || listing.corp_code}-${transDate || filingDate}`;
 
-    return [{
+    return {
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       source:           SOURCE,
-      ticker:           base.corpCode || null,
-      company:          base.company || null,
-      insider_name:     insiderName,
+      ticker:           listing.corp_code || null,
+      company,
+      insider_name:     name,
       insider_role:     translateRole(role),
       transaction_type: txType,
       transaction_date: transDate || null,
@@ -325,32 +443,32 @@ async function scrapeKR() {
       total_value:      (price && shares) ? Math.round(Math.abs(shares) * price) : null,
       currency:         'KRW',
       filing_url:       `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}`,
-    }];
+    };
   };
 
-  const rows = await runBatch(allListings, CONCURRENCY, processListing);
-  const flatRows = rows.flat().filter(Boolean);
+  const rawRows  = await runBatch(allListings, CONCURRENCY, processListing);
+  const flatRows = rawRows.flat().filter(Boolean);
 
-  console.log(`  Fetched: ${fetched} | Parsed docs: ${parsed} | Doc failed: ${failed}`);
-  console.log(`  Rows to save: ${flatRows.length}`);
+  console.log(`  Fetched: ${nFetched} | Parsed docs: ${nParsed} | Doc errors: ${nFailed}`);
+
+  const buys   = flatRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells  = flatRows.filter(r => r.transaction_type === 'SELL').length;
+  const others = flatRows.filter(r => r.transaction_type === 'OTHER').length;
+  console.log(`  Rows: ${flatRows.length} total — ${buys} BUY, ${sells} SELL, ${others} OTHER (will be dropped)`);
+
+  // Preview first 3 BUY/SELL rows
+  const preview = flatRows.filter(r => r.transaction_type !== 'OTHER').slice(0, 3);
+  for (const r of preview) {
+    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? 'n/a'} shares @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
+  }
 
   if (!flatRows.length) { console.log('  No rows to save.'); return { saved: 0 }; }
 
-  // Preview
-  for (const r of flatRows.slice(0, 3)) {
-    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} shares | ${r.transaction_date}`);
-  }
-
   const { error } = await saveInsiderTransactions(flatRows);
-  if (error) {
-    console.error('  ❌ DB error:', error.message);
-    process.exit(1);
-  }
+  if (error) { console.error('  ❌ DB error:', error.message); process.exit(1); }
 
-  const buys  = flatRows.filter(r => r.transaction_type === 'BUY').length;
-  const sells = flatRows.filter(r => r.transaction_type === 'SELL').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${flatRows.length} saved (${buys} BUY, ${sells} SELL)`);
-  return { saved: flatRows.length };
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${buys + sells} saved (${buys} BUY, ${sells} SELL)`);
+  return { saved: buys + sells };
 }
 
 scrapeKR().catch(err => {
