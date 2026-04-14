@@ -78,41 +78,15 @@ function fetchPage(fromApi, toApi, from) {
 // ─── PDF helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch the list of pieces jointes (attachments) for one AMF filing.
- * Returns an array like [{id, libelle, ...}] or null on failure.
+ * Download a PDF from the AMF BDIF documents API.
+ * The PDF path comes from r.documents[0].path in the list response.
+ * URL format: /back/api/v1/documents/{path}  (slashes NOT encoded)
  */
-function fetchPiecesJointes(numero) {
+function downloadPdf(docPath) {
   return new Promise((resolve) => {
     const req = https.get({
       hostname: 'bdif.amf-france.org',
-      path: `/back/api/v1/informations/${encodeURIComponent(numero)}/pieces-jointes`,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://bdif.amf-france.org/',
-      },
-    }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-        catch { resolve(null); }
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
-  });
-}
-
-/**
- * Download a single PDF attachment as a Buffer.
- */
-function downloadPdf(numero, pjId) {
-  return new Promise((resolve) => {
-    const req = https.get({
-      hostname: 'bdif.amf-france.org',
-      path: `/back/api/v1/informations/${encodeURIComponent(numero)}/pieces-jointes/${encodeURIComponent(pjId)}`,
+      path: `/back/api/v1/documents/${docPath}`,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/pdf,*/*',
@@ -124,7 +98,6 @@ function downloadPdf(numero, pjId) {
       res.on('end', () => {
         if (res.statusCode !== 200) return resolve(null);
         const buf = Buffer.concat(chunks);
-        // Sanity check — must start with %PDF
         if (buf.length < 8 || buf.slice(0, 4).toString() !== '%PDF') return resolve(null);
         resolve(buf);
       });
@@ -142,7 +115,6 @@ function pdfToText(buffer) {
   const tmp = path.join(os.tmpdir(), `amf-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
   try {
     fs.writeFileSync(tmp, buffer);
-    // -layout preserves column alignment; output to stdout via "-"
     return execSync(`pdftotext -layout "${tmp}" -`, {
       encoding: 'utf8',
       timeout: 15000,
@@ -156,23 +128,22 @@ function pdfToText(buffer) {
 }
 
 /**
- * Parse extracted text from a French AMF MAR Article 19 declaration form.
+ * Parse text from a French AMF national declaration form (not the EU ESMA template).
  *
- * The ESMA standardised form (used across EU) has lettered subsections:
- *   1a) Nom                  → insider name
- *   1b) Position/Qualité     → insider role
- *   4c) Nature de la transaction → Acquisition / Cession
- *   4d) Prix                 → price per share (e.g. "49.8250 EUR")
- *   4e) Volume               → number of shares
+ * Actual field labels observed in the wild:
+ *   NOM /FONCTION DE LA PERSONNE EXERCANT DES RESPONSABILITES DIRIGEANTES
+ *   OU DE LA PERSONNE ETROITEMENT LIEE :
+ *     → next non-empty line: "<Name>, <Role>"  e.g. "Jean DUPONT, Directeur général"
+ *
+ *   NATURE DE LA TRANSACTION : Acquisition | Cession
+ *   PRIX UNITAIRE : 32.8000 Euro
+ *   INFORMATIONS AGREGEES → VOLUME : 50.0000   (total shares across all sub-operations)
  */
 function parseFrPdf(text) {
   if (!text || typeof text !== 'string') return {};
 
-  // Collapse each line's internal whitespace; keep newlines as separators
-  const flat = text.split('\n')
-    .map(l => l.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n');
+  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const flat  = lines.join('\n');
 
   function grab(patterns) {
     for (const re of patterns) {
@@ -186,46 +157,39 @@ function parseFrPdf(text) {
     if (!s) return null;
     const clean = s.toString()
       .replace(/[\s\u00a0]/g, '')
-      .replace(/[€EURK%]/g, '')
+      .replace(/[€EuroURI]/g, '')
       .replace(',', '.')
       .replace(/[^0-9.]/g, '');
     const n = parseFloat(clean);
     return isNaN(n) || n <= 0 ? null : n;
   }
 
-  // Insider name — first "a) Nom" entry (section 1, about the person)
-  const insiderName = grab([
-    /^a\) Nom (.{3,60})/m,
-    /Nom\s+([A-ZÀ-Ÿ][A-ZÀ-Ÿa-zà-ÿ ,\-]{2,55})/m,
-  ]);
+  // ── Insider name + role ───────────────────────────────────────────────────
+  // The label spans two lines; the value is the next non-empty line after it.
+  // "PERSONNE ETROITEMENT LIEE :" ends the label block.
+  const nameLineIdx = lines.findIndex(l => /PERSONNE ETROITEMENT LI/i.test(l));
+  const nameLine    = nameLineIdx >= 0 ? lines[nameLineIdx + 1] || null : null;
 
-  // Role — "b) Position/Qualité" or plain "Qualité"
-  const roleRaw = grab([
-    /^b\) (?:Position\/)?Qualité (.{3,80})/m,
-    /(?:Position|Qualité)\s+(.{3,80})/m,
-  ]);
+  let insiderName = null;
+  let roleRaw     = null;
+  if (nameLine) {
+    // Value format: "NAME, Role"  or  "NAME personne liée à OTHER, Role"
+    // Split at last comma to separate role
+    const commaIdx = nameLine.lastIndexOf(',');
+    if (commaIdx > 0) {
+      insiderName = nameLine.slice(0, commaIdx).trim();
+      roleRaw     = nameLine.slice(commaIdx + 1).trim();
+    } else {
+      insiderName = nameLine;
+    }
+  }
 
-  // Transaction type — "c) Nature de la transaction"
+  // ── Transaction type ──────────────────────────────────────────────────────
   const txTypeRaw = grab([
-    /^c\) Nature de la transaction (.{2,60})/m,
-    /Nature de la transaction\s+(.{2,60})/im,
-    /Type (?:d'opération|de transaction)\s+(.{2,60})/im,
+    /NATURE DE LA TRANSACTION\s*:\s*(.{2,60})/im,
+    /TYPE DE TRANSACTION\s*:\s*(.{2,60})/im,
   ]);
 
-  // Price — "d) Prix"
-  const priceRaw = grab([
-    /^d\) Prix (\d[^\n]{0,30})/m,
-    /Prix(?: unitaire)?\s+(\d[^\n]{0,30})/im,
-  ]);
-
-  // Volume / shares — "e) Volume"
-  const sharesRaw = grab([
-    /^e\) Volume (\d[^\n]{0,20})/m,
-    /Volume\s+(\d[^\n]{0,20})/im,
-    /Nombre (?:d'instruments|d'actions|de titres)\s+(\d[^\n]{0,20})/im,
-  ]);
-
-  // Derive BUY/SELL
   let txType = 'UNKNOWN';
   if (txTypeRaw) {
     const lo = txTypeRaw.toLowerCase();
@@ -235,15 +199,31 @@ function parseFrPdf(text) {
              lo.includes('dispos')  || lo.includes('transfert')) txType = 'SELL';
   }
 
-  // Price: token before the currency symbol, e.g. "49.8250 EUR" → 49.825
-  const price = priceRaw ? parseNum(priceRaw.split(/\s/)[0]) : null;
+  // ── Price ─────────────────────────────────────────────────────────────────
+  // Prefer PRIX UNITAIRE; fall back to PRIX in the aggregated section.
+  const priceRaw = grab([
+    /PRIX UNITAIRE\s*:\s*(\d[\d.,]+)/im,
+    /PRIX\s*:\s*(\d[\d.,]+)/im,
+  ]);
+
+  // ── Volume (aggregated total shares) ─────────────────────────────────────
+  // Use the LAST occurrence of VOLUME (under INFORMATIONS AGREGEES).
+  // Also try QUANTITE / NOMBRE DE TITRES as fallback labels.
+  const allVolumes = [...flat.matchAll(/VOLUME\s*:\s*(\d[\d\s.,]+)/gim)];
+  let sharesRaw    = allVolumes.length > 0
+    ? allVolumes[allVolumes.length - 1][1].replace(/\s/g, '')
+    : grab([
+        /QUANTIT[EÉ]\s*:\s*(\d[\d\s.,]+)/im,
+        /NOMBRE DE TITRES\s*:\s*(\d[\d\s.,]+)/im,
+        /NOMBRE D'(?:ACTIONS|INSTRUMENTS)\s*:\s*(\d[\d\s.,]+)/im,
+      ]);
 
   return {
     txType,
     insiderName: insiderName || null,
     role:        roleRaw     || null,
     shares:      parseNum(sharesRaw),
-    price,
+    price:       parseNum(priceRaw),
   };
 }
 
@@ -318,24 +298,15 @@ async function scrapeFR() {
     const company   = r.societes?.length > 0 ? r.societes[0].raisonSociale : null;
     const filingUrl = `https://bdif.amf-france.org/Registre-BDIF/Resultat-de-recherche?docId=${numero}`;
 
-    // ── Fetch pieces jointes to locate the PDF ───────────────────────────────
+    // ── Get PDF path from list response (already included as r.documents[0]) ─
+    // URL: /back/api/v1/documents/{path}  — slashes are NOT percent-encoded
+    const docPath = r.documents?.[0]?.path;
+    if (!docPath) { nSkipped++; continue; }
+
     await new Promise(res => setTimeout(res, 300)); // rate-limit AMF API
-    const pjs = await fetchPiecesJointes(numero);
-    const pdfPj = Array.isArray(pjs)
-      ? pjs.find(p => {
-          const lib = (p.libelle || p.nom || p.fileName || '').toLowerCase();
-          return lib.endsWith('.pdf') || (p.typeMime || p.contentType || '').includes('pdf');
-        }) || pjs[0]   // fallback: take first attachment
-      : null;
-
-    if (!pdfPj) { nSkipped++; continue; }
-
-    const pjId = pdfPj.id || pdfPj.uuid || pdfPj.identifiant;
-    if (!pjId) { nSkipped++; continue; }
 
     // ── Download PDF ─────────────────────────────────────────────────────────
-    await new Promise(res => setTimeout(res, 200));
-    const pdfBuf = await downloadPdf(numero, pjId);
+    const pdfBuf = await downloadPdf(docPath);
     if (!pdfBuf) { nSkipped++; continue; }
     nPdf++;
 
