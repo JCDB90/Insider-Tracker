@@ -14,23 +14,19 @@
  *
  * Flow:
  *   1. list.json?pblntf_ty=D&pblntf_detail_ty=D003
- *      → {corp_name, flr_nm, rcept_dt, rcept_no, rm}
+ *      → {corp_name, flr_nm, rcept_dt, rcept_no}
  *   2. document.xml?rcept_no=<id>
- *      → ZIP archive containing HTML document file(s)
- *   3. Extract HTML from ZIP (yauzl), decode EUC-KR if needed (iconv-lite)
- *   4. Parse Korean HTML table for:
- *        변동이유 (change reason)  → BUY (취득/매수) / SELL (처분/매도)
- *        변동수량 (change qty)     → shares
- *        단가 (unit price)         → price_per_share
- *        변동일 (change date)      → transaction_date
- *        직위 (position/role)      → insider_role
- *        성명 (name)               → insider_name
+ *      → ZIP archive containing DART4 XML document
+ *   3. Extract XML from ZIP (yauzl), decode EUC-KR if needed (iconv-lite)
+ *   4. Parse DART4 XML by ACODE/AUNIT attributes — NOT Korean text labels:
+ *        AUNIT="RPT_RSN" ENG="Acquisition..."  → BUY / SELL / OTHER
+ *        AUNIT="MDF_DM"  AUNITVALUE="YYYYMMDD" → transaction date
+ *        ACODE="MDF_STK_CNT"                   → shares delta
+ *        ACODE="ACI_AMT2"                       → unit price (KRW)
+ *        ACODE="IFR_NM"                         → insider name
+ *        ACODE="STF_PSM"                        → position/role
  *
- * Key parsing notes:
- *  - document.xml response is a ZIP (PK magic bytes 50 4B)
- *  - Inside the ZIP: .htm/.html/.xml files, often EUC-KR encoded
- *  - DART HTML labels use &nbsp; between characters: 변&nbsp;동&nbsp;수&nbsp;량
- *  - Table structure: <td>LABEL</td><td>VALUE</td> — must match </td> before next <td>
+ * One filing can contain multiple transactions (one <TR> per trade date).
  */
 'use strict';
 
@@ -45,11 +41,6 @@ const CONCURRENCY     = 3;
 const DELAY_MS        = 300;
 const API_HOST        = 'opendart.fss.or.kr';
 
-// ─── Korean BUY/SELL keyword sets ────────────────────────────────────────────
-
-const BUY_KW  = /취득|매수|매입|인수|교부|배정|신주인수|스톡옵션.*행사|우리사주|장내매수/;
-const SELL_KW = /처분|매도|매각|양도|상환|소각|장내매도|장외매도/;
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isoDate(d) {
@@ -61,13 +52,6 @@ function dartDate(d) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 /**
- * Allow \s* between each character in a Korean string so we match
- * labels with &nbsp; or spaces: "변동이유" → /변\s*동\s*이\s*유/
- */
-function krPat(str) {
-  return str.split('').join('\\s*');
-}
-
 // ─── HTTP ─────────────────────────────────────────────────────────────────────
 
 function dartGet(path) {
@@ -168,152 +152,118 @@ async function dartGetDocument(apiKey, rcptNo) {
   return decodeKorean(r.body);
 }
 
-// ─── Korean HTML table parser ─────────────────────────────────────────────────
+// ─── DART XML parser ──────────────────────────────────────────────────────────
 
 /**
- * Parse a DART D003 document (HTML or XML) into structured fields.
+ * Parse a DART D003 document (DART4 XML format) into an array of transactions.
  *
- * DART HTML structure:
- *   <td>변&nbsp;동&nbsp;이&nbsp;유</td><td>취득(장내매수)</td>
+ * DART documents are NOT HTML tables — they use custom XML with ACODE/AUNIT
+ * attributes to identify structured data fields. Korean label text is irrelevant.
  *
- * After decoding &nbsp; → space and normalizing whitespace:
- *   <td>변 동 이 유 </td><td>취득(장내매수)</td>
+ * Key attributes:
+ *   AUNIT="RPT_RSN"  ENG="Acquisition in exchange(+)"  → BUY/SELL/OTHER
+ *   AUNIT="MDF_DM"   AUNITVALUE="20260413"              → transaction date
+ *   ACODE="MDF_STK_CNT"                                 → shares delta (text)
+ *   ACODE="ACI_AMT2"                                    → unit price (text)
+ *   ACODE="IFR_NM"                                      → insider name
+ *   ACODE="STF_PSM"                                     → position/role
  *
- * The grab() function matches:  LABEL_PATTERN </td> <td> VALUE
+ * One filing can contain multiple transactions (one <TR> per trade date).
+ * Returns an array of transaction objects (empty array if none are BUY/SELL).
  */
 function parseDocument(docContent) {
-  if (!docContent || typeof docContent !== 'string') return null;
+  if (!docContent || typeof docContent !== 'string') return [];
 
-  // Normalize: decode all HTML entities first, then collapse whitespace
-  const html = docContent
-    .replace(/&lt;/g,   '<')
-    .replace(/&gt;/g,   '>')
-    .replace(/&amp;/g,  '&')
-    .replace(/&nbsp;/g, ' ')     // ← critical: DART labels use &nbsp; between chars
-    .replace(/&#xA;/g,  ' ')
-    .replace(/&#[0-9]+;/g, ' ')
-    .replace(/\s+/g, ' ');
+  // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  /**
-   * Find the value in the <td> that immediately follows a <td> matching labelPat.
-   *
-   * Handles both:
-   *   <td>LABEL</td><td>VALUE</td>            (label in its own cell)
-   *   <td>LABEL</td><td colspan="3">VALUE      (value cell with attributes)
-   *
-   * Also handles the case where the label row is separate from the value row:
-   *   <tr><td colspan="4">변동이유</td></tr><tr><td colspan="4">취득</td></tr>
-   */
-  function grab(labelPats, maxLen = 300) {
-    for (const pat of labelPats) {
-      // Format A: label and value in adjacent <td> cells on same row
-      // Pattern: {label-text} </td> <td...> {value}
-      const reA = new RegExp(
-        pat + '[^<]{0,80}<\\/(?:td|th)[^>]*> ?<(?:td|th)[^>]*> ?([^<]{1,' + maxLen + '})',
-        'i'
-      );
-      let m = html.match(reA);
-      if (m?.[1]?.trim()) return m[1].trim();
-
-      // Format B: label in a header row spanning all columns, value in next row's first <td>
-      // Pattern: {label-text} </td></tr> <tr> <td...> {value}
-      const reB = new RegExp(
-        pat + '[^<]{0,80}<\\/(?:td|th)[^>]*>[^<]*<\\/tr>[^<]*<tr>[^<]*<(?:td|th)[^>]*> ?([^<]{1,' + maxLen + '})',
-        'i'
-      );
-      m = html.match(reB);
-      if (m?.[1]?.trim()) return m[1].trim();
-    }
-    return null;
+  // Get text content of first element with ACODE="code"
+  function getAcode(xml, code) {
+    const re = new RegExp(`ACODE=["']${code}["'][^>]*>([^<]*)`, 'i');
+    const m = xml.match(re);
+    return m ? m[1].trim() : null;
   }
 
-  // ── Field extraction ────────────────────────────────────────────────────────
-
-  // 변동이유 / 취득처분사유 — reason for change (→ BUY/SELL)
-  const reasonRaw = grab([
-    krPat('변동이유'),
-    krPat('변동사유'),
-    krPat('취득사유'),
-    krPat('처분사유'),
-    krPat('취득처분사유'),
-    krPat('소유주식변동사유'),
-  ]);
-
-  // 변동수량 / 변동주식수 — quantity of shares changed
-  const changeQtyRaw = grab([
-    krPat('변동수량'),
-    krPat('변동주식수'),
-    krPat('취득처분수량'),
-    krPat('취득수량'),
-    krPat('처분수량'),
-  ]);
-
-  // 단가 / 취득단가 — unit price per share
-  const priceRaw = grab([
-    krPat('단가'),
-    krPat('취득단가'),
-    krPat('처분단가'),
-    krPat('거래단가'),
-    krPat('1주당가격'),
-  ]);
-
-  // 변동일 / 거래일 — date of transaction
-  const dateRaw = grab([
-    krPat('변동일'),
-    krPat('거래일'),
-    krPat('취득일'),
-    krPat('처분일'),
-    krPat('변동발생일'),
-  ]);
-
-  // 직위 / 직함 — role/title
-  const roleRaw = grab([
-    krPat('직위'),
-    krPat('직함'),
-    krPat('지위'),
-    krPat('보고자직위'),
-  ]);
-
-  // 성명 / 보고자 — person name
-  const nameRaw = grab([
-    krPat('성명'),
-    krPat('보고자'),
-    krPat('신고인'),
-  ]);
-
-  // ── Transaction type from reason ────────────────────────────────────────────
-  let txType = 'OTHER';
-  if (reasonRaw) {
-    const r = reasonRaw.replace(/\s/g, '');
-    if (BUY_KW.test(r))       txType = 'BUY';
-    else if (SELL_KW.test(r)) txType = 'SELL';
+  // Get AUNITVALUE of first element with AUNIT="unit"
+  function getAunitValue(xml, unit) {
+    // attribute order: AUNIT first, then AUNITVALUE
+    let m = xml.match(new RegExp(`AUNIT=["']${unit}["'][^>]*AUNITVALUE=["']([^"']*)["']`, 'i'));
+    if (m) return m[1].trim();
+    // reversed order
+    m = xml.match(new RegExp(`AUNITVALUE=["']([^"']*)["'][^>]*AUNIT=["']${unit}["']`, 'i'));
+    return m ? m[1].trim() : null;
   }
 
-  // ── Number parsers ──────────────────────────────────────────────────────────
-  function parseKrNum(s) {
-    if (!s) return null;
-    const clean = s.replace(/[,\s원주株]/g, '').replace(/[^0-9\-]/g, '').trim();
+  // Get ENG attribute of first element with AUNIT="unit"
+  function getAunitEng(xml, unit) {
+    let m = xml.match(new RegExp(`AUNIT=["']${unit}["'][^>]*ENG=["']([^"']*)["']`, 'i'));
+    if (m) return m[1].trim();
+    m = xml.match(new RegExp(`ENG=["']([^"']*)["'][^>]*AUNIT=["']${unit}["']`, 'i'));
+    return m ? m[1].trim() : null;
+  }
+
+  function parseNum(s) {
+    if (!s || s.trim() === '-') return null;
+    const clean = s.replace(/[,\s원주]/g, '').replace(/[^0-9\-]/g, '');
     const n = parseInt(clean, 10);
     return isNaN(n) ? null : n;
   }
 
-  function parseKrDate(s) {
-    if (!s) return null;
-    const m1 = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-    if (m1) return `${m1[1]}-${m1[2].padStart(2,'0')}-${m1[3].padStart(2,'0')}`;
-    const m2 = s.match(/(\d{8})/);
-    if (m2) return `${m2[1].slice(0,4)}-${m2[1].slice(4,6)}-${m2[1].slice(6,8)}`;
+  function parseDate8(s) {
+    if (!s || s === '-') return null;
+    if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+    const m = s.match(/(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
     return null;
   }
 
-  return {
-    txType,
-    shares:      parseKrNum(changeQtyRaw),
-    price:       parseKrNum(priceRaw),
-    transDate:   parseKrDate(dateRaw),
-    role:        roleRaw?.replace(/<[^>]+>/g, '').trim() || null,
-    nameFromDoc: nameRaw?.replace(/<[^>]+>/g, '').trim() || null,
-  };
+  // ── Document-level fields (same for all transactions in the filing) ──────────
+
+  const insiderName = getAcode(docContent, 'IFR_NM') || null;
+  const role        = getAcode(docContent, 'STF_PSM') || null;
+
+  // ── Per-transaction rows (find all <TR> blocks containing RPT_RSN) ───────────
+  // DART XML has one <TR> per transaction date in the "세부변동내역" table
+  const trBlocks = docContent.match(/<TR\b[^>]*>[\s\S]*?<\/TR>/gi) || [];
+  const txns = [];
+
+  for (const tr of trBlocks) {
+    // Skip rows that don't have a RPT_RSN (these are header rows, totals, etc.)
+    if (!tr.includes('RPT_RSN')) continue;
+
+    const reasonEng = getAunitEng(tr, 'RPT_RSN') || '';
+    const dateValue  = getAunitValue(tr, 'MDF_DM') || '';
+    const sharesRaw  = getAcode(tr, 'MDF_STK_CNT');
+    const priceRaw   = getAcode(tr, 'ACI_AMT2');
+
+    // BUY/SELL from the English label DART provides on every RPT_RSN element
+    const eng = reasonEng.toLowerCase();
+    let txType = 'OTHER';
+    if (eng.includes('acquisition') || eng.includes('exercise') ||
+        eng.includes('allotment')   || eng.includes('grant')) {
+      txType = 'BUY';
+    } else if (eng.includes('disposition') || eng.includes('transfer') ||
+               eng.includes('sale')        || eng.includes('disposal')) {
+      txType = 'SELL';
+    }
+
+    // Skip non-market events (capital reduction, bonus issue, rights, etc.)
+    if (txType === 'OTHER') continue;
+
+    const shares = parseNum(sharesRaw);
+    const price  = parseNum(priceRaw);
+    const date   = parseDate8(dateValue);
+
+    txns.push({
+      txType,
+      shares: shares !== null ? Math.abs(shares) : null,
+      price:  price  !== null && price > 0 ? price : null,
+      transDate: date,
+      reasonEng,
+    });
+  }
+
+  // Also expose document-level name/role for the caller
+  return { txns, insiderName, role };
 }
 
 // ─── Batch concurrency helper ─────────────────────────────────────────────────
@@ -383,67 +333,55 @@ async function scrapeKR() {
   let nFetched = 0, nParsed = 0, nFailed = 0;
 
   const processListing = async (listing) => {
-    const rcptNo = listing.rcept_no;
+    const rcptNo     = listing.rcept_no;
     const filingDate = rcptNo
       ? `${rcptNo.slice(0,4)}-${rcptNo.slice(4,6)}-${rcptNo.slice(6,8)}`
       : null;
 
-    const company     = listing.corp_name?.trim() || null;
-    const insiderName = listing.flr_nm?.trim() || null;
-    const rm          = (listing.rm || '').trim();
-
-    // Quick BUY/SELL guess from remark (often empty for D003, but try)
-    let quickType = 'OTHER';
-    if (BUY_KW.test(rm.replace(/\s/g,'')))       quickType = 'BUY';
-    else if (SELL_KW.test(rm.replace(/\s/g,''))) quickType = 'SELL';
+    const company         = listing.corp_name?.trim() || null;
+    const insiderNameList = listing.flr_nm?.trim()    || null;
 
     await delay(DELAY_MS);
     const docContent = await dartGetDocument(apiKey, rcptNo);
     nFetched++;
 
-    let txType = quickType;
-    let shares = null, price = null, transDate = filingDate;
-    let role = null, nameFromDoc = null;
-
-    if (docContent &&
-        !docContent.includes('"status":"010"') &&
-        !docContent.includes('잘못된')) {
-      const parsed = parseDocument(docContent);
-      if (parsed) {
-        if (parsed.txType !== 'OTHER') txType = parsed.txType;
-        else if (quickType !== 'OTHER') txType = quickType;
-        shares      = parsed.shares;
-        price       = parsed.price;
-        if (parsed.transDate)   transDate   = parsed.transDate;
-        if (parsed.role)        role        = parsed.role;
-        if (parsed.nameFromDoc) nameFromDoc = parsed.nameFromDoc;
-        nParsed++;
-      }
-    } else {
+    if (!docContent ||
+        docContent.includes('"status":"010"') ||
+        docContent.includes('잘못된')) {
       nFailed++;
+      return [];
     }
 
-    const name = nameFromDoc || insiderName;
-    if (!name) return null;
+    // parseDocument returns { txns: [...], insiderName, role }
+    // txns is already filtered to BUY/SELL only
+    const result = parseDocument(docContent);
+    if (!result || !result.txns || result.txns.length === 0) return [];
+    nParsed++;
 
-    const fid = `KR-${rcptNo || listing.corp_code}-${transDate || filingDate}`;
+    const nameFromDoc = result.insiderName || null;
+    const role        = result.role        || null;
+    const name        = nameFromDoc || insiderNameList;
+    if (!name) return [];
 
-    return {
-      filing_id:        fid,
+    const filingUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}`;
+
+    // One DB row per transaction (filings can contain multiple trade dates)
+    return result.txns.map((txn, idx) => ({
+      filing_id:        `KR-${rcptNo}-${txn.transDate || filingDate}-${idx}`,
       country_code:     COUNTRY_CODE,
       source:           SOURCE,
       ticker:           listing.corp_code || null,
       company,
       insider_name:     name,
       insider_role:     translateRole(role),
-      transaction_type: txType,
-      transaction_date: transDate || null,
-      shares:           shares !== null ? Math.abs(shares) : null,
-      price_per_share:  price || null,
-      total_value:      (price && shares) ? Math.round(Math.abs(shares) * price) : null,
+      transaction_type: txn.txType,
+      transaction_date: txn.transDate || filingDate,
+      shares:           txn.shares,
+      price_per_share:  txn.price,
+      total_value:      (txn.price && txn.shares) ? Math.round(txn.shares * txn.price) : null,
       currency:         'KRW',
-      filing_url:       `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}`,
-    };
+      filing_url:       filingUrl,
+    }));
   };
 
   const rawRows  = await runBatch(allListings, CONCURRENCY, processListing);
