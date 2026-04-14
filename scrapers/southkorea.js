@@ -31,6 +31,7 @@
 'use strict';
 
 const https = require('https');
+const path  = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 
@@ -40,6 +41,13 @@ const RETENTION_DAYS  = 14;
 const CONCURRENCY     = 3;
 const DELAY_MS        = 300;
 const API_HOST        = 'opendart.fss.or.kr';
+
+// ─── KOSPI 200 filter ─────────────────────────────────────────────────────────
+// Static list of KOSPI 200 constituent stock codes (6-digit KRX codes).
+// Filters out the ~2,500 smaller KOSPI/KOSDAQ companies to match the quality
+// level of DAX 40, CAC 40, AEX 25 etc.  Update quarterly from KRX if needed.
+const KOSPI200_RAW  = require(path.join(__dirname, 'lib/kospi200.json'));
+const KOSPI200_MAP  = new Map(KOSPI200_RAW.map(c => [c.code, c.name]));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -328,6 +336,16 @@ async function scrapeKR() {
   console.log(`  ${allListings.length} D003 filings found`);
   if (!allListings.length) { console.log('  No data.'); return { saved: 0 }; }
 
+  // ── 1b. Filter to KOSPI 200 only ──────────────────────────────────────────
+  // corp_cls 'Y' = KOSPI (유가증권시장); stock_code is the 6-digit KRX code.
+  const kospiListings = allListings.filter(m => {
+    if (m.corp_cls !== 'Y') return false;              // drop KOSDAQ / KONEX / OTC
+    const sc = (m.stock_code || '').replace(/\s/g, '');
+    return sc && KOSPI200_MAP.has(sc);
+  });
+  console.log(`  ${kospiListings.length} filings after KOSPI 200 filter (${allListings.length - kospiListings.length} dropped)`);
+  if (!kospiListings.length) { console.log('  No KOSPI 200 data.'); return { saved: 0 }; }
+
   // ── 2. Fetch + parse each document ────────────────────────────────────────
   let nFetched = 0, nParsed = 0, nFailed = 0;
 
@@ -337,8 +355,9 @@ async function scrapeKR() {
       ? `${rcptNo.slice(0,4)}-${rcptNo.slice(4,6)}-${rcptNo.slice(6,8)}`
       : null;
 
-    const company         = listing.corp_name?.trim() || null;
-    const insiderNameList = listing.flr_nm?.trim()    || null;
+    const sc              = (listing.stock_code || '').replace(/\s/g, '');
+    const company         = KOSPI200_MAP.get(sc) || listing.corp_name?.trim() || null;
+    const insiderNameList = listing.flr_nm?.trim() || null;
 
     await delay(DELAY_MS);
     const docContent = await dartGetDocument(apiKey, rcptNo);
@@ -369,7 +388,7 @@ async function scrapeKR() {
       filing_id:        `KR-${rcptNo}-${txn.transDate || filingDate}-${idx}`,
       country_code:     COUNTRY_CODE,
       source:           SOURCE,
-      ticker:           listing.corp_code || null,
+      ticker:           sc || listing.corp_code || null,
       company,
       insider_name:     name,
       insider_role:     translateRole(role),
@@ -383,7 +402,7 @@ async function scrapeKR() {
     }));
   };
 
-  const rawRows  = await runBatch(allListings, CONCURRENCY, processListing);
+  const rawRows  = await runBatch(kospiListings, CONCURRENCY, processListing);
   const flatRows = rawRows.flat().filter(Boolean);
 
   console.log(`  Fetched: ${nFetched} | Parsed docs: ${nParsed} | Doc errors: ${nFailed}`);
