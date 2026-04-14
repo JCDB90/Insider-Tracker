@@ -1,45 +1,51 @@
 /**
  * Netherlands (NL) — Insider Transactions Scraper
  *
- * Source: AFM (Autoriteit Financiële Markten) — MAR Article 19 Register
- * Export: https://www.afm.nl/export.aspx?type=0ee836dc-5520-459d-bcf4-a4a689de6614&format=xml
+ * Source: AFM (Autoriteit Financiële Markten) — Bestuurders & Commissarissen Register
+ * Export: https://www.afm.nl/export.aspx
+ *           ?DateFrom=DD-MM-YYYY&DateTill=DD-MM-YYYY
+ *           &type=1b934036-12ad-4950-9773-31361d5adbd9&format=xml
  *
- * Available fields from XML export:
- *   ✅ meldingid, transactiedatum, uitgevendeinstelling (company),
- *      meldingsplichtige (insider name), functie (role), lei
+ * This register (Directors & Commissioners) is the Dutch MAR Article 19 notification
+ * register and contains full transaction data including BUY/SELL direction.
  *
- * Not in XML (detail pages require JavaScript rendering):
- *   ❌ transaction_type (BUY/SELL), shares, price_per_share
+ * XML structure per <vermelding>:
+ *   meldingid            → integer ID
+ *   DatumMeldingsplicht  → filing date (M/D/YYYY)
+ *   UitgevendeInstelling → company name
+ *   Meldingsplichtige    → insider name
+ *   Wijzigingen          → list of changes (the actual transactions)
+ *     Wijziging:
+ *       SoortEffect      → security type (Gewoon aandeel, Conditional share award, etc.)
+ *       AantalEffecten   → shares (positive = acquired, negative = disposed)
+ *       WaardePerAandeel → price per share (0 for vesting/award transactions)
+ *       Valuta           → currency
+ *   Voorposities         → pre-transaction positions (for context)
+ *   Naposities           → post-transaction positions (for context)
  *
- * Note: AFM only records that a notification was filed. The actual transaction
- * direction and size are on the individual MAR19 notification PDFs/detail pages
- * which require a browser session. These fields are saved as null for now.
+ * Transaction type logic:
+ *   Sum AantalEffecten for "Gewoon aandeel" (ordinary shares) entries only.
+ *   Positive net → BUY, Negative net → SELL.
+ *   Records with only conditional/restricted share changes → skip (OTHER).
  */
 
 'use strict';
 
-const fetch  = require('node-fetch');
+const https   = require('https');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
-const { translateRole }          = require('./lib/translate');
-
-// ─── Config ───────────────────────────────────────────────────────────────────
 
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
 const CURRENCY       = 'EUR';
 const RETENTION_DAYS = 14;
 
-const EXPORT_URL =
-  'https://www.afm.nl/export.aspx?type=0ee836dc-5520-459d-bcf4-a4a689de6614&format=xml';
+// AFM bestuurders-commissarissen register type ID (found in the export URL on the AFM register page)
+const REGISTER_TYPE = '1b934036-12ad-4950-9773-31361d5adbd9';
 
-const REGISTER_URL =
-  'https://www.afm.nl/nl-nl/sector/registers/meldingenregisters/transacties-leidinggevonden-mar19-';
-
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-};
+// Ordinary share security types that determine BUY/SELL direction.
+// "Gewoon aandeel" is the main type; also match English names for dual-listed companies.
+const ORDINARY_SHARE_TYPES = /gewoon\s+aandeel|ordinary\s+share|common\s+share|aandeel op naam/i;
 
 // ─── Ticker lookup — Euronext Amsterdam (top stocks) ─────────────────────────
 
@@ -60,7 +66,6 @@ const TICKER_MAP = {
   'imcd':               'IMCD',
   'flow traders':       'FLOW',
   'signify':            'LIGHT',
-  'oci ':               'OCI',
   'sbm offshore':       'SBMO',
   'asr nederland':      'ASRNL',
   'aalberts':           'AALB',
@@ -70,7 +75,6 @@ const TICKER_MAP = {
   'postnl':             'PNL',
   'besi':               'BESI',
   'boskalis':           'BOKA',
-  'just eat':           'TKWY',
   'jde peet':           'JDEP',
   'akzonobel':          'AKZA',
   'akzo nobel':         'AKZA',
@@ -83,6 +87,11 @@ const TICKER_MAP = {
   'relx':               'REN',
   'ab inbev':           'ABI',
   'onward medical':     'ONWD',
+  'stmicroelectronics': 'STMPA',
+  'kpn':                'KPN',
+  'koninklijke kpn':    'KPN',
+  'ferrovial':          'FER',
+  'digi communications':'DIGI',
 };
 
 function getTicker(companyName) {
@@ -97,117 +106,176 @@ function getTicker(companyName) {
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
-// AFM dates: "4/2/2026 12:00:00 AM" (M/D/YYYY — US locale from IIS)
-// V8's Date constructor handles this format natively.
-function parseAfmDate(str) {
-  if (!str) return null;
-  const d = new Date(str.trim());
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function toDateStr(d) {
-  // Returns "YYYY-MM-DD" in local time
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function cutoff() {
   const d = new Date();
   d.setDate(d.getDate() - RETENTION_DAYS);
   return d;
 }
 
+// AFM export date format: "M/D/YYYY" (US locale from IIS)
+function parseAfmDate(str) {
+  if (!str) return null;
+  const d = new Date(str.trim());
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function toIsoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// AFM URL date format: "DD-MM-YYYY"
+function toAfmDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${day}-${m}-${y}`;
+}
+
 // ─── XML export ───────────────────────────────────────────────────────────────
 
-async function fetchExport() {
-  console.log('  Downloading AFM XML export…');
-  const res = await fetch(EXPORT_URL, { headers: HEADERS });
-  if (!res.ok) throw new Error(`HTTP ${res.status} fetching export`);
-  const xml = await res.text();
-  console.log(`  Export: ${(xml.length / 1024).toFixed(0)} KB received`);
-  return xml;
+function fetchExport(dateFrom, dateTill) {
+  return new Promise((resolve, reject) => {
+    const qs = `DateFrom=${dateFrom}&DateTill=${dateTill}&type=${REGISTER_TYPE}&format=xml`;
+    const req = https.get({
+      hostname: 'www.afm.nl',
+      path: `/export.aspx?${qs}`,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/xml, text/xml, */*',
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
+  });
 }
 
-function parseExport(xml) {
-  const $ = cheerio.load(xml, { xmlMode: true });
-  const cutoffDate = cutoff();
-  const entries = [];
+/**
+ * Extract text value of a single XML tag from a record string.
+ */
+function getTag(xml, tag) {
+  const m = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse the XML export and return rows ready for Supabase.
+ */
+function parseXml(xml, cutoffDate) {
+  const records = xml.match(/<vermelding>[\s\S]*?<\/vermelding>/g) || [];
+  const rows = [];
   let skipped = 0;
 
-  $('vermelding').each((_, el) => {
-    const datum = $(el).find('transactiedatum').text().trim();
-    const date  = parseAfmDate(datum);
+  for (const r of records) {
+    const id = getTag(r, 'meldingid');
+    const dateRaw = getTag(r, 'DatumMeldingsplicht');
+    const company = getTag(r, 'UitgevendeInstelling');
+    const insiderRaw = getTag(r, 'Meldingsplichtige');
+    const insiderName = insiderRaw ? insiderRaw.replace(/\s+/g, ' ').trim() : null;
 
-    if (!date || date < cutoffDate) { skipped++; return; }
+    const date = parseAfmDate(dateRaw);
+    if (!date || date < cutoffDate) { skipped++; continue; }
+    const txDate = toIsoDate(date);
 
-    entries.push({
-      meldingid:   $(el).find('meldingid').text().trim(),
-      date:        toDateStr(date),
-      company:     $(el).find('uitgevendeinstelling').text().trim(),
-      insiderName: $(el).find('meldingsplichtige').text().trim(),
-      role:        $(el).find('functie').text().trim(),
-      lei:         $(el).find('lei').text().trim(),
+    // Parse Wijzigingen (changes)
+    const wijzText = r.match(/<Wijzigingen>([\s\S]*?)<\/Wijzigingen>/)?.[1] || '';
+    const wijzEntries = wijzText.match(/<Wijziging>[\s\S]*?<\/Wijziging>/g) || [];
+
+    const changes = wijzEntries.map(w => ({
+      soort:  getTag(w, 'SoortEffect') || '',
+      aantal: parseInt(getTag(w, 'AantalEffecten') || '0', 10),
+      prijs:  parseFloat(getTag(w, 'WaardePerAandeel') || '0'),
+      valuta: getTag(w, 'Valuta') || CURRENCY,
+    }));
+
+    // Determine BUY/SELL from ordinary shares only
+    const ordinaryChanges = changes.filter(c => ORDINARY_SHARE_TYPES.test(c.soort));
+    const netOrdinary = ordinaryChanges.reduce((s, c) => s + c.aantal, 0);
+
+    let txType;
+    if (netOrdinary > 0)      txType = 'BUY';
+    else if (netOrdinary < 0) txType = 'SELL';
+    else                      continue;  // only non-ordinary changes → skip
+
+    const shares = Math.abs(netOrdinary);
+    // Use price from the first ordinary-share change that has a non-zero price
+    const priceEntry = ordinaryChanges.find(c => c.prijs > 0);
+    const price  = priceEntry ? priceEntry.prijs   : null;
+    const valuta = priceEntry ? priceEntry.valuta  : CURRENCY;
+    const total  = (price && shares) ? Math.round(price * shares) : null;
+
+    rows.push({
+      filing_id:        `NL-${id}`,
+      country_code:     COUNTRY_CODE,
+      source:           SOURCE,
+      ticker:           getTicker(company),
+      company:          company || null,
+      insider_name:     insiderName || null,
+      insider_role:     null,    // not in export; would need detail page
+      transaction_type: txType,
+      transaction_date: txDate,
+      shares,
+      price_per_share:  price,
+      total_value:      total,
+      currency:         valuta,
+      filing_url:       `https://www.afm.nl/nl-nl/sector/registers/meldingenregisters/bestuurders-commissarissen/details?id=${id}`,
     });
-  });
+  }
 
-  console.log(`  ${entries.length} entries in last ${RETENTION_DAYS} days (${skipped} older, skipped)`);
-  return entries;
-}
-
-// ─── Build Supabase row ───────────────────────────────────────────────────────
-
-function buildRow(e) {
-  return {
-    filing_id:        e.meldingid,
-    country_code:     COUNTRY_CODE,
-    ticker:           getTicker(e.company),
-    company:          e.company,
-    insider_name:     e.insiderName || null,
-    insider_role:     translateRole(e.role) || null,
-    transaction_type: 'UNKNOWN',     // AFM XML doesn't include direction; detail pages require JS
-    transaction_date: e.date,
-    shares:           null,          // Not in XML
-    price_per_share:  null,          // Not in XML
-    total_value:      null,          // Not in XML
-    currency:         CURRENCY,
-    filing_url:       `${REGISTER_URL}?id=${encodeURIComponent(e.meldingid)}`,
-    source:           SOURCE,
-  };
+  console.log(`  Parsed ${rows.length} BUY/SELL rows (${skipped} older records skipped)`);
+  return rows;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeNL() {
-  console.log('🇳🇱  AFM Netherlands — MAR Article 19 insider notifications');
+  console.log('🇳🇱  AFM Netherlands — Bestuurders & Commissarissen (MAR Art. 19)');
   const t0 = Date.now();
 
-  const xml     = await fetchExport();
-  const entries = parseExport(xml);
+  const co      = cutoff();
+  const dateFrom = toAfmDate(co);
+  const dateTill = toAfmDate(new Date());
+  console.log(`  Fetching ${dateFrom} → ${dateTill}…`);
 
-  if (entries.length === 0) {
-    console.log('  No entries in the last 90 days.');
+  let xml;
+  try {
+    xml = await fetchExport(dateFrom, dateTill);
+    console.log(`  Export: ${(xml.length / 1024).toFixed(0)} KB received`);
+  } catch (err) {
+    console.error(`  ❌ Export failed: ${err.message}`);
     return { saved: 0 };
   }
 
-  const rows = entries.map(buildRow);
+  const rows = parseXml(xml, co);
+  if (rows.length === 0) {
+    console.log('  No BUY/SELL ordinary share transactions in the window.');
+    return { saved: 0 };
+  }
 
-  console.log(`  Upserting ${rows.length} rows into Supabase…`);
-  const { inserted, error } = await saveInsiderTransactions(rows);
+  // Preview
+  for (const r of rows.slice(0, 3)) {
+    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} shares @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
+  }
 
+  const { error } = await saveInsiderTransactions(rows);
   if (error) {
-    console.error('  ❌ Supabase error:', error.message);
+    console.error('  ❌ Supabase:', error.message);
     process.exit(1);
   }
 
+  const buys  = rows.filter(r => r.transaction_type === 'BUY').length;
+  const sells = rows.filter(r => r.transaction_type === 'SELL').length;
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  const sample  = entries.slice(0, 3).map(e => `${e.company} / ${e.insiderName}`).join(', ');
-
-  console.log(`  ✅ Done in ${elapsed}s — ${rows.length} rows saved`);
-  console.log(`  Sample: ${sample}…`);
-  console.log(`  ⚠  transaction_type/shares/price: null (AFM XML doesn't include these)`);
-
+  console.log(`  ✅ ${elapsed}s — ${rows.length} rows saved (${buys} BUY, ${sells} SELL)`);
   return { saved: rows.length };
 }
 
