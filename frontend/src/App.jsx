@@ -9,20 +9,21 @@ const supabase = createClient(
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COUNTRY_FLAGS = {
-  AT: '🇦🇹', AU: '🇦🇺', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
-  DE: '🇩🇪', DK: '🇩🇰', ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷',
+  AT: '🇦🇹', AU: '🇦🇺', BE: '🇧🇪', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
+  DE: '🇩🇪', DK: '🇩🇰', ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
   HK: '🇭🇰', IE: '🇮🇪', IT: '🇮🇹', JP: '🇯🇵', KR: '🇰🇷',
   LU: '🇱🇺', NL: '🇳🇱', NO: '🇳🇴', PL: '🇵🇱', PT: '🇵🇹',
   SE: '🇸🇪', SG: '🇸🇬', ZA: '🇿🇦',
 };
 
 const COUNTRY_NAMES = {
-  AT: 'Austria',      AU: 'Australia',   CA: 'Canada',      CH: 'Switzerland',
-  CZ: 'Czech Republic', DE: 'Germany',  DK: 'Denmark',     ES: 'Spain',
-  FI: 'Finland',      FR: 'France',      HK: 'Hong Kong',   IE: 'Ireland',
-  IT: 'Italy',        JP: 'Japan',       KR: 'South Korea', LU: 'Luxembourg',
-  NL: 'Netherlands',  NO: 'Norway',      PL: 'Poland',      PT: 'Portugal',
-  SE: 'Sweden',       SG: 'Singapore',   ZA: 'South Africa',
+  AT: 'Austria',      AU: 'Australia',   BE: 'Belgium',     CA: 'Canada',
+  CH: 'Switzerland',  CZ: 'Czech Republic', DE: 'Germany', DK: 'Denmark',
+  ES: 'Spain',        FI: 'Finland',     FR: 'France',      GB: 'United Kingdom',
+  HK: 'Hong Kong',   IE: 'Ireland',      IT: 'Italy',       JP: 'Japan',
+  KR: 'South Korea', LU: 'Luxembourg',   NL: 'Netherlands', NO: 'Norway',
+  PL: 'Poland',       PT: 'Portugal',    SE: 'Sweden',      SG: 'Singapore',
+  ZA: 'South Africa',
 };
 
 const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();

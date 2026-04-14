@@ -56,8 +56,13 @@ async function fetchViaHeadless(from, to) {
     return null;
   }
 
+  // puppeteer-extra doesn't auto-find the bundled Chromium — pass path explicitly
+  let executablePath;
+  try { executablePath = require('puppeteer').executablePath(); } catch { executablePath = undefined; }
+
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
