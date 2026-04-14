@@ -37,7 +37,7 @@ async function saveInsiderTransactions(rows) {
 
   const { data, error } = await supabase
     .from('insider_transactions')
-    .upsert(filtered, { onConflict: 'filing_id', ignoreDuplicates: true });
+    .upsert(filtered, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
     console.error('  DB error (insider_transactions):', error.message);

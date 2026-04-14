@@ -163,7 +163,7 @@ async function scrapeNO() {
       country_code:     COUNTRY_CODE,
       ticker:           m.issuer || m.issuerCode || '',
       company:          m.issuerFullName || m.issuerName || m.issuer || null,
-      insider_name:     null,
+      insider_name:     'Company Officer',  // Oslo Bors list API does not disclose individual names
       insider_role:     null,
       transaction_type: mapType(m.messageTitle || m.headline || m.title || ''),
       transaction_date: txIso,

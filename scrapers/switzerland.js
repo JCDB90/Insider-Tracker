@@ -145,7 +145,7 @@ async function scrapeCH() {
       country_code:     COUNTRY_CODE,
       ticker:           r.ISIN || '',
       company:          r.notificationSubmitter || null,
-      insider_name:     null,   // not available in public API
+      insider_name:     'Company Officer',  // SER-AG public API does not disclose individual names
       insider_role:     null,
       transaction_type: mapType(r.buySellIndicator),
       transaction_date: txIso,

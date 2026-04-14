@@ -70,6 +70,20 @@ function fetchPage(fromApi, toApi, from) {
   });
 }
 
+/**
+ * Map AMF typesOperation array to BUY/SELL.
+ * The list endpoint returns typesOperation: [] for most DD filings —
+ * transaction type is stored only in the PDF attachment.
+ * When the array is populated, values may include "Acquisition", "Cession", etc.
+ */
+function mapFrType(typesOp) {
+  if (!Array.isArray(typesOp) || typesOp.length === 0) return 'UNKNOWN';
+  const s = typesOp.join(' ').toLowerCase();
+  if (s.includes('acquisit') || s.includes('achat') || s.includes('souscri')) return 'BUY';
+  if (s.includes('cession') || s.includes('vente') || s.includes('dispos'))   return 'SELL';
+  return 'UNKNOWN';
+}
+
 async function scrapeFR() {
   console.log('🇫🇷  AMF France — BDIF Déclarations Dirigeants (MAR Article 19)');
   const t0   = Date.now();
@@ -117,6 +131,9 @@ async function scrapeFR() {
     return { saved: 0 };
   }
 
+  // Note: AMF BDIF API does not expose transaction type in list or detail endpoints —
+  // type (BUY/SELL) is only in the PDF attachment. Rows where typesOperation is empty
+  // will be UNKNOWN and dropped by the central BUY/SELL filter.
   const seen = new Set();
   const dbRows = [];
 
@@ -133,14 +150,14 @@ async function scrapeFR() {
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           '',     // ISIN not returned by API metadata endpoint
+      ticker:           '',
       company,
-      insider_name:     null,   // in PDF only; not returned by API
+      insider_name:     'Company Officer',  // not in API metadata; in PDF only
       insider_role:     null,
-      transaction_type: 'UNKNOWN',  // in PDF only
+      transaction_type: mapFrType(r.typesOperation),
       transaction_date: txIso,
-      shares:           null,
-      price_per_share:  null,
+      shares:           null,               // in PDF only
+      price_per_share:  null,               // in PDF only
       total_value:      null,
       currency:         CURRENCY,
       filing_url:       filingUrl,
@@ -153,9 +170,16 @@ async function scrapeFR() {
   const { error } = await saveInsiderTransactions(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
-  console.log(`  ℹ  Note: structured transaction details (amounts, insider name) require PDF parsing.`);
-  return { saved: dbRows.length };
+  const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
+  const unk   = dbRows.filter(r => r.transaction_type === 'UNKNOWN').length;
+  if (buys + sells === 0) {
+    console.log(`  ℹ  AMF typesOperation is empty in all ${unk} filings — BUY/SELL type only in PDF.`);
+    console.log(`  ℹ  0 rows saved (all UNKNOWN dropped). France requires PDF parsing for full data.`);
+  } else {
+    console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${buys + sells} saved (${buys} BUY, ${sells} SELL, ${unk} UNKNOWN/dropped)`);
+  }
+  return { saved: buys + sells };
 }
 
 scrapeFR().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

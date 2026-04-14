@@ -27,6 +27,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
@@ -316,7 +317,7 @@ async function scrapeKR() {
       ticker:           base.corpCode || null,
       company:          base.company || null,
       insider_name:     insiderName,
-      insider_role:     role || null,
+      insider_role:     translateRole(role),
       transaction_type: txType,
       transaction_date: transDate || null,
       shares:           shares !== null ? Math.abs(shares) : null,

@@ -26,8 +26,9 @@
  */
 'use strict';
 
-const https = require('https');
+const https  = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'PL';
 const SOURCE         = 'GPW Warsaw / ESPI (MAR Art. 19)';
@@ -76,6 +77,74 @@ function isInsiderReport(title) {
     if (new RegExp(kw, 'i').test(l)) return true;
   }
   return false;
+}
+
+// ─── Fetch GPW detail page for richer data ────────────────────────────────────
+
+function fetchDetailHtml(geruId) {
+  return new Promise((resolve) => {
+    const req = https.get({
+      hostname: 'www.gpw.pl',
+      path: `/komunikat?geru_id=${geruId}`,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept-Language': 'pl-PL,pl;q=0.9',
+        'Referer': 'https://www.gpw.pl/komunikaty',
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+/**
+ * Parse the GPW ESPI detail page HTML for structured fields.
+ * Returns { insiderName, role, shares, price } — all can be null if not parseable.
+ *
+ * The report body text (in Polish) typically contains patterns like:
+ *   "Pan/Pani Jan Kowalski, Prezes Zarządu, nabył 1.000 akcji po cenie 25,50 zł"
+ */
+function parseDetailPage(html) {
+  if (!html) return {};
+
+  // Strip HTML tags, normalise whitespace
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+  // ─── Insider name: "Pan" / "Pani" + Proper Name
+  let insiderName = null;
+  const nameM = text.match(/\bPan(?:i)?\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę-]+){1,2})/u);
+  if (nameM) insiderName = nameM[1].trim();
+
+  // ─── Role: look for common Polish executive titles
+  let role = null;
+  const roleM = text.match(/,\s*(Prezes\s+(?:Zarządu|Rady\s+Nadzorczej)?|Wiceprezes\s+(?:Zarządu)?|Członek\s+(?:Zarządu|Rady\s+Nadzorczej)|Dyrektor\s+(?:Generalny|Finansowy|ds\.[^,]+)|CFO|CEO|Przewodniczący\s+Rady\s+Nadzorczej|Akcjonariusz)[^,]/iu);
+  if (roleM) role = roleM[1].trim();
+
+  // ─── Shares: number + "akcji/udziałów/sztuk"
+  let shares = null;
+  const sharesM = text.match(/([\d\s.]+)\s+(?:akcji|akcji\s+zwykłych|udziałów|sztuk)\b/i);
+  if (sharesM) {
+    const n = parseInt(sharesM[1].replace(/[\s.]/g, ''), 10);
+    if (!isNaN(n) && n > 0 && n < 1e9) shares = n;
+  }
+
+  // ─── Price: "po cenie/kursie X zł/PLN" or "cena X zł"
+  let price = null;
+  const priceM = text.match(/(?:po\s+cenie|po\s+kursie|cenie\s+nabycia|kursie)\s+([\d\s,]+)\s*(?:zł|PLN|złotych)/i);
+  if (priceM) {
+    const n = parseFloat(priceM[1].replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(n) && n > 0) price = n;
+  }
+
+  return { insiderName, role, shares, price };
 }
 
 function fetchPage(offset) {
@@ -217,6 +286,9 @@ async function scrapePL() {
     return { saved: 0 };
   }
 
+  // Fetch each detail page to get insider name, shares, price
+  console.log(`  Fetching detail pages for ${insiderItems.length} insider reports…`);
+
   const seen = new Set();
   const dbRows = [];
   for (const r of insiderItems) {
@@ -224,18 +296,31 @@ async function scrapePL() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
+    let insiderName = null, role = null, shares = null, price = null;
+    if (r.geruId) {
+      const detailHtml = await fetchDetailHtml(r.geruId);
+      const parsed = parseDetailPage(detailHtml);
+      insiderName = parsed.insiderName;
+      role        = parsed.role;
+      shares      = parsed.shares;
+      price       = parsed.price;
+      await new Promise(res => setTimeout(res, DELAY_MS));
+    }
+
+    const txType = mapType(r.title);
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker:           r.isin,
       company:          r.company,
-      insider_name:     null,   // not in list view; in report PDF
-      insider_role:     null,
-      transaction_type: mapType(r.title),
+      insider_name:     insiderName || 'Company Officer',
+      insider_role:     translateRole(role),
+      transaction_type: txType,
       transaction_date: r.txIso,
-      shares:           null,
-      price_per_share:  null,
-      total_value:      null,
+      shares,
+      price_per_share:  price,
+      total_value:      (shares && price) ? Math.round(shares * price) : null,
       currency:         CURRENCY,
       filing_url:       r.filingUrl,
       source:           SOURCE,

@@ -149,6 +149,22 @@ const ROLE_RULES = [
   [/\bsenior\s+executive\b/i,                   'Senior Executive'],  // FSMA BE
   [/\bsenior\s+manager\b/i,                     'Senior Executive'],
 
+  // ── Korean (KR) ──────────────────────────────────────────────────────────────
+  [/대표이사/,                                   'CEO'],        // KR: representative director = CEO
+  [/최고경영자/,                                  'CEO'],        // KR: chief executive officer
+  [/사장/,                                       'President'],  // KR: president
+  [/부사장/,                                     'Vice President'], // KR: vice president
+  [/전무이사/,                                   'Executive Director'], // KR: senior managing director
+  [/상무이사/,                                   'Executive Director'], // KR: managing director
+  [/이사회의장/,                                  'Chairman'],   // KR: board chairman
+  [/사외이사/,                                   'Non-Executive Director'], // KR: outside director
+  [/이사/,                                       'Board Member'], // KR: director/board member
+  [/감사/,                                       'Board Member'], // KR: auditor (supervisory role)
+  [/CFO|최고재무책임자/,                          'CFO'],        // KR
+  [/COO|최고운영책임자/,                          'COO'],        // KR
+  [/CTO|최고기술책임자/,                          'CTO'],        // KR
+  [/주요주주/,                                   'Major Shareholder'], // KR: major shareholder
+
   // ── Related Party ────────────────────────────────────────────────────────────
   [/closely\s+associated/i,                     'Related Party'],
   [/nahe\s+stehende\s+person/i,                 'Related Party'],  // DE

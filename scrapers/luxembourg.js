@@ -111,6 +111,15 @@ function parseInsiderName(description) {
   return null;
 }
 
+function mapType(description) {
+  if (!description) return 'UNKNOWN';
+  const l = description.toLowerCase();
+  if (l.includes('purchas') || l.includes('acqui') || l.includes('buy') ||
+      l.includes('subscription') || l.includes('exercise')) return 'BUY';
+  if (l.includes('sale') || l.includes('disposal') || l.includes('sell')) return 'SELL';
+  return 'UNKNOWN';
+}
+
 function parseCompany(complement) {
   if (!complement) return null;
   // "ALVOTECH"
@@ -175,9 +184,9 @@ async function scrapeLU() {
       country_code:     COUNTRY_CODE,
       ticker:           isin,
       company,
-      insider_name:     insiderName,
+      insider_name:     insiderName || 'Company Officer',
       insider_role:     null,     // in PDF only
-      transaction_type: 'UNKNOWN', // in PDF only
+      transaction_type: mapType(r.description),  // keyword-matched from description; UNKNOWN rows filtered
       transaction_date: txIso || publishIso || from,
       shares:           null,
       price_per_share:  null,

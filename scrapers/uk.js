@@ -15,6 +15,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
@@ -287,7 +288,7 @@ function parseDocumentContent(content, meta) {
     ticker:           isin || '',
     company:          company || null,
     insider_name:     name,
-    insider_role:     positions[i] || positions[0] || null,
+    insider_role:     translateRole(positions[i] || positions[0] || null),
     transaction_type: txType,
     transaction_date: effectiveDate,
     price_per_share:  price,
