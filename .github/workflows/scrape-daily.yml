@@ -8,6 +8,7 @@
 # Secrets required (Settings → Secrets → Actions):
 #   SUPABASE_URL   https://xxxx.supabase.co
 #   SUPABASE_KEY   your service_role or anon key
+#   DART_API_KEY   DART Open API key (South Korea FSS/DART)
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Daily Scraper
@@ -27,6 +28,7 @@ on:
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  DART_API_KEY: ${{ secrets.DART_API_KEY }}
   NODE_ENV: production
 
 jobs:
