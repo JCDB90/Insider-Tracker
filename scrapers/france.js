@@ -218,12 +218,28 @@ function parseFrPdf(text) {
         /NOMBRE D'(?:ACTIONS|INSTRUMENTS)\s*:\s*(\d[\d\s.,]+)/im,
       ]);
 
+  // ── ISIN / ticker ────────────────────────────────────────────────────────
+  // Pattern: "CODE D'IDENTIFICATION DE L'INSTRUMENT FINANCIER : FR0010588079"
+  // or:      "CODE D'IDENTIFICATION ... : FR0010169920 / ALPRE"
+  // The apostrophe in the PDF is a curly/alternate Unicode char, so use D.IDENTIFICATION.
+  let isin   = null;
+  let ticker = null;
+  const codeLine = flat.match(/CODE D.IDENTIFICATION[^\n]*/im)?.[0] || '';
+  const isinM    = codeLine.match(/:\s*([A-Z]{2}[0-9]{10})\b/);    // ISIN: CC + 10 digits (strict)
+  const tickerM  = codeLine.match(/\/\s*([A-Z][A-Z0-9]{1,7})\b/);  // exchange ticker after /
+  if (isinM) {
+    isin   = isinM[1];
+    ticker = tickerM ? tickerM[1] : isinM[1]; // prefer ticker, fall back to ISIN
+  }
+
   return {
     txType,
     insiderName: insiderName || null,
     role:        roleRaw     || null,
     shares:      parseNum(sharesRaw),
     price:       parseNum(priceRaw),
+    ticker:      ticker      || null,
+    isin:        isin        || null,
   };
 }
 
@@ -320,10 +336,15 @@ async function scrapeFR() {
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
     const price  = parsed.price  || null;
 
+    // Ticker: exchange ticker from PDF > ISIN from PDF > first word of company name
+    const ticker = parsed.ticker
+      || parsed.isin
+      || (company ? company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 8) : null);
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           null,
+      ticker,
       company,
       insider_name:     parsed.insiderName || 'Not disclosed',
       insider_role:     translateRole(parsed.role) || null,
