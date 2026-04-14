@@ -66,6 +66,92 @@ function fetchList(qs) {
   });
 }
 
+/**
+ * Fetch the full message detail for one filing.
+ * Oslo Bors insider trade bodies follow a bilingual (NO/EN) table format:
+ *   Innsider/Insider: <name>
+ *   Stilling/Position: <role>
+ *   Type handel/Type of transaction: Kjøp/Buy  or  Salg/Sell
+ *   Antall aksjer/Number of shares: <n>
+ *   Kurs/Rate: NOK <price>
+ *   Verdi/Value: NOK <total>
+ */
+function fetchMessage(messageId) {
+  return new Promise((resolve) => {
+    const req = https.get({
+      hostname: API_HOST,
+      path: `/v1/newsreader/message?messageId=${encodeURIComponent(messageId)}`,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Origin': 'https://newsweb.oslobors.no',
+        'Referer': 'https://newsweb.oslobors.no/',
+      },
+    }, res => {
+      let d = ''; res.on('data', c => d += c);
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try { resolve(JSON.parse(d)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+/**
+ * Parse Oslo Bors insider transaction message body.
+ * Handles both Norwegian and English bilingual format used by Euronext Oslo.
+ */
+function parseMessageBody(body) {
+  if (!body || typeof body !== 'string') return {};
+
+  // Normalise: strip HTML tags, collapse whitespace
+  const text = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+  function field(...patterns) {
+    for (const pat of patterns) {
+      const m = text.match(pat);
+      if (m?.[1]?.trim()) return m[1].trim();
+    }
+    return null;
+  }
+
+  function parseNum(s) {
+    if (!s) return null;
+    const clean = s.replace(/[,\s]/g, '').replace(/[^\d.]/g, '');
+    const n = parseFloat(clean);
+    return isNaN(n) ? null : n;
+  }
+
+  const nameRaw  = field(
+    /(?:Innsider|Insider)\s*[:/]\s*([^\n\r<|,]+?)(?:\s*(?:Stilling|Position|Selskap|Company))/i,
+    /(?:Innsider|Insider)\s*[:/]\s*([^\n\r<|]{3,60})/i,
+  );
+  const roleRaw  = field(
+    /(?:Stilling|Position)\s*[:/]\s*([^\n\r<|,]+?)(?:\s*(?:Type|Antall|Kurs|Innsider))/i,
+    /(?:Stilling|Position)\s*[:/]\s*([^\n\r<|]{3,60})/i,
+  );
+  const sharesRaw = field(
+    /(?:Antall aksjer|Number of shares)\s*[:/]\s*([\d\s,.]+)/i,
+    /(?:Antall|Shares)\s*[:/]\s*([\d\s,.]+)/i,
+  );
+  const priceRaw  = field(
+    /(?:Kurs|Rate|Pris|Price)\s*[:/]\s*(?:NOK\s*)?([\d\s,.]+)/i,
+  );
+  const totalRaw  = field(
+    /(?:Verdi|Value|Total)\s*[:/]\s*(?:NOK\s*)?([\d\s,.]+)/i,
+  );
+
+  return {
+    insiderName: nameRaw  || null,
+    role:        roleRaw  || null,
+    shares:      parseNum(sharesRaw),
+    price:       parseNum(priceRaw),
+    total:       parseNum(totalRaw),
+  };
+}
+
 function fetchCategories() {
   return new Promise((resolve) => {
     const req = https.get({
@@ -148,40 +234,66 @@ async function scrapeNO() {
     return { saved: 0 };
   }
 
-  console.log(`  ${messages.length} messages found`);
+  console.log(`  ${messages.length} messages — fetching details…`);
   const seen = new Set();
   const dbRows = [];
 
   for (const m of messages) {
-    const txIso = (m.time || m.publishedTime || m.date || '').slice(0, 10) || from;
-    const fid   = `NO-${m.messageId || m.id || (m.issuer + '-' + txIso)}`;
+    const txIso    = (m.time || m.publishedTime || m.date || '').slice(0, 10) || from;
+    const msgId    = m.messageId || m.id || null;
+    const fid      = `NO-${msgId || (m.issuer + '-' + txIso)}`;
     if (seen.has(fid)) continue;
     seen.add(fid);
+
+    const txType = mapType(m.messageTitle || m.headline || m.title || '');
+
+    // Fetch message detail to extract body text with insider name / shares / price
+    let detail = {};
+    if (msgId) {
+      const msg = await fetchMessage(msgId);
+      if (msg) {
+        // Body text can be in msg.body, msg.content, msg.messageBody, or msg.text
+        const bodyText = msg.body || msg.content || msg.messageBody || msg.text || '';
+        detail = parseMessageBody(bodyText);
+      }
+      await new Promise(r => setTimeout(r, 200)); // light rate-limit
+    }
+
+    const { translateRole } = require('./lib/translate');
 
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           m.issuer || m.issuerCode || '',
+      ticker:           m.issuer || m.issuerCode || null,
       company:          m.issuerFullName || m.issuerName || m.issuer || null,
-      insider_name:     'Company Officer',  // Oslo Bors list API does not disclose individual names
-      insider_role:     null,
-      transaction_type: mapType(m.messageTitle || m.headline || m.title || ''),
+      insider_name:     detail.insiderName || 'Not disclosed',
+      insider_role:     translateRole(detail.role) || null,
+      transaction_type: txType,
       transaction_date: txIso,
-      shares:           null,
-      price_per_share:  null,
-      total_value:      null,
+      shares:           detail.shares   ? Math.round(detail.shares) : null,
+      price_per_share:  detail.price    || null,
+      total_value:      detail.total    ? Math.round(detail.total)
+                      : (detail.shares && detail.price) ? Math.round(detail.shares * detail.price)
+                      : null,
       currency:         CURRENCY,
-      filing_url:       `https://newsweb.oslobors.no/message/${m.messageId || m.id || ''}`,
+      filing_url:       `https://newsweb.oslobors.no/message/${msgId || ''}`,
       source:           SOURCE,
     });
   }
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
+  // Preview
+  for (const r of dbRows.slice(0, 3)) {
+    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? 'n/a'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
+  }
+
   const { error } = await saveInsiderTransactions(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
+  const withName   = dbRows.filter(r => r.insider_name !== 'Not disclosed').length;
+  const withShares = dbRows.filter(r => r.shares !== null).length;
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${withName} with name, ${withShares} with shares)`);
   return { saved: dbRows.length };
 }
 
