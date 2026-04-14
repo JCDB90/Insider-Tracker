@@ -51,7 +51,6 @@ function dartDate(d) {
 }
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-/**
 // ─── HTTP ─────────────────────────────────────────────────────────────────────
 
 function dartGet(path) {
