@@ -356,13 +356,13 @@ export default function App() {
 
   // Fetch both tables on mount
   useEffect(() => {
-    supabase.from('insider_transactions').select('*').order('transaction_date', { ascending: false }).limit(5000)
+    supabase.from('insider_transactions').select('*').order('transaction_date', { ascending: false }).limit(10000)
       .then(({ data, error }) => {
         if (!error && data) setTrades(data);
         setTradesLoading(false);
       });
 
-    supabase.from('buyback_programs').select('*').order('announced_date', { ascending: false }).limit(5000)
+    supabase.from('buyback_programs').select('*').order('announced_date', { ascending: false }).limit(10000)
       .then(({ data, error }) => {
         if (!error && data) setBuybacks(data);
         setBuybacksLoading(false);
