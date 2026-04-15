@@ -15,11 +15,19 @@
  *
  * Note: Price/shares data is only in the PDF — we save filing metadata.
  * Transaction type inferred from headline where possible (UNKNOWN otherwise).
+ *
+ * Filtered to ASX 50 (S&P/ASX 50 index constituents) for signal quality
+ * — mirrors the quality tier of other markets (KOSPI 200, DAX 40, etc.).
  */
 'use strict';
 
-const https   = require('https');
+const path  = require('path');
+const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+
+// ─── ASX 50 filter ────────────────────────────────────────────────────────────
+const ASX50_RAW = require(path.join(__dirname, 'lib/asx50.json'));
+const ASX50_MAP = new Map(ASX50_RAW.map(c => [c.code, c.name]));
 
 const COUNTRY_CODE   = 'AU';
 const SOURCE         = 'ASX Australia';
@@ -74,7 +82,7 @@ function fetchRange(startMs, endMs) {
 }
 
 async function scrapeAU() {
-  console.log("🇦🇺  ASX Australia — Appendix 3Y (Change in Director's Interest)");
+  console.log(`🇦🇺  ASX Australia — Appendix 3Y (Change in Director's Interest) — ASX 50 only (${ASX50_MAP.size} companies)`);
   const t0 = Date.now();
   const co = cutoff();
   const now = new Date();
@@ -106,10 +114,15 @@ async function scrapeAU() {
   console.log(`  ${allRaw.length} raw announcements`);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
 
+  // ── Filter to ASX 50 only ──────────────────────────────────────────────────
+  const asx50Raw  = allRaw.filter(r => ASX50_MAP.has(r.issuer_code));
+  console.log(`  ${asx50Raw.length} after ASX 50 filter (${allRaw.length - asx50Raw.length} dropped)`);
+  if (!asx50Raw.length) { console.log('  No ASX 50 data.'); return { saved: 0 }; }
+
   const seen = new Set();
   const dbRows = [];
 
-  for (const r of allRaw) {
+  for (const r of asx50Raw) {
     const txRaw  = r.document_date || r.document_release_date || '';
     const txDate = txRaw ? new Date(txRaw) : null;
     if (!txDate || txDate < co) continue;
@@ -143,9 +156,9 @@ async function scrapeAU() {
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker:           r.issuer_code || null,
-      company:          r.issuer_full_name || r.issuer_short_name || null,
-      insider_name:     insiderName || 'Not disclosed',  // full data only in PDF
-      insider_role:     'Not disclosed',                 // only in PDF
+      company:          ASX50_MAP.get(r.issuer_code) || r.issuer_full_name || r.issuer_short_name || null,
+      insider_name:     insiderName || null,  // full data only in PDF
+      insider_role:     null,                 // only in PDF
       transaction_type: txType,
       transaction_date: txIso,
       shares:           null,
