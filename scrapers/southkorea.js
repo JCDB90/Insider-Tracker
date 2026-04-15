@@ -34,6 +34,7 @@ const https = require('https');
 const path  = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { romanizeKoreanName }      = require('./lib/korean');
 
 const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
@@ -390,7 +391,7 @@ async function scrapeKR() {
       source:           SOURCE,
       ticker:           sc || listing.corp_code || null,
       company,
-      insider_name:     name,
+      insider_name:     romanizeKoreanName(name),
       insider_role:     translateRole(role),
       transaction_type: txn.txType,
       transaction_date: txn.transDate || filingDate,

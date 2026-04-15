@@ -34,6 +34,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
     "cheerio": "^1.2.0",
+    "hangul-romanization": "^1.0.1",
     "node-fetch": "^2.7.0",
     "pdf-parse": "^2.4.5",
     "puppeteer": "^24.40.0",
