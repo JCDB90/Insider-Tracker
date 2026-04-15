@@ -150,20 +150,39 @@ const ROLE_RULES = [
   [/\bsenior\s+manager\b/i,                     'Senior Executive'],
 
   // ── Korean (KR) ──────────────────────────────────────────────────────────────
-  [/대표이사/,                                   'CEO'],        // KR: representative director = CEO
-  [/최고경영자/,                                  'CEO'],        // KR: chief executive officer
-  [/사장/,                                       'President'],  // KR: president
-  [/부사장/,                                     'Vice President'], // KR: vice president
+  [/대표이사/,                                   'CEO'],              // KR: representative director = CEO
+  [/최고경영자/,                                  'CEO'],              // KR: chief executive officer
+  [/부회장/,                                     'Vice Chairman'],    // KR: vice chairman (before 회장)
+  [/회장/,                                       'Chairman'],         // KR: chairman (유진그룹 회장 etc.)
+  [/사장/,                                       'President'],        // KR: president
+  [/부사장/,                                     'Vice President'],   // KR: vice president
+  [/부행장/,                                     'Vice President'],   // KR: vice director (banking)
   [/전무이사/,                                   'Executive Director'], // KR: senior managing director
   [/상무이사/,                                   'Executive Director'], // KR: managing director
-  [/이사회의장/,                                  'Chairman'],   // KR: board chairman
+  [/전무/,                                       'Executive Director'], // KR: senior managing director (abbr.)
+  [/상무보/,                                     'Executive Director'], // KR: assistant managing director
+  [/상무/,                                       'Executive Director'], // KR: managing director (abbr.)
+  [/이사회의장/,                                  'Chairman'],         // KR: board chairman
   [/사외이사/,                                   'Non-Executive Director'], // KR: outside director
-  [/이사/,                                       'Board Member'], // KR: director/board member
-  [/감사/,                                       'Board Member'], // KR: auditor (supervisory role)
-  [/CFO|최고재무책임자/,                          'CFO'],        // KR
-  [/COO|최고운영책임자/,                          'COO'],        // KR
-  [/CTO|최고기술책임자/,                          'CTO'],        // KR
+  [/이사/,                                       'Board Member'],     // KR: director/board member
+  [/감사/,                                       'Board Member'],     // KR: auditor (supervisory role)
+  [/CFO|최고재무책임자/,                          'CFO'],              // KR
+  [/COO|최고운영책임자/,                          'COO'],              // KR
+  [/CTO|최고기술책임자/,                          'CTO'],              // KR
   [/주요주주/,                                   'Major Shareholder'], // KR: major shareholder
+  [/총괄임원/,                                   'Executive'],        // KR: supervising executive (before 임원)
+  [/임원/,                                       'Executive'],        // KR: executive/officer (generic)
+  [/경영리더/,                                   'Senior Executive'], // KR: management leader
+  [/그룹장/,                                     'Senior Executive'], // KR: group head
+  [/사업부장/,                                   'Senior Executive'], // KR: division head
+  [/본부장/,                                     'Senior Executive'], // KR: department head
+  [/실장/,                                       'Senior Executive'], // KR: team/department head
+  [/센터장/,                                     'Senior Executive'], // KR: center head
+  [/담당/,                                       'Executive'],        // KR: person in charge
+  [/연구소장/,                                   'Director'],         // KR: research institute director
+  [/연구위원/,                                   'Research Fellow'],  // KR: research fellow/associate
+  [/공장장/,                                     'Director'],         // KR: factory/plant director
+  [/사업고문/,                                   'Advisor'],          // KR: business advisor
 
   // ── Polish (PL) ──────────────────────────────────────────────────────────────
   [/wiceprezes[a]?\s+zarz/i,                  'Vice President'],    // PL: Wiceprezes(a) Zarządu (BEFORE prezes)
@@ -196,8 +215,14 @@ function translateRole(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  // Treat placeholder values as null
+  if (/^[-–—]+$/.test(trimmed) || /^n\/a$/i.test(trimmed)) return null;
+  // For Korean text, strip internal spaces so "상 무" matches /상무/
+  const testStr = /[\uAC00-\uD7AF\u3040-\u309F\u30A0-\u30FF]/.test(trimmed)
+    ? trimmed.replace(/\s+/g, '')
+    : trimmed;
   for (const [pattern, english] of ROLE_RULES) {
-    if (pattern.test(trimmed)) return english;
+    if (pattern.test(testStr)) return english;
   }
   return trimmed;
 }

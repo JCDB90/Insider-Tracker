@@ -81,12 +81,40 @@ function parseNotificationText(text) {
     );
   }
 
+  // Nordic name character class: ASCII letters + Nordic/Germanic accented chars
+  const NC = '[a-zA-ZæøåÆØÅäöüÄÖÜ\\-]';
+
+  // ── Free-text: "Group CTO Mikael Kärrsten has been granted 44 shares" ──
+  // Pattern: known title + Name + has been granted/sold/awarded
+  if (!insiderName) {
+    const titleNameMatch = text.match(
+      new RegExp(`(?:Group\\s+)?(?:CEO|CFO|CTO|COO|CMO|CSO|CRO|President|Chairman|Vice\\s+President|Head\\s+of\\s+\\S+|Director)\\s+(${NC}+(?:\\s+${NC}+){1,3})\\s+has\\s+been`, 'i')
+    );
+    if (titleNameMatch) insiderName = titleNameMatch[1].trim();
+  }
+
+  // ── Free-text: "primary insider Are Dragesund" ──
+  if (!insiderName) {
+    insiderName = grabAfter(text,
+      new RegExp(`primary\\s+insider\\s+(${NC}+(?:\\s+${NC}+){1,3})`, 'i'),
+      new RegExp(`insider[,]?\\s+(${NC}+(?:\\s+${NC}+){1,3})\\b`, 'i'),
+    );
+  }
+
   if (!insiderRole) {
     // "is (the) Chairman/CEO/Director of" or "is a member of the board"
     insiderRole = grabAfter(text,
       /(?:is|as)\s+(?:the\s+)?([A-Z][a-zA-Z\s\-]{3,50}?)\s+(?:of|in)\s+[A-Z]/,
       /(?:is\s+a\s+)(member\s+of\s+the\s+board[^,.]*)/i,
       /(?:serving\s+as\s+|appointed\s+(?:as\s+)?)(CEO|CFO|CTO|COO|President|Chairman|Director|[A-Z][a-z]+\s+(?:Executive|Officer|Director|Manager)[^,.]*)/i,
+    );
+  }
+
+  // ── Free-text role: "Group CTO Name" or "board member ... Are Dragesund" ──
+  if (!insiderRole) {
+    insiderRole = grabAfter(text,
+      /(?:Group\s+)?(CEO|CFO|CTO|COO|CMO|CSO|CRO|President|Chairman|Vice\s+President)\s+[A-Z]/i,
+      /(?:close\s+associate\s+of\s+)?(board\s+member)/i,
     );
   }
 
@@ -121,6 +149,8 @@ function parseNotificationText(text) {
   const volRaw = grabAfter(text,
     /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
     /(?:purchasing|selling|acquired|disposed\s+of|sold)\s+([\d][,\d\.]*)\s+shares/i,
+    /(?:sale|purchase)\s+of\s+([\d][,\d\.]*)\s+shares/i,
+    /been\s+(?:granted|awarded)\s+([\d][,\d\.]*)\s+(?:\S+\s+)?shares/i,
     /(?:increased|decreased)\s+(?:his|her|their|its)\s+shareholding.*?by\s+([\d][,\d\.]*)\s+shares/i,
   );
   if (volRaw) {
@@ -130,15 +160,47 @@ function parseNotificationText(text) {
 
   // Price: structured "Unit price: X" or prose "at DKK X" / "at a price of X"
   let price = null;
+  let totalValue = null;
   const priceRaw = grabAfter(text,
     /Unit\s+price\s*[:|]\s*([\d,\.]+)(?!\s*N\/A)/i,
     /Price\s*\(s\)\s*[:|]\s*([\d,\.]+)/i,
     /at\s+(?:a\s+price\s+of\s+)?(?:DKK|EUR|SEK|NOK)\s*([\d,\.]+)/i,
     /at\s+(?:a\s+(?:share\s+)?price\s+of\s+)?([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK)/i,
+    /DKK\s*([\d,\.]+)\s+per\s+share/i,
   );
   if (priceRaw) {
-    const n = parseFloat(priceRaw.replace(/,/g, '.').replace(/\s/g, ''));
+    // Detect European decimal format (1.234,56) vs US (1,234.56)
+    const isEuropean = /\d\.\d{3},\d/.test(priceRaw);
+    const normalized = isEuropean
+      ? priceRaw.replace(/\./g, '').replace(',', '.')
+      : priceRaw.replace(/,/g, '');
+    const n = parseFloat(normalized);
     if (!isNaN(n) && n > 0) price = n;
+  }
+
+  // Total value: "for a total amount of DKK X" or "at a total price of DKK X"
+  const totalRaw = grabAfter(text,
+    /(?:total\s+(?:amount|price|consideration)\s+of\s+)?(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
+    /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:\.|$)/i,
+  );
+
+  function parseAmount(raw) {
+    if (!raw) return NaN;
+    const isEuropean = /\d\.\d{3},\d/.test(raw);
+    return parseFloat(isEuropean
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, ''));
+  }
+
+  if (!price && totalRaw && shares) {
+    const total = parseAmount(totalRaw);
+    if (!isNaN(total) && total > 0) {
+      totalValue = Math.round(total);
+      price = parseFloat((total / shares).toFixed(4));
+    }
+  } else if (totalRaw) {
+    const total = parseAmount(totalRaw);
+    if (!isNaN(total) && total > 0) totalValue = Math.round(total);
   }
 
   // Normalise insider name: "Surname, Firstname" → "Firstname Surname"
@@ -147,7 +209,7 @@ function parseNotificationText(text) {
     if (parts.length === 2 && parts[1]) insiderName = `${parts[1]} ${parts[0]}`;
   }
 
-  return { insiderName, insiderRole, isin, txDate, shares, price, nature, transactionType: mapType(nature || '') };
+  return { insiderName, insiderRole, isin, txDate, shares, price, totalValue, nature, transactionType: mapType(nature || '') };
 }
 
 function get(hostname, path, headers = {}, _redirects = 5) {
@@ -314,7 +376,7 @@ async function scrapeDK() {
       transaction_date: txIso,
       shares:           det ? det.shares : null,
       price_per_share:  det ? det.price : null,
-      total_value:      (det && det.shares && det.price) ? Math.round(det.shares * det.price) : null,
+      total_value:      det ? (det.totalValue || ((det.shares && det.price) ? Math.round(det.shares * det.price) : null)) : null,
       currency:         CURRENCY,
       filing_url:       r.messageUrl || `https://view.news.eu.nasdaq.com/`,
       source:           SOURCE,

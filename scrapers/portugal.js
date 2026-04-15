@@ -151,7 +151,11 @@ function parsePdfFields(text) {
   if (!company) {
     const issuerMatch = text.match(/Issuer Company\s+([\s\S]+?)(?:\n\n|LEI)/);
     if (issuerMatch) {
-      company = issuerMatch[1].split('\n').map(l => l.trim()).filter(Boolean).join(' ').slice(0, 150);
+      // Filter out lines that look like dates or timestamps (e.g. "2026-03-31 – 08h00 WEST")
+      const lines = issuerMatch[1].split('\n').map(l => l.trim()).filter(l =>
+        l.length > 2 && !/^\d{4}-\d{2}-\d{2}/.test(l) && !/^\d{2}[hH]\d{2}/.test(l)
+      );
+      if (lines.length) company = lines.join(' ').slice(0, 150);
     }
   }
 
