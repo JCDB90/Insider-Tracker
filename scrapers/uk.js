@@ -109,6 +109,9 @@ function parsePrice(priceStr) {
   // "200 pence"
   m = s.match(/([\d,\.]+)\s+pence/i);
   if (m) return parseFloat(m[1].replace(/,/g, '')) / 100;
+  // Other currencies with or without space: CNY38.957, USD 12.50, HKD 5.00
+  m = s.match(/^[A-Z]{2,3}\s*([\d,\.]+)/);
+  if (m) return parseFloat(m[1].replace(/,/g, ''));
   // Raw number
   m = s.match(/^([\d,\.]+)$/);
   if (m) return parseFloat(m[1].replace(/,/g, ''));
@@ -118,9 +121,14 @@ function parsePrice(priceStr) {
 // Parse volume string like "26,000" or "26000" or "26 000"
 function parseVolume(volStr) {
   if (!volStr) return null;
-  const clean = volStr.replace(/[,\s]/g, '');
+  // Take only the first contiguous digit run (ignore anything that follows whitespace)
+  const firstRun = volStr.trim().match(/^[\d,]+/);
+  if (!firstRun) return null;
+  const clean = firstRun[0].replace(/,/g, '');
   const n = parseInt(clean, 10);
-  return isNaN(n) ? null : n;
+  // Sanity: reject implausibly large values (> 1 billion shares)
+  if (isNaN(n) || n <= 0 || n > 1_000_000_000) return null;
+  return n;
 }
 
 // Parse date like "10 April 2026" or "10-Apr-2026" or "2026-04-10"
@@ -191,39 +199,43 @@ function parseDocumentContent(content, meta) {
     /\bb\)\s*Nature\s+of\s+the\s+transaction\s+([\s\S]+?)\s+(?:d\)|e\)|f\))/i
   );
 
-  // Price and volume from "c) Price(s) and volume(s) Price(s) Volume(s) <price> <volume>"
-  const priceVolSec = grabAfter(t,
-    /\bc\)\s*Price\(s\)\s*and\s*volume\(s\)\s*Price\(s\)\s*Volume\(s\)\s*([\s\S]+?)\s*d\)/i,
-    /\bc\)\s*Price\(s\)\s*and\s*volume\(s\)\s*([\s\S]+?)\s*d\)/i
-  );
+  // Price and volume from section c)
+  // Formats vary:
+  //   "c)   Price(s) and volume(s)   Price(s) 56.22 pence       Volume(s) 35,000       d)"
+  //   "c)   Price(s) and volume(s) Price(s) Volume(s) 21p 26,000 d)"
+  //   "c)   Price(s) and volume(s) Price(s) Volume(s) CNY38.957 12800 d)"
+  const priceVolBlock = t.match(/\bc\)\s*Price\(s\)\s*and\s*volume\(s\)([\s\S]+?)\bd\)/i)?.[1] || '';
 
   // Date of transaction
   const transDateStr = grabAfter(t,
     /\be\)\s*Date\s+of\s+the\s+transaction\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
-    /\be\)\s*Date\s+of\s+the\s+transaction\s+(\d{4}-\d{2}-\d{2})/i
+    /\be\)\s*Date\s+of\s+the\s+transaction\s+(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})/i
   );
 
-  // Parse price/volume from the combined section
-  // Format typically: "<price> <volume>" e.g. "21p 26,000"
   let price = null, volume = null;
-  if (priceVolSec) {
-    const pvStr = priceVolSec.replace(/N\s*\/?\s*A/gi, '').trim();  // remove N/A
-    // Pattern: price followed by volume (require currency unit OR a long number for volume)
-    const pvMatch = pvStr.match(/([£$€]?[\d,\.]+\s*(?:p\b|pence|GBp|GBX|GBP|EUR|USD))\s+([\d,\s]{3,})/i);
-    if (pvMatch) {
-      price = parsePrice(pvMatch[1]);
-      volume = parseVolume(pvMatch[2]);
-    } else {
-      // Try pence-only price: "21p 26,000" or "21.5p 1000"
-      const penceMatch = pvStr.match(/([\d,\.]+p)\s+([\d,\s]{3,})/i);
-      if (penceMatch) {
-        price = parsePrice(penceMatch[1]);
-        volume = parseVolume(penceMatch[2]);
-      } else {
-        // Just try to find volume (large number)
-        const volM = pvStr.match(/([\d,]{4,})/);
-        if (volM) volume = parseVolume(volM[1]);
+  if (priceVolBlock) {
+    const pvStr = priceVolBlock.replace(/N\s*\/?\s*A|nil|N\/A/gi, '0').trim();
+
+    // Pattern A: "Price(s) <price> Volume(s) <volume>" — table with labels
+    const labelM = pvStr.match(/Price\(s\)\s+([\S]+(?:\s+\S+)?)\s+Volume\(s\)\s+([\d,\s]+)/i);
+    if (labelM) {
+      price = parsePrice(labelM[1].trim());
+      volume = parseVolume(labelM[2].trim());
+    }
+
+    if (!price && !volume) {
+      // Pattern B: "<price_with_currency> <volume>" — "21p 26,000" or "GBP 1.50 5000" or "CNY38.957 12800"
+      const pvMatch = pvStr.match(/([A-Z]{0,3}[£$€]?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b|CNY\b|SEK\b|NOK\b|CHF\b)?)\s+([\d,\s]{2,})/i);
+      if (pvMatch) {
+        price = parsePrice(pvMatch[1].trim());
+        volume = parseVolume(pvMatch[2].trim());
       }
+    }
+
+    if (!volume) {
+      // Last resort: find any reasonably large number as volume
+      const volM = pvStr.match(/Volume\(s\)\s+([\d,\s]+)/i) || pvStr.match(/\b([\d,]{3,})\b/);
+      if (volM) volume = parseVolume(volM[1]);
     }
   }
 

@@ -102,6 +102,12 @@ function parsePdfFields(text) {
     if (enNameMatch) insiderName = enNameMatch[1].trim();
   }
 
+  // Fallback: ESMA standard English form section 1a "a) Name"
+  if (!insiderName) {
+    const sec1aEn = text.match(/\ba\)\s*Name\s*\n[\s\n]*([A-Z][^\n]{2,120})/);
+    if (sec1aEn) insiderName = sec1aEn[1].trim();
+  }
+
   // Fallback: 1a Nome field if filled
   if (!insiderName) {
     const sec1a = text.match(/\ba\)\s*Nome\s*\n\s*([A-Z][^\n]{5,80})/);
@@ -162,15 +168,19 @@ function parsePdfFields(text) {
   // ── ISIN ─────────────────────────────────────────────────────────────────────
 
   // Flexible: match "ISIN" or "ISIN Code" followed (within ~100 chars) by the ISIN code
-  const isinMatch = text.match(/ISIN(?:\s+Code)?\s*[\s\S]{0,80}?([A-Z]{2}[A-Z0-9]{9}[0-9])/);
-  const isin = isinMatch ? isinMatch[1] : null;
+  let isinM = text.match(/ISIN(?:\s+Code)?\s*[\s\S]{0,80}?([A-Z]{2}[A-Z0-9]{9}[0-9])/);
+  // Fallback: ESMA table format — ISIN appears before "Identification code" label
+  if (!isinM) isinM = text.match(/([A-Z]{2}[A-Z0-9]{9}[0-9])[\s\n]*(?:type of instrument[\s\n]*)?Identification code/);
+  // Fallback: any ISIN-shaped string in the text
+  if (!isinM) isinM = text.match(/\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b/);
+  const isin = isinM ? isinM[1] : null;
 
   // ── LEI ──────────────────────────────────────────────────────────────────────
   const leiMatch = text.match(/\bLEI\b\s+([A-Z0-9]{20})/i);
   const lei = leiMatch ? leiMatch[1] : null;
 
   // ── Transaction type ──────────────────────────────────────────────────────────
-  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of/i.test(text);
+  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of|Subscri/i.test(text);
   const isSell = /Aliena[çc][aã]o|Sale of|sold|disposal/i.test(text);
   const transactionType = isBuy ? 'BUY' : isSell ? 'SELL' : 'OTHER';
 
@@ -212,14 +222,33 @@ function parsePdfFields(text) {
     }
   }
 
+  // Format C: ESMA standard table "c) Price(s) and volume(s) ... €N.NNNN\n\nVOLUME d)"
+  // Extract entire c)...d) block and parse price (€N.N) and volume separately
+  if (pricePerShare == null || !shares || isNaN(shares)) {
+    const esmaBlock = text.match(/c\)\s*Price\(s\)\s*and\s*volume\(s\)([\s\S]+?)d\)\s/i)?.[1] || '';
+    if (esmaBlock) {
+      if (pricePerShare == null) {
+        const eurM = esmaBlock.match(/€\s*([\d,\.]+)/);
+        if (eurM) pricePerShare = parseFloat(eurM[1].replace(',', '.'));
+      }
+      if (!shares || isNaN(shares)) {
+        // Volume appears after the price (€...) in the block — skip the price digits
+        const volM = esmaBlock.match(/€[\d.,]+\s*\n+\s*([\d,]+)/)
+          || esmaBlock.match(/Volume\(s\)\s*\n[\s\S]*?\n\s*([\d]{1,3}(?:,[\d]{3})+)\s*\n/i);
+        if (volM) shares = parseInt(volM[1].replace(/,/g, ''), 10);
+      }
+    }
+  }
+
   if (isNaN(shares)) shares = null;
 
   // ── Transaction date ──────────────────────────────────────────────────────────
 
   // Format A: "Data da operação 2026-04-07"
   const ptDateMatch = text.match(/Data da opera[çc][aã]o\s+(\d{4}-\d{2}-\d{2})/i);
-  // Format B: "Date  2026-03-31 – 08h00" (take only the date part)
-  const enDateMatch = text.match(/\bDate\b\s+(\d{4}-\d{2}-\d{2})/i);
+  // Format B/C: "Date of the transaction\n\n2026-04-13" or "Date  2026-03-31"
+  const enDateMatch = text.match(/Date\s+of\s+the\s+transaction[\s\S]{0,10}?(\d{4}-\d{2}-\d{2})/i)
+    || text.match(/\bDate\b\s+(\d{4}-\d{2}-\d{2})/i);
   const transactionDate = (ptDateMatch || enDateMatch || [])[1] || null;
 
   // ── Market ────────────────────────────────────────────────────────────────────

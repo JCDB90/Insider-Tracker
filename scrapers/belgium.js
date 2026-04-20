@@ -127,9 +127,11 @@ function parseDetailPage(html, slug) {
   const priceEl   = $('.field--name-field-ct-price .field__item').first();
   const amountEl  = $('.field--name-field-ct-amount .field__item').first();
 
-  const shares    = sharesEl.attr('content')  ? Math.round(Math.abs(Number(sharesEl.attr('content'))))  : null;
   const price     = priceEl.attr('content')   ? parseFloat(priceEl.attr('content'))                     : null;
   const totalVal  = amountEl.attr('content')  ? Math.round(Math.abs(Number(amountEl.attr('content'))))  : null;
+  const sharesRaw = sharesEl.attr('content')  ? Math.round(Math.abs(Number(sharesEl.attr('content'))))  : null;
+  // Derive shares from total/price when the quantity field is missing but both values are present and non-zero
+  const shares    = sharesRaw ?? ((price && price > 0 && totalVal && totalVal > 0) ? Math.round(totalVal / price) : null);
 
   // Map transaction type to BUY / SELL
   const txType = (() => {

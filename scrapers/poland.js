@@ -26,7 +26,11 @@
  */
 'use strict';
 
-const https  = require('https');
+const https      = require('https');
+const { execSync } = require('child_process');
+const os         = require('os');
+const fs         = require('fs');
+const path       = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 
@@ -105,17 +109,110 @@ function fetchDetailHtml(geruId) {
   });
 }
 
+function getBinary(url, _redirects = 3) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const done = (v) => { if (!resolved) { resolved = true; resolve(v); } };
+    const u = new URL(url);
+    const req = https.get({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/pdf,*/*',
+        'Referer': 'https://www.gpw.pl/komunikaty',
+      },
+    }, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && _redirects > 0) {
+        res.resume();
+        return done(getBinary(res.headers.location, _redirects - 1));
+      }
+      // Abort immediately if server sends HTML (not a PDF)
+      const ct = res.headers['content-type'] || '';
+      if (ct.includes('text/html')) { res.destroy(); return done(null); }
+      const chunks = [];
+      res.on('data', c => {
+        chunks.push(c);
+        // Also abort if first bytes aren't PDF magic
+        if (chunks.length === 1 && c.length >= 4 && c.slice(0,4).toString() !== '%PDF') {
+          res.destroy();
+          done(null);
+        }
+      });
+      res.on('end', () => done(Buffer.concat(chunks)));
+    });
+    req.on('error', () => done(null));
+    req.setTimeout(10000, () => { req.destroy(); done(null); });
+  });
+}
+
+function pdfBufToText(buf) {
+  if (!buf || buf.length < 100) return null;
+  const tmp = path.join(os.tmpdir(), `pl_esma_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+  try {
+    fs.writeFileSync(tmp, buf);
+    return execSync(`/usr/bin/pdftotext -layout "${tmp}" -`, { timeout: 15000 }).toString('utf8') || null;
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
+// Extract shares+price from ESMA MAR form PDF text (same format as DK)
+function parseEsmaPdfText(text) {
+  if (!text) return {};
+  // Price+Volume table line: "PLN 5.00                         1000" or "DKK/EUR/PLN X  N,NNN"
+  const priceVolLine = text.match(/(?:PLN|EUR|USD|GBP|SEK|NOK|CHF|DKK)\s+([\d,\.]+)\s{3,}([\d,]+)\s*$/im);
+  let shares = null, price = null, totalValue = null;
+  if (priceVolLine) {
+    const pv = parseFloat(priceVolLine[1].replace(/,/g, ''));
+    const sv = parseFloat(priceVolLine[2].replace(/,/g, ''));
+    if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    if (!isNaN(pv) && pv > 0) price = pv;
+  }
+  // Aggregated total before "— Price" label
+  const totalM = text.match(/(?:PLN|EUR|USD)\s*([\d\s,\.]+)\s*\n[^\n]*—\s*Price/im);
+  if (totalM) {
+    const t = parseFloat(totalM[1].replace(/[\s,]/g, ''));
+    if (!isNaN(t) && t > 0) totalValue = Math.round(t);
+  }
+  // Aggregated volume fallback
+  if (!shares) {
+    const aggVol = text.match(/Aggregated\s+volume\s+([\d,]+)/im)
+      || text.match(/Agregowana\s+wielko\S+\s+([\d,]+)/im)  // Polish
+      || text.match(/Aggregated\b[^\n]*\n[^\n]*\n\s*([\d,]+)/im);
+    if (aggVol) {
+      const sv = parseFloat(aggVol[1].replace(/,/g, ''));
+      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    }
+  }
+  // Price from "Unit price: X PLN" or "Jednostkowa cena: X"
+  if (!price) {
+    const priceM = text.match(/(?:Unit\s+price|Cena\s+jednostkowa)[^\d]*([\d,\.]+)\s*(?:PLN|EUR|USD)/i);
+    if (priceM) {
+      const n = parseFloat(priceM[1].replace(/,/g, ''));
+      if (!isNaN(n) && n > 0) price = n;
+    }
+  }
+  // Derive missing: total or price from shares
+  if (shares && price && !totalValue) totalValue = Math.round(shares * price);
+  if (shares && totalValue && !price) price = parseFloat((totalValue / shares).toFixed(4));
+
+  return { shares, price, totalValue };
+}
+
 /**
  * Parse the GPW ESPI detail page HTML for structured fields.
- * Returns { insiderName, role, shares, price } — all can be null if not parseable.
+ * Returns { insiderName, role, shares, price, totalValue } — all can be null if not parseable.
  *
- * GPW ESPI report body text patterns:
- *   Polish: "od Pana Witolda Grabysza - Wiceprezesa Zarządu Spółki"
- *           "przez Waldemara Lipkę - Prezesa Zarządu Emitenta"
+ * GPW ESPI report body text (Polish):
+ *   "Pani Magdalena Krupa nabyła ... 1448 akcji ... za łączną kwotę 64 970,20 PLN. Średnia cena za 1 akcję wyniosła 44,87 PLN."
+ *   "od Pana Witolda Grabysza - Wiceprezesa Zarządu Spółki"
+ *   "przez Waldemara Lipkę - Prezesa Zarządu Emitenta"
  *   English: "from Mr. Vatnak Vat-Ho - Member of the Management Board"
  *
- * Names in Polish are in genitive/accusative case.
- * English version (if present) gives nominative form — prefer it.
+ * Note: GPW attachment URLs return HTML (require browser session), so PDF parsing is not used.
  */
 function parseDetailPage(html) {
   if (!html) return {};
@@ -129,8 +226,11 @@ function parseDetailPage(html) {
   let role = null;
   let shares = null;
   let price = null;
+  let totalValue = null;
 
-  // ─── 1. English section: "from Mr./Ms. [Name] - [Role] of the Company"
+  // ─── Name + role extraction ───────────────────────────────────────────────
+
+  // 1. English: "from Mr./Ms. [Name] - [Role]"
   const enNameM = text.match(
     /from\s+(?:Mr\.|Ms\.|Mrs\.)?\s*([A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+){1,4})\s*[-–]\s*((?:Member|President|Chairman|Chief|Director|Vice|Head|Officer)[^,\.\n]{2,60})/i
   );
@@ -139,7 +239,16 @@ function parseDetailPage(html) {
     role = enNameM[2].replace(/\s+(?:of\s+the\s+(?:Company|Management Board|Supervisory Board)|Spółki|Emitenta)\s*$/, '').trim();
   }
 
-  // ─── 2. Polish: "od Pana/Pani [Name] - [Role]"  (Pana = gen. of Pan = Mr.)
+  // 2. Nominative from verb: "Pan/Pani [Firstname Lastname] nabył/nabyła/zbył/zbyła"
+  // Note: no \b after verb — Polish chars like 'ł' are non-ASCII and break JS \b
+  if (!insiderName) {
+    const verbM = text.match(
+      /Pan[ia]?\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+)\s+(?:nabył|nabyła|zbył|zbyła|sprzedał|sprzedała)/u
+    );
+    if (verbM) insiderName = verbM[1].trim();
+  }
+
+  // 3. Polish genitive: "od Pana/Pani [Name] - [Role]" (name in genitive case)
   if (!insiderName) {
     const plOdM = text.match(
       /od\s+Pan\w*\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u
@@ -150,7 +259,18 @@ function parseDetailPage(html) {
     }
   }
 
-  // ─── 3. Polish: "przez [Name] - [Role]"
+  // 4. Polish: "Panem/Panią [Name] - [Role]"
+  if (!insiderName) {
+    const plPanM = text.match(
+      /Pan(?:em|ią)\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u
+    );
+    if (plPanM) {
+      insiderName = plPanM[1].trim();
+      role = plPanM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA|i\s+Panią|oraz)\b.*$/, '').trim();
+    }
+  }
+
+  // 5. Polish accusative: "przez [Name] - [Role]"
   if (!insiderName) {
     const plPrzezM = text.match(
       /przez\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u
@@ -161,33 +281,88 @@ function parseDetailPage(html) {
     }
   }
 
-  // ─── Shares: delta from before/after holdings ─────────────────────────────
-  // English: "held X,000 shares ... holds Y,000 shares"
-  const enSharesM = text.match(/held\s+([\d,\s]+)\s+shares.*?holds?\s+([\d,\s]+)\s+shares/i);
-  if (enSharesM) {
-    const before = parseInt(enSharesM[1].replace(/[,\s]/g, ''), 10);
-    const after  = parseInt(enSharesM[2].replace(/[,\s]/g, ''), 10);
+  // ─── Shares ───────────────────────────────────────────────────────────────
+
+  // 1. Delta from before/after (Polish): "posiadał X akcji ... posiada Y akcji" — most reliable
+  const plSharesM = text.match(/posiada[łl]a?\s+([\d\s]+)\s+akcji.*?posiada\s+([\d\s]+)\s+akcji/i);
+  if (plSharesM) {
+    const before = parseInt(plSharesM[1].replace(/\s/g, ''), 10);
+    const after  = parseInt(plSharesM[2].replace(/\s/g, ''), 10);
     if (!isNaN(before) && !isNaN(after) && before !== after) shares = Math.abs(before - after);
   }
 
-  // Polish: "posiadał(a) X akcji ... posiada Y akcji"
+  // 2. Delta from before/after (English): "held X shares ... holds Y shares"
   if (!shares) {
-    const plSharesM = text.match(/posiada[łl]a?\s+([\d\s]+)\s+akcji.*?posiada\s+([\d\s]+)\s+akcji/i);
-    if (plSharesM) {
-      const before = parseInt(plSharesM[1].replace(/\s/g, ''), 10);
-      const after  = parseInt(plSharesM[2].replace(/\s/g, ''), 10);
+    const enSharesM = text.match(/held\s+([\d,\s]+)\s+shares.*?holds?\s+([\d,\s]+)\s+shares/i);
+    if (enSharesM) {
+      const before = parseInt(enSharesM[1].replace(/[,\s]/g, ''), 10);
+      const after  = parseInt(enSharesM[2].replace(/[,\s]/g, ''), 10);
       if (!isNaN(before) && !isNaN(after) && before !== after) shares = Math.abs(before - after);
     }
   }
 
-  // ─── Price: "po cenie/kursie X zł/PLN" (present in HTML for some filings)
-  const priceM = text.match(/(?:po\s+cenie|po\s+kursie|cenie\s+nabycia)\s+([\d\s,]+)\s*(?:zł|PLN|złotych)/i);
-  if (priceM) {
-    const n = parseFloat(priceM[1].replace(/\s/g, '').replace(',', '.'));
+  // 3. Explicit transaction context: "nabył/zbył X akcji" or "łączna kwota ... X akcji"
+  if (!shares) {
+    const txSharesM = text.match(/(?:nabył|nabyła|zbył|zbyła|sprzedał|sprzedała|transakcj\w*\s+(?:nabycia|zbycia)[^.]{0,60}?)\s+([\d][\d\s]{0,10})\s+akcji/iu);
+    if (txSharesM) {
+      const n = parseInt(txSharesM[1].replace(/\s/g, ''), 10);
+      if (!isNaN(n) && n > 0) shares = n;
+    }
+  }
+
+  // 4. Fallback: first bare "X akcji" in transaction sentence (nabycie/zbycie context)
+  if (!shares) {
+    const sharesDirectM = text.match(/\b([\d][\d\s]{0,10})\s+akcji\b/u);
+    if (sharesDirectM) {
+      const n = parseInt(sharesDirectM[1].replace(/\s/g, ''), 10);
+      if (!isNaN(n) && n > 0) shares = n;
+    }
+  }
+
+  // ─── Price ────────────────────────────────────────────────────────────────
+
+  // "Średnia cena za 1 akcję wyniosła X PLN" or "cena jednostkowa X PLN"
+  const avgPriceM = text.match(
+    /(?:Średnia\s+cena\s+za\s+1\s+akcję|cena\s+jednostkowa|kurs\s+(?:nabycia|zbycia)|po\s+cenie|po\s+kursie|cenie\s+nabycia)[^\d]*([\d\s,]+)\s*(?:PLN|zł|złotych)/i
+  );
+  if (avgPriceM) {
+    const n = parseFloat(avgPriceM[1].replace(/\s/g, '').replace(',', '.'));
     if (!isNaN(n) && n > 0) price = n;
   }
 
-  return { insiderName, role, shares, price };
+  // ─── Total ────────────────────────────────────────────────────────────────
+
+  // "za łączną kwotę X PLN" or "łączna wartość X PLN"
+  const totalM = text.match(
+    /(?:za\s+łączną\s+kwotę|łączna\s+(?:wartość|kwota|cena))[^\d]*([\d\s,]+)\s*(?:PLN|zł|złotych)/i
+  );
+  if (totalM) {
+    const n = parseFloat(totalM[1].replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(n) && n > 0) totalValue = Math.round(n);
+  }
+
+  // Derive price from total+shares if missing
+  if (!price && totalValue && shares && shares > 0) {
+    price = parseFloat((totalValue / shares).toFixed(4));
+  }
+
+  // ─── Transaction type from body text ─────────────────────────────────────
+  // Note: no trailing \b — Polish chars (ł, ą etc.) are non-ASCII and break JS \b
+  // Cover verbs (nabył/nabyła) AND noun forms (nabycia/nabyciem/nabyciem/sprzedaż/sprzedażą etc.)
+  let txType = null;
+  // Check SELL first (more specific signals), then BUY as fallback
+  if (
+    /zbył|zbyła|zbyto|sprzedał|sprzedała|sprzeda[żz]|zbyci[ae]|zbyciem|zbycie/.test(text) ||
+    /\bsold\b|\bdisposed\b|\bdisposal\b/i.test(text)
+  ) txType = 'SELL';
+  else if (
+    /nabył|nabyła|nabyto|kupił|kupiła|nabywał|nabywała|nabyci[ae]|nabyciem|nabycie/.test(text) ||
+    /objął|objęcia\s+akcji|objęcia\s+udzia|subskrypcj/.test(text) ||  // subscription
+    /otrzymali?\s+\S+\s+akcji|otrzymali?\s+akcji/.test(text) ||        // received shares
+    /\bacquired\b|\bpurchased\b|\bbought\b|\breceived\s+shares\b/i.test(text)
+  ) txType = 'BUY';
+
+  return { insiderName, role, shares, price, totalValue, txType };
 }
 
 function fetchPage(offset) {
@@ -339,31 +514,35 @@ async function scrapePL() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    let insiderName = null, role = null, shares = null, price = null;
+    let insiderName = null, role = null, shares = null, price = null, totalValue = null;
+    let parsedTxType = null;
     if (r.geruId) {
       const detailHtml = await fetchDetailHtml(r.geruId);
       const parsed = parseDetailPage(detailHtml);
-      insiderName = parsed.insiderName;
-      role        = parsed.role;
-      shares      = parsed.shares;
-      price       = parsed.price;
+      insiderName  = parsed.insiderName;
+      role         = parsed.role;
+      shares       = parsed.shares;
+      price        = parsed.price;
+      totalValue   = parsed.totalValue;
+      parsedTxType = parsed.txType;
       await new Promise(res => setTimeout(res, DELAY_MS));
     }
 
-    const txType = mapType(r.title);
+    // Prefer body-text txType (more reliable), fall back to title keywords
+    const txType = parsedTxType || mapType(r.title);
 
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker:           r.isin,
       company:          r.company,
-      insider_name:     insiderName || 'Company Officer',
+      insider_name:     insiderName || null,
       insider_role:     translateRole(role),
       transaction_type: txType,
       transaction_date: r.txIso,
       shares,
       price_per_share:  price,
-      total_value:      (shares && price) ? Math.round(shares * price) : null,
+      total_value:      totalValue || ((shares && price) ? Math.round(shares * price) : null),
       currency:         CURRENCY,
       filing_url:       r.filingUrl,
       source:           SOURCE,
