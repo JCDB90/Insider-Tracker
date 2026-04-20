@@ -11,16 +11,20 @@
  */
 'use strict';
 
-const https = require('https');
+const https      = require('https');
+const { execSync } = require('child_process');
+const os         = require('os');
+const fs         = require('fs');
+const path       = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'DKK';
 const MARKET         = 'Main Market, Copenhagen';
-const CONCURRENCY    = 8;
+const CONCURRENCY    = 4;  // reduced: each notification may also fetch a PDF attachment
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -61,15 +65,27 @@ function grabAfter(text, ...patterns) {
 function parseNotificationText(text) {
   // ── Try structured MAR form first (used by Finnish-style disclosures on DK market) ──
   let insiderName = grabAfter(text,
+    // ESMA section 1.1 — PDF with -layout renders "1.1  Name of the person   John Smith" on one line
+    /1\.1\s+\S[^\n]*?([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*$/m,
+    /1\.1\b[^\n]*\n[ \t]*([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*\n/m,
+    // Tabular ESMA form: "a)   Name                     John Smith"
+    /\ba\)\s+Name\s{2,}([^\n]{2,80})/im,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
     /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
     /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
   );
 
   let insiderRole = grabAfter(text,
+    // ESMA section 1.2 with -layout: "1.2  Position/status   CEO" on one line
+    /1\.2\s+\S[^\n]*?([A-Z][a-zA-Z\s\-\/]{2,60}?)\s*$/m,
+    /1\.2\b[^\n]*\n[ \t]*([A-Z][a-zA-Z\s\-\/]{2,60})\s*\n/m,
+    // Tabular ESMA form: "a)   Position/status          CEO" — only short values (< 80 chars before newline or comma)
+    /\ba\)\s+Position\/status\s{2,}([A-Z][a-zA-Z\s\-\/]{2,79}?)(?:\.|,|\n)/im,
     /\bPosition\s*[:|]\s*([^\n|]+?)(?=\s+(?:Issuer|LEI|ISIN|Reference|Notification type|Name)\s*[:|])/i,
     /Position\s*\/\s*status\s*[:|]\s*([^\n|]{2,80})/i,
   );
+  // Don't use role if it's a long descriptive sentence (closely-related-party explanations)
+  if (insiderRole && insiderRole.length > 80) insiderRole = null;
 
   // ── Prose fallback: "X notifies [Company] that X has..." or "...that X, Chairman..." ──
   if (!insiderName) {
@@ -110,15 +126,15 @@ function parseNotificationText(text) {
     );
   }
 
-  // ── Free-text role: "Group CTO Name" or "board member ... Are Dragesund" ──
+  // ── Free-text role: "board member" ──
   if (!insiderRole) {
     insiderRole = grabAfter(text,
-      /(?:Group\s+)?(CEO|CFO|CTO|COO|CMO|CSO|CRO|President|Chairman|Vice\s+President)\s+[A-Z]/i,
       /(?:close\s+associate\s+of\s+)?(board\s+member)/i,
     );
   }
 
   const isin = grabAfter(text,
+    /4\.3\b[^\n]*?([A-Z]{2}[A-Z0-9]{10})\b/im,   // ESMA section 4.3 ISIN
     /\bISIN\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
     /ISIN\s+code\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
     /\b(DK[A-Z0-9]{10})\b/,  // DK ISIN without label
@@ -127,11 +143,16 @@ function parseNotificationText(text) {
   const nature = grabAfter(text,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]+?)(?=\s+Transaction\s+details|\s+Volume|\s*$)/i,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]{2,120})/i,
+    // Tabular ESMA form: "Nature of the            Sale" (label wraps, value is on label's first line)
+    /Nature\s+of\s+the\b[^\n]*(Sale|Acquisition|Disposal|Subscription|Exercise|Grant|Award)\b/im,
+    /\bNature\s+of\s+the\b[^\n]*?([A-Z][a-z]{2,}(?:ition|al|ion|ise|ize|ase|ent)?)\s*$/im,
   );
 
   const txDateRaw = grabAfter(text,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{4}-\d{2}-\d{2})/i,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/i,
+    // Tabular ESMA form: "Date of the              2026-04-13"
+    /Date\s+of\s+the\b[^\n]*(\d{4}-\d{2}-\d{2})/im,
     /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,  // "today... 10th April 2026"
   );
   let txDate = null;
@@ -145,17 +166,57 @@ function parseNotificationText(text) {
   }
 
   // Volume: structured "Volume: 6187" or prose "purchasing 616 shares"
+  // Also handle ESMA 5.3 "Volume and price" line: "1000 at 45.50" or "1,000 at 45.50"
   let shares = null;
-  const volRaw = grabAfter(text,
-    /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
-    /(?:purchasing|selling|acquired|disposed\s+of|sold)\s+([\d][,\d\.]*)\s+shares/i,
-    /(?:sale|purchase)\s+of\s+([\d][,\d\.]*)\s+shares/i,
-    /been\s+(?:granted|awarded)\s+([\d][,\d\.]*)\s+(?:\S+\s+)?shares/i,
-    /(?:increased|decreased)\s+(?:his|her|their|its)\s+shareholding.*?by\s+([\d][,\d\.]*)\s+shares/i,
-  );
-  if (volRaw) {
-    const n = parseFloat(volRaw.replace(/[\s,]/g, ''));
-    if (!isNaN(n) && n > 0) shares = Math.round(n);
+  let _pdfPriceFromVol = null;
+  const esma53 = text.match(/5\.3\b[^\n]*?([\d][\d\s,\.]*)\s+(?:at|@)\s+([\d,\.]+)/im);
+  if (esma53) {
+    const sv = parseFloat(esma53[1].replace(/[\s,]/g, ''));
+    const pv = parseFloat(esma53[2].replace(/,/g, ''));
+    if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
+  }
+
+  // Tabular ESMA form: "DKK 285.36                              2,160" on one line
+  // Currency + price + whitespace + volume (no "at" between them)
+  if (!shares) {
+    const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,]+)\s*$/im);
+    if (priceVolLine) {
+      const pv = parseFloat(priceVolLine[1].replace(/,/g, ''));
+      const sv = parseFloat(priceVolLine[2].replace(/,/g, ''));
+      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+      if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
+    }
+  }
+
+  // Aggregated volume fallback: "— Aggregated\n      volume\n                 2,160"
+  if (!shares) {
+    const aggVol = text.match(/Aggregated\s+volume\s+([\d,]+)/im);
+    if (!aggVol) {
+      // Split across lines: "— Aggregated" then "volume" on next line, then value
+      const aggSplit = text.match(/Aggregated\b[^\n]*\n[^\n]*volume\b[^\n]*\n\s*([\d,]+)/im);
+      if (aggSplit) {
+        const sv = parseFloat(aggSplit[1].replace(/,/g, ''));
+        if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+      }
+    } else {
+      const sv = parseFloat(aggVol[1].replace(/,/g, ''));
+      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    }
+  }
+
+  if (!shares) {
+    const volRaw = grabAfter(text,
+      /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
+      /(?:purchasing|selling|acquired|disposed\s+of|sold)\s+([\d][,\d\.]*)\s+shares/i,
+      /(?:sale|purchase)\s+of\s+([\d][,\d\.]*)\s+shares/i,
+      /been\s+(?:granted|awarded)\s+([\d][,\d\.]*)\s+(?:\S+\s+)?shares/i,
+      /(?:increased|decreased)\s+(?:his|her|their|its)\s+shareholding.*?by\s+([\d][,\d\.]*)\s+shares/i,
+    );
+    if (volRaw) {
+      const n = parseFloat(volRaw.replace(/[\s,]/g, ''));
+      if (!isNaN(n) && n > 0) shares = Math.round(n);
+    }
   }
 
   // Price: structured "Unit price: X" or prose "at DKK X" / "at a price of X"
@@ -168,6 +229,7 @@ function parseNotificationText(text) {
     /at\s+(?:a\s+(?:share\s+)?price\s+of\s+)?([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK)/i,
     /DKK\s*([\d,\.]+)\s+per\s+share/i,
   );
+  if (!priceRaw && _pdfPriceFromVol) price = _pdfPriceFromVol;
   if (priceRaw) {
     // Detect European decimal format (1.234,56) vs US (1,234.56)
     const isEuropean = /\d\.\d{3},\d/.test(priceRaw);
@@ -179,9 +241,13 @@ function parseNotificationText(text) {
   }
 
   // Total value: "for a total amount of DKK X" or "at a total price of DKK X"
+  // Also: tabular "DKK 616,377.60\n      — Price" (the aggregated total before "— Price" label)
+  // NOTE: do NOT use bare "DKK X" — that matches the unit price as well.
   const totalRaw = grabAfter(text,
-    /(?:total\s+(?:amount|price|consideration)\s+of\s+)?(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
-    /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:\.|$)/i,
+    /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s*\n[^\n]*—\s*Price/im,   // tabular: aggregated total before "— Price"
+    /total\s+(?:amount|price|consideration)\s+of\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
+    /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s+(?:total|in total|aggregate)/i,
+    /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:total|in total)\b/i,
   );
 
   function parseAmount(raw) {
@@ -236,6 +302,46 @@ function get(hostname, path, headers = {}, _redirects = 5) {
   });
 }
 
+// Download a URL as a binary Buffer (follows one redirect)
+function getBinary(url, _redirects = 3) {
+  return new Promise((resolve) => {
+    const u = new URL(url);
+    const req = https.get({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/pdf,*/*',
+      },
+    }, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && _redirects > 0) {
+        res.resume();
+        return resolve(getBinary(res.headers.location, _redirects - 1));
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(30000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+// Convert a PDF buffer to plain text using pdftotext -layout
+function pdfBufToText(buf) {
+  if (!buf || buf.length < 100) return null;
+  const tmp = path.join(os.tmpdir(), `dk_esma_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+  try {
+    fs.writeFileSync(tmp, buf);
+    const text = execSync(`/usr/bin/pdftotext -layout "${tmp}" -`, { timeout: 15000 }).toString('utf8');
+    return text || null;
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
 async function fetchNasdaqPage(fromDate, toDate, start) {
   const qs = new URLSearchParams({
     countResults: 'true',
@@ -274,7 +380,54 @@ async function fetchNotificationDetails(messageUrl) {
     const url = new URL(messageUrl);
     const res = await get(url.hostname, url.pathname + url.search, { 'Accept': 'text/html' });
     if (!res || res.status !== 200) return null;
-    return parseNotificationText(stripHtml(res.body));
+
+    const rawHtml = res.body;
+    const inline  = parseNotificationText(stripHtml(rawHtml));
+
+    // If we already have shares and price from inline HTML, return immediately
+    if (inline.shares && inline.price) return inline;
+
+    // Extract PDF attachment URLs from raw HTML
+    // Nasdaq viewer embeds links like: https://attachment.news.eu.nasdaq.com/abc123
+    const pdfUrls = [];
+    const pdfRe = /https:\/\/attachment\.news\.eu\.nasdaq\.com\/[a-z0-9]+/g;
+    let m;
+    while ((m = pdfRe.exec(rawHtml)) !== null) {
+      if (!pdfUrls.includes(m[0])) pdfUrls.push(m[0]);
+    }
+
+    for (const pdfUrl of pdfUrls) {
+      const buf  = await getBinary(pdfUrl);
+      const text = pdfBufToText(buf);
+      if (!text) continue;
+
+      const fromPdf = parseNotificationText(text);
+
+      // Determine if this PDF is a structured data form (vs. a cover letter).
+      // Only a data form provides reliable ISIN, shares, or transaction date.
+      const isDataForm = !!(fromPdf.isin || fromPdf.shares || fromPdf.txDate);
+
+      // Merge: PDF values fill nulls from inline; don't overwrite existing values
+      if (!inline.isin        && fromPdf.isin)        inline.isin        = fromPdf.isin;
+      if (!inline.txDate      && fromPdf.txDate)      inline.txDate      = fromPdf.txDate;
+      if (!inline.shares      && fromPdf.shares)      inline.shares      = fromPdf.shares;
+      if (!inline.price       && fromPdf.price)       inline.price       = fromPdf.price;
+      if (!inline.totalValue  && fromPdf.totalValue)  inline.totalValue  = fromPdf.totalValue;
+      if (inline.transactionType === 'UNKNOWN' && fromPdf.transactionType !== 'UNKNOWN')
+        inline.transactionType = fromPdf.transactionType;
+
+      // Only take name/role from a data form PDF (not cover letters which may have
+      // the signing CFO/CEO's name/title at the bottom, unrelated to the actual filer)
+      if (isDataForm) {
+        if (!inline.insiderName && fromPdf.insiderName) inline.insiderName = fromPdf.insiderName;
+        if (!inline.insiderRole && fromPdf.insiderRole) inline.insiderRole = fromPdf.insiderRole;
+      }
+
+      // Stop after first PDF that gives us shares
+      if (inline.shares) break;
+    }
+
+    return inline;
   } catch {
     return null;
   }

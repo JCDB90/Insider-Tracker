@@ -46,7 +46,7 @@ const MARKETS = [
   { code: 'NL', name: 'Netherlands',    file: 'netherlands', mode: 'http' },   // XML export works; upgrade to puppeteer for BUY/SELL detail pages
 
   // ── Asia-Pacific ─────────────────────────────────────────────────────────
-  { code: 'AU', name: 'Australia',      file: 'australia',   mode: 'http' },
+  // AU disabled: ASX Appendix 3Y metadata has no price/shares/name data (all null)
   { code: 'HK', name: 'Hong Kong',      file: 'hongkong',    mode: 'http' },
   { code: 'JP', name: 'Japan',          file: 'japan',       mode: 'http' },
   { code: 'KR', name: 'South Korea',    file: 'southkorea',  mode: 'http' },

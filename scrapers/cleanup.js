@@ -6,7 +6,7 @@
 
 const { supabase } = require('./lib/db');
 
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 
 async function cleanup() {
   const cutoff = new Date();

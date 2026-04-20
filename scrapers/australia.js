@@ -157,8 +157,8 @@ async function scrapeAU() {
       country_code:     COUNTRY_CODE,
       ticker:           r.issuer_code || null,
       company:          ASX50_MAP.get(r.issuer_code) || r.issuer_full_name || r.issuer_short_name || null,
-      insider_name:     insiderName || null,  // full data only in PDF
-      insider_role:     null,                 // only in PDF
+      insider_name:     insiderName || 'Not disclosed',  // full data only in PDF
+      insider_role:     'Not disclosed',                 // only in PDF
       transaction_type: txType,
       transaction_date: txIso,
       shares:           null,

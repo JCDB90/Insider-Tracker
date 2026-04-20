@@ -30,7 +30,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'FR';
 const SOURCE         = 'AMF France / BDIF';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 const PAGE_SIZE      = 100;
 

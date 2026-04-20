@@ -36,7 +36,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'PL';
 const SOURCE         = 'GPW Warsaw / ESPI (MAR Art. 19)';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'PLN';
 const PAGE_SIZE      = 200;
 const MAX_PAGES      = 10;

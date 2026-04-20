@@ -23,7 +23,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors Norway / Euronext';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'NOK';
 const API_HOST       = 'obns-api.dev.euronext.cloud';
 

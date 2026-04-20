@@ -9,7 +9,7 @@ const supabase = createClient(
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COUNTRY_FLAGS = {
-  AT: '🇦🇹', AU: '🇦🇺', BE: '🇧🇪', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
+  AT: '🇦🇹', BE: '🇧🇪', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
   DE: '🇩🇪', DK: '🇩🇰', ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
   HK: '🇭🇰', IE: '🇮🇪', IT: '🇮🇹', JP: '🇯🇵', KR: '🇰🇷',
   LU: '🇱🇺', NL: '🇳🇱', NO: '🇳🇴', PL: '🇵🇱', PT: '🇵🇹',
@@ -17,7 +17,7 @@ const COUNTRY_FLAGS = {
 };
 
 const COUNTRY_NAMES = {
-  AT: 'Austria',      AU: 'Australia',   BE: 'Belgium',     CA: 'Canada',
+  AT: 'Austria',      BE: 'Belgium',      CA: 'Canada',
   CH: 'Switzerland',  CZ: 'Czech Republic', DE: 'Germany', DK: 'Denmark',
   ES: 'Spain',        FI: 'Finland',     FR: 'France',      GB: 'United Kingdom',
   HK: 'Hong Kong',   IE: 'Ireland',      IT: 'Italy',       JP: 'Japan',

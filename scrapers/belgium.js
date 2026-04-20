@@ -42,7 +42,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'BE';
 const SOURCE         = 'FSMA Belgium';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 const CONCURRENCY    = 5;   // parallel detail page fetches
 

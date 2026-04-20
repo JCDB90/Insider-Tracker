@@ -36,7 +36,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 const CNMV_HOST      = 'www.cnmv.es';
 const MAR_PAGE       = '/Portal/MAR/Operaciones-Directivos';

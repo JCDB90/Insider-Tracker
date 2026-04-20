@@ -146,10 +146,8 @@ jobs:
         run: node scrapers/norway.js
 
       # ── Asia-Pacific ────────────────────────────────────────────────────────
-      - name: 🇦🇺 Australia (ASIC)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AU' }}
-        continue-on-error: true
-        run: node scrapers/australia.js
+      # AU disabled: ASX metadata has no price/shares/name data (all null rows)
+      # - name: 🇦🇺 Australia (ASIC)
 
       - name: 🇭🇰 Hong Kong (SFC)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'HK' }}

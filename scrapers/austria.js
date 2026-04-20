@@ -22,7 +22,7 @@ const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'AT';
 const SOURCE         = 'FMA Austria';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 
 function isoDate(d) {

@@ -25,7 +25,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'CH';
 const SOURCE         = 'SIX Exchange Regulation';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'CHF';
 const PAGE_SIZE      = 100;
 const MAX_PAGES      = 20;
@@ -145,8 +145,8 @@ async function scrapeCH() {
       country_code:     COUNTRY_CODE,
       ticker:           r.ISIN || '',
       company:          r.notificationSubmitter || null,
-      insider_name:     'Company Officer',  // SER-AG public API does not disclose individual names
-      insider_role:     null,
+      insider_name:     'Not disclosed',  // SER-AG public API does not disclose individual names
+      insider_role:     'Not disclosed',
       transaction_type: mapType(r.buySellIndicator),
       transaction_date: txIso,
       shares,

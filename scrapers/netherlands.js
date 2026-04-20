@@ -38,7 +38,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 
 // AFM bestuurders-commissarissen register type ID (found in the export URL on the AFM register page)
 const REGISTER_TYPE = '1b934036-12ad-4950-9773-31361d5adbd9';
@@ -220,7 +220,7 @@ function parseXml(xml, cutoffDate) {
       ticker:           getTicker(company),
       company:          company || null,
       insider_name:     insiderName || null,
-      insider_role:     null,    // not in export; would need detail page
+      insider_role:     'Not disclosed',    // not in AFM XML export
       transaction_type: txType,
       transaction_date: txDate,
       shares,

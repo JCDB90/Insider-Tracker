@@ -32,7 +32,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'CA';
 const SOURCE         = 'SEDI Canada';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'CAD';
 
 function isoDate(d) {

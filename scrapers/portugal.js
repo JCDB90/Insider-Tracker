@@ -39,7 +39,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'PT';
 const SOURCE         = 'CMVM Portugal';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 // Sequential fetching (=1) avoids CMVM session conflicts where multiple
 // concurrent Puppeteer pages cause the server to return wrong cached PDFs.

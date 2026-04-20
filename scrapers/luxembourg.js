@@ -26,7 +26,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'LU';
 const SOURCE         = 'LuxSE — Manager Transactions';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 
 function isoDate(d) {

@@ -17,7 +17,7 @@ const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'FI';
 const SOURCE         = 'Nasdaq Helsinki / MAR';
-const RETENTION_DAYS = 14;
+const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
 const MARKET         = 'Main Market, Helsinki';
 const CONCURRENCY    = 8;
