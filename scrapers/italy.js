@@ -242,19 +242,8 @@ function parseItNum(s) {
   return parseFloat(str.replace(/,/g, '')) || null;
 }
 
-// Detect debt/non-equity instruments from ESMA form section 4.a instrument type field.
-// Returns true → skip this filing (not an equity insider transaction).
-function isDebtInstrument(text) {
-  // Extract the instrument type/description area (section 4.a, ~600 chars)
-  const sec4aIdx = text.search(/4[.\s]*a\)|Tipo\s+di\s+strumento|Type\s+of\s+financial\s+instrument/i);
-  const chunk = sec4aIdx >= 0 ? text.slice(sec4aIdx, sec4aIdx + 600) : text.slice(0, 800);
-  return /\bobbligazi[oi]n[ei]\b|\bbound\b|\bbond\b|\bnote[s\b]|\bdebenture|\bcertificato\b|\bcovered\s+warrant|\bstrumento\s+di\s+debito|\btitolo\s+di\s+debito|\bdebt\s+instrument|\bwarrant[^s]|\bfondo\b|\betf\b/i.test(chunk)
-    && !/\bazion[ei]\b|\bshare[s\b]|\bordinar[yi]/i.test(chunk.slice(0, 300));
-}
-
 function parsePdfText(text) {
   if (!text || text.length < 100) return {};
-  if (isDebtInstrument(text)) return { _skipped: 'debt' };
 
   // ── Insider name (section 1.a — last substantive line before section 2) ──
   let insiderName = null;
@@ -318,6 +307,10 @@ function parsePdfText(text) {
     }
   }
 
+  // Skip debt/bond instruments: only reliable signal is percentage-priced "Prezzo: N %"
+  // with no EUR/currency price found. Equity always has an explicit currency price.
+  if (price == null && /Prezzo:\s*[\d.,]+\s*%/i.test(text)) return { _skipped: 'debt' };
+
   // ── Transaction date (section 4.e — ISO format in PDF) ───────────────────
   // Formats seen: "2026-04-17 From: 17:35:00" or "2026-04-15 - 16:30:00"
   let txDate = null;
@@ -365,7 +358,7 @@ async function scrapeIT() {
 
   // Step 2: fetch and parse PDFs in concurrent batches
   const rows = [];
-  let pdfFailed = 0, pdfDebt = 0;
+  let pdfFailed = 0, pdfDebt = 0; // pdfDebt = bond/percentage-priced instruments skipped
 
   for (let i = 0; i < filings.length; i += PDF_CONCURRENCY) {
     const batch = filings.slice(i, i + PDF_CONCURRENCY);
