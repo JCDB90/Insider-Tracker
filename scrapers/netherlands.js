@@ -47,6 +47,10 @@ const REGISTER_TYPE = '1b934036-12ad-4950-9773-31361d5adbd9';
 // "Gewoon aandeel" is the main type; also match English names for dual-listed companies.
 const ORDINARY_SHARE_TYPES = /gewoon\s+aandeel|ordinary\s+share|common\s+share|aandeel op naam/i;
 
+// Conditional/restricted/performance share types — vestings and exercises of these
+// are also reportable insider transactions.  Price is typically 0 (free grant).
+const CONDITIONAL_SHARE_TYPES = /conditional\s+share|restricted\s+share|performance\s+share|rsu|ltip|voorwaardelijk|aandelen(?:recht|toekenning)|phantom|depositary/i;
+
 // ─── Ticker lookup — Euronext Amsterdam (top stocks) ─────────────────────────
 
 const TICKER_MAP = {
@@ -197,21 +201,33 @@ function parseXml(xml, cutoffDate) {
       valuta: getTag(w, 'Valuta') || CURRENCY,
     }));
 
-    // Determine BUY/SELL from ordinary shares only
-    const ordinaryChanges = changes.filter(c => ORDINARY_SHARE_TYPES.test(c.soort));
-    const netOrdinary = ordinaryChanges.reduce((s, c) => s + c.aantal, 0);
+    // Determine BUY/SELL — prefer ordinary shares; fall back to conditional/restricted shares.
+    const ordinaryChanges    = changes.filter(c => ORDINARY_SHARE_TYPES.test(c.soort));
+    const conditionalChanges = changes.filter(c => !ORDINARY_SHARE_TYPES.test(c.soort) && CONDITIONAL_SHARE_TYPES.test(c.soort));
+    const netOrdinary        = ordinaryChanges.reduce((s, c) => s + c.aantal, 0);
+    const netConditional     = conditionalChanges.reduce((s, c) => s + c.aantal, 0);
 
-    let txType;
-    if (netOrdinary > 0)      txType = 'BUY';
-    else if (netOrdinary < 0) txType = 'SELL';
-    else                      continue;  // only non-ordinary changes → skip
+    let txType, activeChanges, netShares;
+    if (netOrdinary > 0 || netOrdinary < 0) {
+      // Standard ordinary-share transaction
+      txType        = netOrdinary > 0 ? 'BUY' : 'SELL';
+      activeChanges = ordinaryChanges;
+      netShares     = netOrdinary;
+    } else if (netConditional > 0 || netConditional < 0) {
+      // Vesting / exercise of conditional / restricted / performance shares
+      txType        = netConditional > 0 ? 'BUY' : 'SELL';
+      activeChanges = conditionalChanges;
+      netShares     = netConditional;
+    } else {
+      continue;  // no meaningful change in any instrument type → skip
+    }
 
-    const shares = Math.abs(netOrdinary);
-    // Use price from the first ordinary-share change that has a non-zero price
-    const priceEntry = ordinaryChanges.find(c => c.prijs > 0);
-    const price  = priceEntry ? priceEntry.prijs   : null;
-    const valuta = priceEntry ? priceEntry.valuta  : CURRENCY;
-    const total  = (price && shares) ? Math.round(price * shares) : null;
+    const shares = Math.abs(netShares);
+    // Use price from the first change with a non-zero price; vestings have price=0 which is valid.
+    const priceEntry = activeChanges.find(c => c.prijs > 0) || activeChanges[0];
+    const price  = priceEntry ? priceEntry.prijs  : 0;    // 0 = free grant/vesting
+    const valuta = priceEntry ? priceEntry.valuta : CURRENCY;
+    const total  = price > 0 && shares ? Math.round(price * shares) : null;
 
     rows.push({
       filing_id:        `NL-${id}`,

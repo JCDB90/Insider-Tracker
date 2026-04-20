@@ -35,15 +35,33 @@ async function saveInsiderTransactions(rows) {
   }
   if (filtered.length === 0) return { inserted: 0 };
 
+  // Require insider_name, shares > 0, and price_per_share not null.
+  // price=0 is valid (RSU vesting / free share award — the regulator disclosed it as £0).
+  // price=null means the source genuinely did not report a price → skip.
+  const complete = filtered.filter(r => {
+    const hasName   = r.insider_name && r.insider_name.trim() !== '';
+    const hasShares = r.shares != null && r.shares > 0;
+    const hasPrice  = r.price_per_share != null;   // 0 is acceptable; null is not
+    if (!hasName || !hasShares || !hasPrice) {
+      console.log(`  ⚠  Skipping incomplete row (${r.company || '?'} ${r.transaction_date || '?'}): name=${r.insider_name || 'null'} shares=${r.shares ?? 'null'} price=${r.price_per_share ?? 'null'}`);
+      return false;
+    }
+    return true;
+  });
+  if (complete.length < filtered.length) {
+    console.log(`  ℹ  Dropped ${filtered.length - complete.length} rows missing name/shares/price`);
+  }
+  if (complete.length === 0) return { inserted: 0 };
+
   const { data, error } = await supabase
     .from('insider_transactions')
-    .upsert(filtered, { onConflict: 'filing_id', ignoreDuplicates: false });
+    .upsert(complete, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
     console.error('  DB error (insider_transactions):', error.message);
     return { inserted: 0, error };
   }
-  return { inserted: rows.length };
+  return { inserted: complete.length };
 }
 
 /**

@@ -19,7 +19,7 @@ const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
-const RETENTION_DAYS  = 14;
+const RETENTION_DAYS  = 90;
 const CONCURRENCY     = 3;
 const REQUEST_DELAY_MS = 150;  // Avoid rate-limiting the FCA NSM API
 
@@ -237,6 +237,49 @@ function parseDocumentContent(content, meta) {
       const volM = pvStr.match(/Volume\(s\)\s+([\d,\s]+)/i) || pvStr.match(/\b([\d,]{3,})\b/);
       if (volM) volume = parseVolume(volM[1]);
     }
+  }
+
+  // ── Total consideration → derive price when price still null ──────────────
+  // Try "f) Aggregate consideration £45,678" or "Total consideration paid: GBp 12,345"
+  const totalConsidGBP = (() => {
+    const patterns = [
+      /\bf\)\s*Aggregate\s+consideration\s+(?:£|GBP\s*)?([\d,\.]+)/i,
+      /aggregate\s+consideration\s*[:\s]+(?:£|GBP\s*)?([\d,\.]+)/i,
+      /total\s+consideration\s+(?:paid\s+)?[:\s]+(?:£|GBP\s*)?([\d,\.]+)/i,
+      /consideration\s+of\s+(?:£|GBP\s*)?([\d,\.]+)/i,
+    ];
+    for (const pat of patterns) {
+      const m = t.match(pat);
+      if (m) {
+        const n = parseFloat(m[1].replace(/,/g, ''));
+        if (!isNaN(n) && n > 0) return n;
+      }
+    }
+    // GBp / pence aggregate: "Aggregate consideration 123,456 GBp"
+    const penceM = t.match(/aggregate\s+consideration\s+([\d,\.]+)\s*GBp/i);
+    if (penceM) {
+      const n = parseFloat(penceM[1].replace(/,/g, ''));
+      if (!isNaN(n) && n > 0) return n / 100;  // pence → GBP
+    }
+    return null;
+  })();
+
+  if (!price && volume && totalConsidGBP) {
+    price = parseFloat((totalConsidGBP / volume).toFixed(6));
+  }
+
+  // ── Inline price in nature text ───────────────────────────────────────────
+  // "Purchase at 250p per share" or "acquired at a price of 125p"
+  if (!price && nature) {
+    const inlineM = nature.match(/at\s+(?:a\s+price\s+of\s+)?([\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|£))/i);
+    if (inlineM) price = parsePrice(inlineM[1]);
+  }
+
+  // ── Explicitly N/A price → 0 (LTIP / free share award) ───────────────────
+  // When the priceVolBlock says "N/A" or "nil" for price but volume is valid → price = 0
+  if (price === null && volume && priceVolBlock &&
+      /N\/A|nil|no\s+consideration|free\s+(?:of\s+)?charge|waived|no\s+cost/i.test(priceVolBlock)) {
+    price = 0;
   }
 
   const transDate = parseDate(transDateStr);

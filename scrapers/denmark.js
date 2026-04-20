@@ -269,6 +269,23 @@ function parseNotificationText(text) {
     if (!isNaN(total) && total > 0) totalValue = Math.round(total);
   }
 
+  // ── Clean ESMA boilerplate contamination from insider name ───────────────
+  // Patterns observed in the wild:
+  //   "Nilfisk Holding A/S b) LEI code ..."
+  //   "Jon Sintorn 2. Reason for notification a) Occupation / title"
+  //   "Kim Junge Andersen 2 Reason for the notification a)"
+  //   "Jan Rindbo Reason ..."
+  //   "Claus Fuglsang tobb@company.com ..."
+  if (insiderName) {
+    insiderName = insiderName
+      .replace(/\s+b\)\s+LEI\b.*/i, '')                       // " b) LEI code ..."
+      .replace(/\s+\d*\.?\s*Reason\b.*/i, '')                 // " 2. Reason ..." or " Reason for ..."
+      .replace(/\s+a\)\s+(?:Occupation|Position|Title)\b.*/i, '')  // " a) Occupation / title ..."
+      .replace(/\s+[\w.+-]+@[\w.-]+\.[a-z]{2,}\b.*/i, '')   // strip trailing email address
+      .trim();
+    if (!insiderName) insiderName = null;
+  }
+
   // Normalise insider name: "Surname, Firstname" → "Firstname Surname"
   if (insiderName && insiderName.includes(',')) {
     const parts = insiderName.split(',').map(s => s.trim());
@@ -517,6 +534,18 @@ async function scrapeDK() {
     const txIso      = (det && det.txDate) || publishIso;
     const fid        = `DK-${r.disclosureId || r.id || i}`;
     if (seen.has(fid)) continue; seen.add(fid);
+
+    // Skip company-buyback disclosures (issuer reporting its own share purchases under MAR Art. 5).
+    // These appear in the "Managers' Transactions" feed but the "insider" is the company itself.
+    // Detect: insiderName starts with or contains the company name, or contains "LEI" boilerplate.
+    const companyKey  = (r.company || '').toLowerCase().replace(/\s+a\/s$|\s+plc$|\s+se$|\s+nv$|\s+sa$/i, '').trim().slice(0, 12);
+    const insiderKey  = (det && det.insiderName || '').toLowerCase().slice(0, 12);
+    const isBuyback   = (companyKey && insiderKey && insiderKey.startsWith(companyKey))
+                     || /\blei\b/i.test(det && det.insiderName || '');
+    if (isBuyback) {
+      console.log(`  ℹ  Skipping company-buyback row: ${r.company} (insider="${det && det.insiderName}")`);
+      continue;
+    }
 
     dbRows.push({
       filing_id:        fid,

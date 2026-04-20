@@ -89,15 +89,28 @@ function fetchHtml(path) {
 // ─── List page ───────────────────────────────────────────────────────────────
 
 async function fetchTransactionLinks(from, to) {
-  const path = `/en/transaction-search?date%5Bmin%5D=${from}&date%5Bmax%5D=${to}`;
-  const html = await fetchHtml(path);
-  if (!html) return [];
-
-  const $ = cheerio.load(html);
   const links = new Set();
-  $('a[href^="/en/manager-transaction/"]').each((_, el) => {
-    links.add($(el).attr('href'));
-  });
+  let page = 0;
+  while (true) {
+    const qs = page === 0
+      ? `/en/transaction-search?date%5Bmin%5D=${from}&date%5Bmax%5D=${to}`
+      : `/en/transaction-search?date%5Bmin%5D=${from}&date%5Bmax%5D=${to}&page=${page}`;
+    const html = await fetchHtml(qs);
+    if (!html) break;
+    const $ = cheerio.load(html);
+    let added = 0;
+    $('a[href^="/en/manager-transaction/"]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (!links.has(href)) { links.add(href); added++; }
+    });
+    // If no new links on this page, we've exhausted results
+    if (added === 0) break;
+    // Check if there's a "next page" link
+    const hasNext = $('a[rel="next"], .pager__item--next a').length > 0;
+    if (!hasNext) break;
+    page++;
+    if (page > 20) break;  // safety cap
+  }
   return [...links];
 }
 
@@ -127,9 +140,28 @@ function parseDetailPage(html, slug) {
   const priceEl   = $('.field--name-field-ct-price .field__item').first();
   const amountEl  = $('.field--name-field-ct-amount .field__item').first();
 
-  const price     = priceEl.attr('content')   ? parseFloat(priceEl.attr('content'))                     : null;
-  const totalVal  = amountEl.attr('content')  ? Math.round(Math.abs(Number(amountEl.attr('content'))))  : null;
-  const sharesRaw = sharesEl.attr('content')  ? Math.round(Math.abs(Number(sharesEl.attr('content'))))  : null;
+  // Helper: extract a number from an element, preferring the machine-readable `content`
+  // attribute but falling back to visible text (handles European "1.234,56" format).
+  function parseFieldNum(el) {
+    const raw = el.attr('content');
+    if (raw != null && raw !== '') {
+      const n = parseFloat(raw);
+      return isNaN(n) ? null : Math.abs(n);
+    }
+    const txt = el.text().replace(/\s/g, '');
+    if (!txt) return null;
+    // Detect European format: "1.234,56" → 1234.56
+    const isEuropean = /\d\.\d{3},\d/.test(txt);
+    const norm = isEuropean
+      ? txt.replace(/\./g, '').replace(',', '.')
+      : txt.replace(/,/g, '');
+    const n = parseFloat(norm);
+    return isNaN(n) ? null : Math.abs(n);
+  }
+
+  const price     = parseFieldNum(priceEl);
+  const totalVal  = parseFieldNum(amountEl)  != null ? Math.round(parseFieldNum(amountEl))  : null;
+  const sharesRaw = parseFieldNum(sharesEl)  != null ? Math.round(parseFieldNum(sharesEl))  : null;
   // Derive shares from total/price when the quantity field is missing but both values are present and non-zero
   const shares    = sharesRaw ?? ((price && price > 0 && totalVal && totalVal > 0) ? Math.round(totalVal / price) : null);
 
