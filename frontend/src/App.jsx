@@ -354,19 +354,36 @@ export default function App() {
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
 
+  // Fetch all rows from a table using 1000-row pages (Supabase PostgREST cap)
+  async function fetchAll(table, orderCol) {
+    const PAGE = 1000;
+    const all = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .order(orderCol, { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  }
+
   // Fetch both tables on mount
   useEffect(() => {
-    supabase.from('insider_transactions').select('*').order('transaction_date', { ascending: false }).limit(10000)
-      .then(({ data, error }) => {
-        if (!error && data) setTrades(data);
-        setTradesLoading(false);
-      });
+    fetchAll('insider_transactions', 'transaction_date').then(data => {
+      setTrades(data);
+      setTradesLoading(false);
+    });
 
-    supabase.from('buyback_programs').select('*').order('announced_date', { ascending: false }).limit(10000)
-      .then(({ data, error }) => {
-        if (!error && data) setBuybacks(data);
-        setBuybacksLoading(false);
-      });
+    fetchAll('buyback_programs', 'announced_date').then(data => {
+      setBuybacks(data);
+      setBuybacksLoading(false);
+    });
   }, []);
 
   // Country counts for the active tab (unfiltered by country, so checkboxes show real totals)
