@@ -1,210 +1,428 @@
 /**
- * IT — Insider Transactions Scraper
+ * Italy (IT) — Insider Transactions Scraper
  *
- * Source: CONSOB Italy — Commissione Nazionale per le Società e la Borsa
- * URL: https://www.consob.it/web/area-pubblica/operazioni-manager
+ * Source: eMarket STORAGE (Teleborsa SDIR) — AIOS 02 Internal Dealing
+ * https://www.emarketstorage.it/it/comunicati-finanziari?titolo=internal+dealing
  *
- * CONSOB is protected by Radware Bot Manager which blocks plain HTTP requests.
- * Strategy: puppeteer-extra + stealth plugin to emulate a real Chrome browser,
- * intercept the AJAX call to /operazioni-manager-api, and parse the JSON.
+ * This replaces the old CONSOB/Puppeteer approach which was blocked by Radware.
+ * eMarketstorage is the mandated SDIR (Sistema di Diffusione delle Informazioni
+ * Regolamentate) where Italian listed companies must file MAR Art. 19 disclosures.
+ * The site is publicly accessible with no geo-block or bot protection.
  *
- * On GitHub Actions (fresh EU Azure IP per run) the first stealth request
- * passes Radware's challenge. Local datacenter IPs may time out.
+ * ── Data flow ─────────────────────────────────────────────────────────────────
+ * 1. GET /it/comunicati-finanziari?titolo=internal+dealing&page=N
+ *    HTML list: protocol number, date, company (issuer), title, PDF link
+ *    Stop when entry dates fall before the 90-day retention cutoff.
+ * 2. Construct PDF URL:
+ *    https://www.emarketstorage.it/sites/default/files/comunicati/YYYY-MM/YYYYMMDD_PROTO.pdf
+ * 3. Fetch PDF, parse Italian/English ESMA standard form (Reg. EU 2016/523 Annex II):
+ *    - Section 1.a → insider name
+ *    - Section 2.a → role (PDMR / closely associated)
+ *    - Section 3.a → issuer company
+ *    - Section 4.a ISIN: IT0000000000
+ *    - Section 4.b → CESSIONE (SELL) / ACQUISTO (BUY)
+ *    - Section 4.d → Volume aggregato: N, Prezzo: N EUR
+ *    - Section 4.e → ISO transaction date
+ * 4. Upsert to Supabase on filing_id = IT-{protocol}.
  *
- * API endpoint (called by the CONSOB SPA):
- *   GET /web/area-pubblica/operazioni-manager-api
- *     ?dataDa=YYYY-MM-DD&dataA=YYYY-MM-DD&pagina=1&righePerPagina=100
- *
- * Response JSON fields (Italian):
- *   data / dataOperazione  → transaction date
- *   emittente              → issuer (company)
- *   isin                   → ISIN
- *   soggetto / nomeSoggetto→ insider name
- *   qualifica / carica     → role
- *   tipoOperazione / tipo  → BUY/SELL (acquisto/vendita)
- *   quantita               → shares
- *   prezzo                 → price per share
- *   controvalore           → total value
- *   divisa                 → currency
- *   id                     → filing ID
+ * ── Pagination ────────────────────────────────────────────────────────────────
+ * Each page has 24 entries covering ~3-4 calendar days. For a 90-day window,
+ * ~23 pages suffice (cold start). Daily runs typically need 1-2 pages.
  */
+
 'use strict';
 
+const https   = require('https');
+const { PDFParse } = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
-const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'IT';
-const SOURCE         = 'CONSOB Italy';
+const SOURCE         = 'eMarket STORAGE Italy';
 const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
+const HOST           = 'www.emarketstorage.it';
 
-function isoDate(d) {
+// Concurrent PDF fetches and delay between batches
+const PDF_CONCURRENCY = 4;
+const PDF_DELAY_MS    = 400;
+
+// ─── Ticker lookup — FTSE MIB + main mid-caps ─────────────────────────────────
+
+const TICKER_MAP = {
+  'enel':               'ENEL',
+  'intesa sanpaolo':    'ISP',
+  'intesa':             'ISP',
+  'unicredit':          'UCG',
+  'stellantis':         'STLAM',
+  'eni':                'ENI',
+  'stmicroelectronics': 'STMMI',
+  'mediobanca':         'MB',
+  'generali':           'G',
+  'assicurazioni generali': 'G',
+  'ferrari':            'RACE',
+  'leonardo':           'LDO',
+  'prysmian':           'PRY',
+  'moncler':            'MONC',
+  'diasorin':           'DIA',
+  'recordati':          'REC',
+  'inwit':              'INWIT',
+  'telecom italia':     'TIT',
+  'tim':                'TIT',
+  'terna':              'TRN',
+  'snam':               'SRG',
+  'italgas':            'IG',
+  'azimut':             'AZM',
+  'banca mediolanum':   'BMED',
+  'mediolanum':         'BMED',
+  'pirelli':            'PIRC',
+  'campari':            'CPR',
+  'amplifon':           'AMP',
+  'brunello cucinelli': 'BC',
+  'banco bpm':          'BAMI',
+  'bper':               'BPE',
+  'poste italiane':     'PST',
+  'iveco':              'IVG',
+  'cnh industrial':     'CNHI',
+  'cnh':                'CNHI',
+  'buzzi':              'BZU',
+  'saipem':             'SPM',
+  'tenaris':            'TEN',
+  'exor':               'EXO',
+  'finecobank':         'FBK',
+  'fineco':             'FBK',
+  'reply':              'REY',
+  'nexi':               'NEXI',
+  'webuild':            'WBD',
+  'mondadori':          'MN',
+  'd\'amico':           'DMI',
+  'danieli':            'DAN',
+  'datalogic':          'DAL',
+  'cattolica':          'CATT',
+  'cattolica assicurazioni': 'CATT',
+  'brembo':             'BRE',
+  'autogrill':          'AGL',
+  'atlantia':           'ATL',
+  'fca':                'STLAM',
+  'tinexta':            'TNXT',
+  'cube labs':          'CUB',
+  'ipi':                'IPI',
+  'cir':                'CIR',
+  'cofide':             'COF',
+  'rai way':            'RWAY',
+  'salcef':             'SLC',
+  'erg':                'ERG',
+  'falck renewables':   'FKR',
+  'acea':               'ACE',
+  'hera':               'HER',
+  'iren':               'IRE',
+  'a2a':                'A2A',
+  'italiaonline':       'IOL',
+  'immobiliare grande distribuzione': 'IGD',
+  'igd':                'IGD',
+};
+
+function getTicker(company) {
+  if (!company) return null;
+  const lower = company.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const [frag, ticker] of Object.entries(TICKER_MAP)) {
+    const normFrag = frag.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (lower.includes(normFrag)) return ticker;
+  }
+  return company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 6) || null;
+}
+
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
+function toIsoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
+// "20/04/2026" → "2026-04-20"
+function itToIso(s) {
+  if (!s) return null;
+  const m = s.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
 
-// ─── Puppeteer stealth scraper ────────────────────────────────────────────────
+// ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-async function fetchViaHeadless(from, to) {
-  let puppeteer, StealthPlugin;
-  try {
-    puppeteer    = require('puppeteer-extra');
-    StealthPlugin = require('puppeteer-extra-plugin-stealth');
-    puppeteer.use(StealthPlugin());
-  } catch {
-    console.log('  ⚠  puppeteer-extra / stealth not installed. Run: npm install puppeteer-extra puppeteer-extra-plugin-stealth');
-    return null;
-  }
-
-  // puppeteer-extra doesn't auto-find the bundled Chromium — pass path explicitly
-  let executablePath;
-  try { executablePath = require('puppeteer').executablePath(); } catch { executablePath = undefined; }
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  });
-
-  let apiData = null;
-
-  try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1366, height: 768 });
-
-    // Intercept the CONSOB API response
-    const captured = new Promise((resolve) => {
-      page.on('response', async res => {
-        const url = res.url();
-        if (url.includes('operazioni-manager-api')) {
-          try {
-            const ct = res.headers()['content-type'] || '';
-            if (ct.includes('json') || res.status() === 200) {
-              const text = await res.text();
-              try { resolve(JSON.parse(text)); } catch { resolve(null); }
-            }
-          } catch { resolve(null); }
-        }
-      });
-      // Timeout after 90s
-      setTimeout(() => resolve(null), 90000);
+function httpGet(hostname, path) {
+  return new Promise(resolve => {
+    const req = https.get({
+      hostname,
+      path,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
+    req.on('error', () => resolve(null));
+    req.setTimeout(30000, () => { req.destroy(); resolve(null); });
+  });
+}
 
-    // Navigate to CONSOB with a date range pre-set in the URL
-    const url = `https://www.consob.it/web/area-pubblica/operazioni-manager?dataDa=${from}&dataA=${to}`;
-    console.log('  Loading CONSOB via headless Chrome (stealth)…');
-    try {
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
-    } catch {
-      // networkidle2 timeout is OK if data was already captured
-    }
+// ─── Results-page HTML parser ─────────────────────────────────────────────────
 
-    // Wait for the intercept (up to 90s total)
-    apiData = await captured;
+// Date format: "20/04/2026 - 19:38" → date part only
+function parseDateFromDisplay(s) {
+  const m = (s || '').match(/(\d{2}\/\d{2}\/\d{4})/);
+  return m ? itToIso(m[1]) : null;
+}
 
-    // If interception didn't capture, try making the API call from within page context
-    if (!apiData) {
-      console.log('  No intercepted API call — trying in-page fetch…');
-      const result = await page.evaluate(async (from, to) => {
-        try {
-          const r = await fetch(
-            `/web/area-pubblica/operazioni-manager-api?dataDa=${from}&dataA=${to}&pagina=1&righePerPagina=100`,
-            { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
-          );
-          if (!r.ok) return null;
-          return await r.json();
-        } catch { return null; }
-      }, from, to).catch(() => null);
-      apiData = result;
-    }
-  } finally {
-    await browser.close();
+// Build PDF URL from filing date (in "20/04/2026" format) and protocol number
+function buildPdfUrl(displayDate, proto) {
+  const m = displayDate.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  const yearMonth = `${yyyy}-${mm}`;
+  const datePrefix = `${yyyy}${mm}${dd}`;
+  return `https://${HOST}/sites/default/files/comunicati/${yearMonth}/${datePrefix}_${proto}.pdf`;
+}
+
+function parseResultsPage(html, cutoffDate) {
+  const entries = [];
+  // Match each filing entry: data-protocollo, datetime text, company, title
+  const rowRegex = /data-protocollo="(\d+)"[\s\S]*?class="datetime">([^<]+)<\/time>[\s\S]*?news-azienda[^>]+><a[^>]+>([^<]+)<\/a>[\s\S]*?news-title[^>]+><a[^>]+>([^<]+)<\/a>/g;
+  let m;
+  let reachedCutoff = false;
+
+  while ((m = rowRegex.exec(html)) !== null) {
+    const proto       = m[1];
+    const displayDate = m[2].trim();
+    const company     = m[3].trim();
+    const title       = m[4].trim();
+    const txDate      = parseDateFromDisplay(displayDate);
+
+    if (!txDate) continue;
+    if (txDate < toIsoDate(cutoffDate)) { reachedCutoff = true; continue; }
+
+    const pdfUrl = buildPdfUrl(displayDate, proto);
+    entries.push({ proto, displayDate, txDate, company, title, pdfUrl });
   }
 
-  return apiData;
+  return { entries, reachedCutoff };
+}
+
+// ─── Paginate through all results ─────────────────────────────────────────────
+
+async function fetchAllFilings(co) {
+  const all = [];
+  let page = 0;
+  let done = false;
+
+  while (!done && page <= 150) {
+    const res = await httpGet(HOST, `/it/comunicati-finanziari?titolo=internal+dealing&page=${page}`);
+    if (!res || res.status !== 200) break;
+
+    const { entries, reachedCutoff } = parseResultsPage(res.body, co);
+    all.push(...entries);
+
+    if (reachedCutoff || entries.length === 0) done = true;
+    page++;
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  return all;
+}
+
+// ─── PDF text parsing ─────────────────────────────────────────────────────────
+
+function parseItNum(s) {
+  if (!s) return null;
+  const str = s.trim().replace(/\s/g, '');
+  if (!str) return null;
+  if (/\d\.\d{3},/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  if (/\d,\d{3}\./.test(str)) return parseFloat(str.replace(/,/g, ''));
+  if (/^\d[\d.]*,\d{1,4}$/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  return parseFloat(str.replace(/,/g, '')) || null;
+}
+
+function parsePdfText(text) {
+  if (!text || text.length < 100) return {};
+
+  // ── Insider name (section 1.a — last substantive line before section 2) ──
+  let insiderName = null;
+  const sec2Idx = text.search(/\n\s*2[.\s]+(?:Motivo|Reason)/i);
+  if (sec2Idx > 0) {
+    const sec1 = text.slice(0, sec2Idx);
+    const lines = sec1.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 2 && !/^(?:Full name|Denominazione|For legal|For natural|Indicare|Including|Legal form|Identification|Il nome|Nome:|cognome:|Last Name:|First Name:|Codice|code)/i.test(l));
+    insiderName = lines[lines.length - 1] || null;
+  }
+  // Fallback: extract from "Oggetto : Internal dealing [NAME]"
+  if (!insiderName) {
+    const subjMatch = text.match(/Oggetto\s*:\s*Internal\s+dealing\s+([^\n]+)/i);
+    if (subjMatch) insiderName = subjMatch[1].replace(/^-?\s*errata\s+corrige.*/i, '').trim() || null;
+  }
+
+  // ── Role (section 2.a) ────────────────────────────────────────────────────
+  let role = 'Not disclosed';
+  const roleMatch = text.match(/Posizione\s*\/\s*Qualifica\s*\n[^\n]*\n([^\n]+)/i);
+  if (roleMatch) {
+    const r = roleMatch[1].trim();
+    role = r.includes('Strettamente') || r.includes('Closely')
+      ? 'Closely Associated Person'
+      : r.includes('funzioni') || r.includes('managerial')
+      ? 'Person Discharging Managerial Responsibilities'
+      : r;
+  }
+
+  // ── Company (section 3.a issuer) ──────────────────────────────────────────
+  let company = null;
+  const coMatch = text.match(/Nome\s+completo\s+dell.entit[aà]:[^\n]*\n[^\n]*\n([^\n]+)/i);
+  if (coMatch) company = coMatch[1].trim();
+
+  // ── ISIN ──────────────────────────────────────────────────────────────────
+  const isinMatch = text.match(/ISIN:\s*([A-Z]{2}[A-Z0-9]{10})/i);
+  const isin = isinMatch ? isinMatch[1] : null;
+
+  // ── Transaction type (section 4.b) ────────────────────────────────────────
+  let txType = null;
+  if (/\bCESSIONE\b|\bVENDITA\b|\bDisposizione\b|\bDisposal\b/i.test(text)) txType = 'SELL';
+  else if (/\bACQUISTO\b|\bSOTTOSCRIZIONE\b|\bAcquisition\b|\bSubscription\b/i.test(text)) txType = 'BUY';
+
+  // ── Volume aggregato (section 4.d) ────────────────────────────────────────
+  let shares = null;
+  const volMatch = text.match(/Volume\s+aggregato:\s*([\d.,]+)/i);
+  if (volMatch) shares = Math.round(parseItNum(volMatch[1]) || 0) || null;
+
+  // ── Weighted average price (section 4.d) ─────────────────────────────────
+  let price = null, currency = CURRENCY;
+  const priceMatch = text.match(/Prezzo:\s*([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)/i);
+  if (priceMatch) { price = parseItNum(priceMatch[1]); currency = priceMatch[2]; }
+
+  // Fallback: parse from individual transaction row "PRICE CURRENCY VOLUME"
+  if (!shares || price == null) {
+    const rowMatch = text.match(/([\d.,]+)\s+(EUR|USD|GBP|CHF)\s+(\d[\d.,]*)/);
+    if (rowMatch) {
+      if (price == null)  price  = parseItNum(rowMatch[1]);
+      if (currency === CURRENCY) currency = rowMatch[2];
+      if (!shares)        shares = Math.round(parseItNum(rowMatch[3]) || 0) || null;
+    }
+  }
+
+  // ── Transaction date (section 4.e — ISO format in PDF) ───────────────────
+  let txDate = null;
+  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})\s+From:/i);
+  if (dateMatch) txDate = dateMatch[1];
+  if (!txDate) {
+    // Fallback: any ISO date in section 4.e area
+    const sec4eIdx = text.search(/4[.\s]*e\)|Data\s+dell.operazione/i);
+    if (sec4eIdx >= 0) {
+      const isoMatch = text.slice(sec4eIdx, sec4eIdx + 200).match(/(\d{4}-\d{2}-\d{2})/);
+      if (isoMatch) txDate = isoMatch[1];
+    }
+  }
+
+  return { insiderName, role, company, isin, txType, shares, price, currency, txDate };
+}
+
+async function parsePdfFromUrl(pdfUrl) {
+  if (!pdfUrl) return {};
+  try {
+    const parser = new PDFParse({ url: pdfUrl });
+    const result = await parser.getText();
+    await parser.destroy().catch(() => {});
+    return parsePdfText(result.text || '');
+  } catch {
+    return {};
+  }
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeIT() {
-  console.log('🇮🇹  CONSOB Italy — operazioni soggetti rilevanti MAR (via stealth browser)');
-  const t0   = Date.now();
-  const co   = cutoff();
-  const from = isoDate(co);
-  const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to}…`);
+  console.log('🇮🇹  eMarket STORAGE Italy — MAR Art. 19 internal dealing (PDF)');
+  const t0 = Date.now();
+  const co = cutoff();
+  console.log(`  Retention window: ${toIsoDate(co)} → today`);
 
-  const data = await fetchViaHeadless(from, to);
+  // Step 1: collect all filing metadata from paginated HTML results
+  const filings = await fetchAllFilings(co);
+  if (filings.length === 0) {
+    console.log('  No filings found in retention window.');
+    return { saved: 0 };
+  }
+  console.log(`  Found ${filings.length} filings — fetching PDFs…`);
 
-  if (!data) {
-    console.log('  ⚠  CONSOB did not return usable data (Radware block or timeout).');
-    console.log('  ℹ  Portal: https://www.consob.it/web/area-pubblica/operazioni-manager');
-    console.log('  ℹ  This scraper uses puppeteer-extra + stealth; works best on GitHub Actions EU runners.');
-    console.log('  ℹ  0 rows saved.');
+  // Step 2: fetch and parse PDFs in concurrent batches
+  const rows = [];
+  let pdfFailed = 0;
+
+  for (let i = 0; i < filings.length; i += PDF_CONCURRENCY) {
+    const batch = filings.slice(i, i + PDF_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(f => parsePdfFromUrl(f.pdfUrl).then(pdf => ({ f, pdf })))
+    );
+
+    for (const { f, pdf } of results) {
+      if (!pdf.txType) { pdfFailed++; continue; }
+
+      const company = pdf.company || f.company;
+      const txDate  = pdf.txDate  || f.txDate;
+      const shares  = pdf.shares  ?? null;
+      const price   = pdf.price   ?? null;
+
+      rows.push({
+        filing_id:        `IT-${f.proto}`,
+        country_code:     COUNTRY_CODE,
+        source:           SOURCE,
+        ticker:           getTicker(company),
+        company,
+        insider_name:     pdf.insiderName || null,
+        insider_role:     pdf.role || 'Not disclosed',
+        transaction_type: pdf.txType,
+        transaction_date: txDate,
+        shares,
+        price_per_share:  price,
+        total_value:      (price != null && shares) ? Math.round(price * shares) : null,
+        currency:         pdf.currency || CURRENCY,
+        filing_url:       f.pdfUrl || `https://${HOST}/it/comunicati-finanziari`,
+      });
+    }
+
+    if (i % 40 === 0 && i > 0) {
+      console.log(`  Progress: ${i}/${filings.length} PDFs, ${rows.length} rows…`);
+    }
+    if (i + PDF_CONCURRENCY < filings.length) {
+      await new Promise(r => setTimeout(r, PDF_DELAY_MS));
+    }
+  }
+
+  const parseRate = filings.length > 0
+    ? ((rows.length / filings.length) * 100).toFixed(0)
+    : 0;
+  console.log(`  Parsed ${rows.length}/${filings.length} filings (${parseRate}% success, ${pdfFailed} skipped)`);
+
+  if (rows.length === 0) {
+    console.log('  No BUY/SELL transactions extracted.');
     return { saved: 0 };
   }
 
-  const items = data.operazioni || data.data || (Array.isArray(data) ? data : []);
-  if (!items.length) { console.log('  No data in response.'); return { saved: 0 }; }
-  console.log(`  Received ${items.length} items from CONSOB API`);
-
-  const seen = new Set();
-  const dbRows = [];
-
-  for (const r of items) {
-    const txIso  = (r.data || r.dataOperazione || '').slice(0, 10) || from;
-    const shares = r.quantita    != null ? Math.round(Math.abs(Number(r.quantita)))     : null;
-    const price  = r.prezzo      != null ? Number(r.prezzo)                              : null;
-    const total  = r.controvalore != null ? Math.round(Math.abs(Number(r.controvalore))) : null;
-    const fid    = `IT-${r.id || (r.isin || 'X') + '-' + txIso + '-' + String(shares || 0)}`;
-
-    if (seen.has(fid)) continue;
-    seen.add(fid);
-
-    const txType = (() => {
-      const t = (r.tipoOperazione || r.tipo || '').toLowerCase();
-      if (t.includes('acquisto') || t.includes('sottoscri') || t.includes('buy')) return 'BUY';
-      if (t.includes('vendita')  || t.includes('cessione')  || t.includes('sell')) return 'SELL';
-      return 'OTHER';
-    })();
-
-    dbRows.push({
-      filing_id:        fid,
-      country_code:     COUNTRY_CODE,
-      source:           SOURCE,
-      ticker:           r.isin || null,
-      company:          r.emittente || r.nomeEmittente || null,
-      insider_name:     r.soggetto  || r.nomeSoggetto  || null,
-      insider_role:     translateRole(r.qualifica || r.carica) || null,
-      transaction_type: txType,
-      transaction_date: txIso || null,
-      shares,
-      price_per_share:  price,
-      total_value:      total,
-      currency:         r.divisa || CURRENCY,
-      filing_url:       `https://www.consob.it/web/area-pubblica/operazioni-manager`,
-    });
+  for (const r of rows.slice(0, 3)) {
+    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? '?'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
-  if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
-
-  // Preview
-  for (const r of dbRows.slice(0, 3)) {
-    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} shares @ ${r.price_per_share} | ${r.transaction_date}`);
+  const { error } = await saveInsiderTransactions(rows);
+  if (error) {
+    console.error('  ❌ Supabase:', error.message);
+    process.exit(1);
   }
 
-  const { error } = await saveInsiderTransactions(dbRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
-
-  const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
-  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL)`);
-  return { saved: dbRows.length };
+  const buys    = rows.filter(r => r.transaction_type === 'BUY').length;
+  const sells   = rows.filter(r => r.transaction_type === 'SELL').length;
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`  ✅ ${elapsed}s — ${rows.length} rows saved (${buys} BUY, ${sells} SELL)`);
+  return { saved: rows.length };
 }
 
-scrapeIT().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+scrapeIT().catch(err => {
+  console.error('❌ Fatal:', err.message);
+  process.exit(1);
+});
