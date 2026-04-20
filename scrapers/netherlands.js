@@ -201,50 +201,79 @@ function parseXml(xml, cutoffDate) {
       valuta: getTag(w, 'Valuta') || CURRENCY,
     }));
 
-    // Determine BUY/SELL — prefer ordinary shares; fall back to conditional/restricted shares.
+    // A single AFM filing can contain multiple Wijzigingen that represent distinct transactions,
+    // e.g. a performance-award vesting (price=0) followed by a same-day cash sell (price>0).
+    // Netting them together produces wrong results; we split by price category instead.
+
     const ordinaryChanges    = changes.filter(c => ORDINARY_SHARE_TYPES.test(c.soort));
     const conditionalChanges = changes.filter(c => !ORDINARY_SHARE_TYPES.test(c.soort) && CONDITIONAL_SHARE_TYPES.test(c.soort));
-    const netOrdinary        = ordinaryChanges.reduce((s, c) => s + c.aantal, 0);
-    const netConditional     = conditionalChanges.reduce((s, c) => s + c.aantal, 0);
 
-    let txType, activeChanges, netShares;
-    if (netOrdinary > 0 || netOrdinary < 0) {
-      // Standard ordinary-share transaction
-      txType        = netOrdinary > 0 ? 'BUY' : 'SELL';
-      activeChanges = ordinaryChanges;
-      netShares     = netOrdinary;
-    } else if (netConditional > 0 || netConditional < 0) {
-      // Vesting / exercise of conditional / restricted / performance shares
-      txType        = netConditional > 0 ? 'BUY' : 'SELL';
-      activeChanges = conditionalChanges;
-      netShares     = netConditional;
-    } else {
-      continue;  // no meaningful change in any instrument type → skip
-    }
+    // Ordinary shares at market price (actual cash transactions)
+    const cashSells   = ordinaryChanges.filter(c => c.prijs > 0 && c.aantal < 0);
+    const cashBuys    = ordinaryChanges.filter(c => c.prijs > 0 && c.aantal > 0);
+    // Ordinary shares received for free (vestings / grants)
+    const freeGains   = ordinaryChanges.filter(c => c.prijs === 0 && c.aantal > 0);
 
-    const shares = Math.abs(netShares);
-    // Use price from the first change with a non-zero price; vestings have price=0 which is valid.
-    const priceEntry = activeChanges.find(c => c.prijs > 0) || activeChanges[0];
-    const price  = priceEntry ? priceEntry.prijs  : 0;    // 0 = free grant/vesting
-    const valuta = priceEntry ? priceEntry.valuta : CURRENCY;
-    const total  = price > 0 && shares ? Math.round(price * shares) : null;
+    const sumCashSell  = cashSells.reduce((s, c) => s + Math.abs(c.aantal), 0);
+    const sumCashBuy   = cashBuys.reduce((s, c) => s + c.aantal, 0);
+    const sumFreeGain  = freeGains.reduce((s, c) => s + c.aantal, 0);
+    const netCond      = conditionalChanges.reduce((s, c) => s + c.aantal, 0);
 
-    rows.push({
-      filing_id:        `NL-${id}`,
+    // Build the base row template
+    const base = {
       country_code:     COUNTRY_CODE,
       source:           SOURCE,
       ticker:           getTicker(company),
       company:          company || null,
       insider_name:     insiderName || null,
-      insider_role:     'Not disclosed',    // not in AFM XML export
-      transaction_type: txType,
+      insider_role:     'Not disclosed',
       transaction_date: txDate,
-      shares,
-      price_per_share:  price,
-      total_value:      total,
-      currency:         valuta,
       filing_url:       `https://www.afm.nl/nl-nl/sector/registers/meldingenregisters/bestuurders-commissarissen/details?id=${id}`,
-    });
+    };
+
+    let pushed = 0;
+
+    // ── Cash SELL (primary row — most significant for market-abuse monitoring) ──
+    if (sumCashSell > 0) {
+      const pe = cashSells[0];
+      rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: 'SELL',
+        shares: sumCashSell, price_per_share: pe.prijs, currency: pe.valuta,
+        total_value: Math.round(pe.prijs * sumCashSell) });
+      pushed++;
+    }
+
+    // ── Cash BUY (direct market purchase or option exercise without same-day sell) ──
+    if (sumCashBuy > 0 && sumCashSell === 0) {
+      const pe = cashBuys[0];
+      rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: 'BUY',
+        shares: sumCashBuy, price_per_share: pe.prijs, currency: pe.valuta,
+        total_value: Math.round(pe.prijs * sumCashBuy) });
+      pushed++;
+    }
+
+    // ── Free-share vesting / grant (BUY @ €0) ──────────────────────────────────
+    if (sumFreeGain > 0) {
+      const suffix = pushed > 0 ? '-v' : '';
+      const valuta = freeGains[0]?.valuta || CURRENCY;
+      rows.push({ ...base, filing_id: `NL-${id}${suffix}`, transaction_type: 'BUY',
+        shares: sumFreeGain, price_per_share: 0, currency: valuta, total_value: null });
+      pushed++;
+    }
+
+    // ── Fallback: conditional/restricted/performance instruments only ───────────
+    if (pushed === 0 && netCond !== 0) {
+      const txType = netCond > 0 ? 'BUY' : 'SELL';
+      const shares = Math.abs(netCond);
+      const pe = conditionalChanges.find(c => c.prijs > 0) || conditionalChanges[0];
+      const price  = pe?.prijs  ?? 0;
+      const valuta = pe?.valuta ?? CURRENCY;
+      const total  = price > 0 ? Math.round(price * shares) : null;
+      rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: txType,
+        shares, price_per_share: price, currency: valuta, total_value: total });
+      pushed++;
+    }
+
+    if (pushed === 0) skipped++;  // no reportable change
   }
 
   console.log(`  Parsed ${rows.length} BUY/SELL rows (${skipped} older records skipped)`);
