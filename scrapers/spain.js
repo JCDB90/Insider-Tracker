@@ -1,402 +1,420 @@
 /**
- * ES — Insider Transactions Scraper
+ * Spain (ES) — Insider Transactions Scraper
  *
- * Source: CNMV Spain — Portal de la Comisión Nacional del Mercado de Valores
- * URL: https://www.cnmv.es/Portal/MAR/Operaciones-Directivos
+ * Source: CNMV (Comisión Nacional del Mercado de Valores)
  *
- * ── Geo-restriction ───────────────────────────────────────────────────────────
- * CNMV's WAF (CVFE) blocks non-EU IPs at the network layer — no stealth plugin
- * can bypass an IP geo-block. This scraper works on EU IPs (Hetzner VPS,
- * GitHub Actions EU runners) but NOT from non-EU networks.
+ * ── Why /Portal/Consultas/ not /Portal/MAR/ ──────────────────────────────────
+ * The main MAR portal at /Portal/MAR/Operaciones-Directivos is geo-blocked by
+ * CNMV's CVFE WAF for non-EU IPs. The Consultas portal is NOT geo-blocked and
+ * contains the same MAR Art. 19 filings with full document links.
  *
- * ── Bot protection ────────────────────────────────────────────────────────────
- * CNMV runs Radware Bot Manager (same as CONSOB Italy). Plain Puppeteer is
- * fingerprinted and blocked. puppeteer-extra + stealth plugin bypasses this.
+ * ── Data flow ─────────────────────────────────────────────────────────────────
+ * 1. GET Directivos-Resultado.aspx?fechad=DD/MM/YYYY&fechah=DD/MM/YYYY&page=N
+ *    HTML list: date, company (NIF), insider name, role, registration number,
+ *    PDF document URL (webservices/verdocumento/ver?e=TOKEN)
+ * 2. For each filing: fetch PDF via pdf-parse, extract text.
+ *    Parsed fields: ISIN, transaction type (Adquisición/Transmisión),
+ *    price, shares, currency.
+ * 3. Upsert to Supabase on filing_id = ES-{registrationNumber}.
  *
- * ── Strategy ─────────────────────────────────────────────────────────────────
- * Phase 1 (Puppeteer stealth — preferred):
- *   1. Launch Chromium via puppeteer-extra + stealth plugin.
- *   2. Set Spanish locale headers (es-ES).
- *   3. Intercept all JSON responses from cnmv.es via page.on('response').
- *   4. Navigate to MAR Operaciones-Directivos page.
- *   5. If no data auto-loaded, try in-page fetch to known API endpoints.
- *   6. 2-second delay after navigation before declaring failure.
- *
- * Phase 2 (direct HTTP — fallback for EU IPs where bot check is lighter):
- *   GET portal page → extract session cookie → POST known API endpoints.
- *
- * Fields: Fecha, Emisor, ISIN, Declarante, Cargo, TipoOperacion, NumAcciones,
- *         Precio, Importe, Divisa
+ * ── PDF format ────────────────────────────────────────────────────────────────
+ * CNMV PDFs follow the ESMA standard notification form (Annex II, Regulation
+ * EU 2016/523). Key text patterns:
+ *   - ISIN: "Código de identificación del instrumento financiero: ES..."
+ *   - TX type: "Naturaleza de la transacción: Adquisición / Transmisión..."
+ *   - Price/shares: "Precio [N] Volumen [N]" or aggregate "Volumen total [N]"
  */
+
 'use strict';
 
-const https = require('https');
+const https   = require('https');
+const cheerio = require('cheerio');
+const { PDFParse } = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
-const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
 const RETENTION_DAYS = 90;
 const CURRENCY       = 'EUR';
-const CNMV_HOST      = 'www.cnmv.es';
-const MAR_PAGE       = '/Portal/MAR/Operaciones-Directivos';
 
-// Known CNMV API endpoints to try (ordered by likelihood)
-const API_ENDPOINTS = [
-  '/Portal/MAR/Operaciones-Directivos/GetOperaciones',
-  '/Portal/MAR/Operaciones-Directivos/BuscarOperaciones',
-  '/Portal/MAR/Operaciones-Directivos/ObtenerListaOperaciones',
-  '/Portal/MAR/GetOperaciones',
-  '/portal/Consultas/MAR/ListaOperaciones.aspx/GetOperaciones',
-  '/portal/Consultas/MAR/ListaOperaciones.aspx/Search',
-  '/ServiciosPublicacion/ServicioGratuito/GetNotificacionesInsidersMAR',
-];
+// Concurrent PDF fetches and delay between batches (be polite to CNMV)
+const PDF_CONCURRENCY = 4;
+const PDF_DELAY_MS    = 400;
 
-function isoDate(d) {
+// ─── Ticker lookup — IBEX 35 + main mid-caps ──────────────────────────────────
+
+const TICKER_MAP = {
+  'inditex':              'ITX',
+  'santander':            'SAN',
+  'banco santander':      'SAN',
+  'bbva':                 'BBVA',
+  'bilbao vizcaya':       'BBVA',
+  'telefonica':           'TEF',
+  'iberdrola':            'IBE',
+  'repsol':               'REP',
+  'caixabank':            'CABK',
+  'naturgy':              'NTGY',
+  'gas natural':          'NTGY',
+  'endesa':               'ELE',
+  'ferrovial':            'FER',
+  'cellnex':              'CLNX',
+  'amadeus':              'AMS',
+  'acerinox':             'ACX',
+  'arcelormittal':        'MTS',
+  'mapfre':               'MAP',
+  'iberia':               'IAG',
+  'fluidra':              'FDR',
+  'inmobiliaria colonial':'COL',
+  'solaria':              'SLR',
+  'grifols':              'GRF',
+  'acciona energia':      'ANE',
+  'acciona energias':     'ANE',
+  'acciona':              'ANA',
+  'aena':                 'AENA',
+  'indra':                'IDR',
+  'prosegur cash':        'CASH',
+  'prosegur':             'PSG',
+  'melia':                'MEL',
+  'bankinter':            'BKT',
+  'sabadell':             'SAB',
+  'banco sabadell':       'SAB',
+  'unicaja':              'UNI',
+  'almirall':             'ALM',
+  'ence':                 'ENC',
+  'viscofan':             'VIS',
+  'logista':              'LOG',
+  'rovi':                 'ROVI',
+  'pharma mar':           'PHM',
+  'talgo':                'TLGO',
+  'enagas':               'ENG',
+  'redeia':               'REE',
+  'red electrica':        'REE',
+  'sacyr':                'SCYR',
+  'tecnicas reunidas':    'TRE',
+  'vidrala':              'VID',
+  'ebro foods':           'EBRO',
+  'merlin properties':    'MRL',
+  'merlin':               'MRL',
+  'lar espana':           'LARE',
+  'grenergy':             'GRE',
+  'acs':                  'ACS',
+  'obrascon':             'OHL',
+  'ohl':                  'OHL',
+  'bankia':               'BKIA',
+  'neinor':               'HOME',
+  'colonial':             'COL',
+};
+
+function getTicker(company) {
+  if (!company) return null;
+  // Normalize: lowercase, strip accents
+  const lower = company.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const [frag, ticker] of Object.entries(TICKER_MAP)) {
+    const normFrag = frag.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (lower.includes(normFrag)) return ticker;
+  }
+  return company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 6) || null;
+}
+
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
+function toIsoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function mapTxType(raw) {
-  const t = (raw || '').toLowerCase();
-  if (t.includes('acqui') || t.includes('compra') || t.includes('suscri') || t.includes('adquisi')) return 'BUY';
-  if (t.includes('transmis') || t.includes('venta') || t.includes('dispos') || t.includes('enajena')) return 'SELL';
-  return 'OTHER';
+function toCnmvDate(d) {
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+}
+// "20/04/2026" → "2026-04-20"
+function cnmvToIso(s) {
+  if (!s) return null;
+  const [dd, mm, yyyy] = s.trim().split('/');
+  if (!yyyy) return null;
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-// ─── Extract rows from CNMV API payload ──────────────────────────────────────
+// ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-function extractRows(data, from) {
-  if (!data) return [];
-  const items =
-    data.Datos   || data.datos   ||
-    data.Items   || data.items   ||
-    data.data    || data.results ||
-    data.Records || data.records ||
-    (Array.isArray(data) ? data : []);
-  if (!Array.isArray(items) || !items.length) return [];
-
-  const seen   = new Set();
-  const rows   = [];
-
-  for (const r of items) {
-    const rawDate = r.Fecha || r.fecha || r.FechaOperacion || r.FechaDeclaracion || '';
-    const txIso   = rawDate.slice(0, 10) || from;
-    if (txIso < from) continue;
-
-    const shares = r.NumAcciones != null ? Math.round(Math.abs(Number(r.NumAcciones))) : null;
-    const price  = r.Precio      != null ? Number(r.Precio)                            : null;
-    const total  = r.Importe     != null ? Math.round(Math.abs(Number(r.Importe)))
-                 : (shares && price ? Math.round(shares * price) : null);
-
-    const fid = `ES-${r.Id || r.Identificador || (String(r.ISIN || '')+'-'+txIso+'-'+String(shares||''))}`;
-    if (seen.has(fid)) continue;
-    seen.add(fid);
-
-    rows.push({
-      filing_id:        fid,
-      country_code:     COUNTRY_CODE,
-      ticker:           r.ISIN || r.Isin || null,
-      company:          r.Emisor       || r.NombreEmisor  || r.RazonSocial    || null,
-      insider_name:     r.Declarante   || r.NombreDeclarante                  || null,
-      insider_role:     translateRole(r.Cargo || r.Funcion || r.Puesto)       || null,
-      transaction_type: mapTxType(r.TipoOperacion || r.Tipo || r.tipo),
-      transaction_date: txIso,
-      shares,
-      price_per_share:  price,
-      total_value:      total,
-      currency:         r.Divisa || r.Moneda || CURRENCY,
-      filing_url:       `https://${CNMV_HOST}${MAR_PAGE}`,
-      source:           SOURCE,
-    });
-  }
-  return rows;
-}
-
-// ─── Phase 1: Puppeteer stealth (mirrors Italy approach) ─────────────────────
-
-async function scrapeViaStealth(from, to) {
-  console.log('  Phase 1: puppeteer-extra + stealth…');
-
-  let puppeteer, StealthPlugin;
-  try {
-    puppeteer    = require('puppeteer-extra');
-    StealthPlugin = require('puppeteer-extra-plugin-stealth');
-    puppeteer.use(StealthPlugin());
-  } catch {
-    console.log('  ⚠  puppeteer-extra / stealth not installed. Run: npm install puppeteer-extra puppeteer-extra-plugin-stealth');
-    return null;
-  }
-
-  // puppeteer-extra doesn't auto-find bundled Chromium — pass path explicitly
-  let executablePath;
-  try { executablePath = require('puppeteer').executablePath(); } catch { executablePath = undefined; }
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-      '--lang=es-ES',
-    ],
-  }).catch(err => { console.log(`  ⚠  Browser launch failed: ${err.message}`); return null; });
-
-  if (!browser) return null;
-
-  let apiData = null;
-
-  try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1366, height: 768 });
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    });
-
-    // Intercept all JSON responses from CNMV
-    const capturedPayloads = [];
-    page.on('response', async res => {
-      const url = res.url();
-      if (!url.includes('cnmv.es')) return;
-      const ct = res.headers()['content-type'] || '';
-      if (!ct.includes('json')) return;
-      try {
-        const text = await res.text().catch(() => '');
-        if (!text) return;
-        const json = JSON.parse(text);
-        capturedPayloads.push(json);
-      } catch { /* non-JSON */ }
-    });
-
-    // Navigate — geo-block check
-    console.log(`  Loading ${MAR_PAGE} via stealth…`);
-    let navOk = false;
-    try {
-      await page.goto(`https://${CNMV_HOST}${MAR_PAGE}`, { waitUntil: 'networkidle2', timeout: 60000 });
-      navOk = true;
-    } catch {
-      // networkidle2 timeout is OK if data was already captured
-      navOk = true;
-    }
-
-    const currentUrl = page.url();
-    const title      = await page.title().catch(() => '');
-
-    if (currentUrl.includes('CVFE') || title.toLowerCase().includes('acceso restringido') || title.toLowerCase().includes('error')) {
-      console.log(`  ⚠  CNMV geo-restricted (URL: ${currentUrl}, title: "${title}").`);
-      console.log('  ℹ  Works from EU IPs (Hetzner VPS, GitHub Actions EU runners).');
-      await browser.close();
-      return null;
-    }
-
-    console.log(`  ✓ Page loaded: "${title}" (${capturedPayloads.length} JSON payloads intercepted)`);
-
-    // Wait 2 seconds for any deferred API calls to complete
-    await sleep(2000);
-
-    // Check if any captured payload has transaction data
-    for (const data of capturedPayloads) {
-      const rows = extractRows(data, from);
-      if (rows.length > 0) {
-        console.log(`  ✓ Intercepted ${rows.length} transactions from API response`);
-        apiData = data;
-        break;
-      }
-    }
-
-    // If nothing captured, try in-page fetch to known API endpoints
-    if (!apiData) {
-      console.log('  No data in intercepted responses — trying in-page fetch to known endpoints…');
-
-      for (const endpoint of API_ENDPOINTS) {
-        const payloads = [
-          { FechaDesde: from, FechaHasta: to, Pagina: 1, NumFilas: 200 },
-          { fechaDesde: from, fechaHasta: to, pagina: 1, numFilas: 200 },
-          { desde: from, hasta: to, pagina: 1, numFilas: 200 },
-        ];
-
-        for (const payload of payloads) {
-          const result = await page.evaluate(async (endpoint, payload) => {
-            try {
-              const r = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json; charset=utf-8',
-                  'Accept': 'application/json, text/javascript, */*; q=0.01',
-                  'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify(payload),
-              });
-              if (!r.ok) return null;
-              return await r.json();
-            } catch { return null; }
-          }, endpoint, payload).catch(() => null);
-
-          if (result) {
-            const rows = extractRows(result, from);
-            if (rows.length > 0) {
-              console.log(`  ✓ In-page fetch: ${rows.length} rows from ${endpoint}`);
-              apiData = result;
-              break;
-            }
-          }
-        }
-        if (apiData) break;
-        await sleep(500);
-      }
-    }
-
-  } finally {
-    await browser.close().catch(() => {});
-  }
-
-  return apiData;
-}
-
-// ─── Phase 2: Direct HTTP (fallback for EU IPs where bot check is lighter) ───
-
-function httpGet(path, extraHeaders = {}) {
-  return new Promise((resolve) => {
+function httpGet(hostname, path) {
+  return new Promise(resolve => {
     const req = https.get({
-      hostname: CNMV_HOST,
+      hostname,
       path,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        ...extraHeaders,
       },
     }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({
-        status:  res.statusCode,
-        headers: res.headers,
-        body:    Buffer.concat(chunks).toString('utf8'),
-        cookies: (res.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; '),
+        status: res.statusCode,
+        body:   Buffer.concat(chunks).toString('utf8'),
       }));
     });
     req.on('error', () => resolve(null));
-    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
+    req.setTimeout(30000, () => { req.destroy(); resolve(null); });
   });
 }
 
-function httpPost(path, body, cookieStr) {
-  return new Promise((resolve) => {
-    const data = Buffer.from(body);
-    const req = https.request({
-      hostname: CNMV_HOST,
-      path,
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Content-Type': 'application/json; charset=utf-8',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': cookieStr || '',
-        'Referer': `https://${CNMV_HOST}${MAR_PAGE}`,
-        'Content-Length': data.length,
-      },
-    }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        const ct = res.headers['content-type'] || '';
-        if (!ct.includes('json')) return resolve(null);
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-        catch { resolve(null); }
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
-    req.write(data);
-    req.end();
+// ─── Results-page HTML parser ─────────────────────────────────────────────────
+
+function parseResultsPage(html) {
+  const $ = cheerio.load(html);
+  const entries = [];
+
+  // Each filing: <li><ul> with 5 <li> children:
+  // [0] date  [1] company+NIF link  [2] "Declarante: NAME"
+  // [3] role + doc URL  [4] "Número de registro: N"
+  $('li ul').each((_, ul) => {
+    const lis = $(ul).find('> li');
+    if (lis.length < 4) return;
+
+    const dateTxt     = $(lis[0]).text().trim();
+    const companyEl   = $(lis[1]).find('a').first();
+    const company     = companyEl.text().trim();
+    const nifHref     = companyEl.attr('href') || '';
+    const nif         = (nifHref.match(/nif=([^&]+)/i) || [])[1] || null;
+
+    const insiderTxt  = $(lis[2]).text().trim();
+    const insiderName = insiderTxt.replace(/^Declarante:\s*/i, '').trim();
+
+    const docEl       = $(lis[3]).find('a').first();
+    const docUrl      = docEl.attr('href') || null;
+    const roleRaw     = docEl.text().trim();
+    const role        = roleRaw.replace(/^Motivo de la notificaci[oó]n:\s*/i, '').trim();
+
+    const regTxt      = $(lis[4]).text().trim();
+    const regNum      = (regTxt.match(/(\d+)/) || [])[1] || null;
+
+    const txDate = cnmvToIso(dateTxt);
+    if (!txDate || !company || !insiderName || !regNum) return;
+
+    entries.push({ txDate, company, nif, insiderName, role, docUrl, regNum });
   });
+
+  return entries;
 }
 
-async function scrapeViaHttp(from, to) {
-  console.log('  Phase 2: Direct HTTP (EU IP fallback)…');
+function hasNextPage(html, currentPage) {
+  // Check if next page link exists
+  return html.includes(`page=${currentPage + 1}`) ||
+         (html.match(/page=(\d+)/g) || []).some(m => parseInt(m.split('=')[1]) > currentPage);
+}
 
-  const pageRes = await httpGet(MAR_PAGE);
-  if (!pageRes) { console.log('  ⚠  CNMV unreachable.'); return null; }
-  if (pageRes.status === 302 || (pageRes.body || '').includes('CVFE')) {
-    console.log('  ⚠  CNMV geo-restricted (CVFE). Needs EU IP.'); return null;
-  }
-  if (pageRes.status !== 200 || !pageRes.body || pageRes.body.length < 1000) {
-    console.log(`  ⚠  Unexpected response: HTTP ${pageRes.status}`); return null;
-  }
+// ─── Paginate through all results ─────────────────────────────────────────────
 
-  const cookieStr = pageRes.cookies;
-  console.log(`  ✓ Portal loaded (${pageRes.body.length} bytes)`);
+async function fetchAllFilings(fechad, fechah) {
+  const all = [];
+  let page = 1;
 
-  const payloadTemplates = [
-    (f, t) => JSON.stringify({ FechaDesde: f, FechaHasta: t, Pagina: 1, NumFilas: 200 }),
-    (f, t) => JSON.stringify({ fechaDesde: f, fechaHasta: t, pagina: 1, numFilas: 200 }),
-    (f, t) => JSON.stringify({ desde: f, hasta: t, pagina: 1, numFilas: 200 }),
-  ];
+  while (page <= 300) {
+    const path = `/portal/Consultas/Directivos-Resultado?fechad=${fechad}&fechah=${fechah}&page=${page}`;
+    const res = await httpGet('www.cnmv.es', path);
 
-  for (const endpoint of API_ENDPOINTS) {
-    for (const tmpl of payloadTemplates) {
-      const result = await httpPost(endpoint, tmpl(from, to), cookieStr);
-      if (result && extractRows(result, from).length > 0) {
-        console.log(`  ✓ HTTP: data from ${endpoint}`);
-        return result;
-      }
+    if (!res || res.status !== 200) {
+      if (page === 1) console.log(`  ⚠  Results page: HTTP ${res?.status ?? 'error'}`);
+      break;
     }
-    await sleep(300);
+
+    const entries = parseResultsPage(res.body);
+    if (entries.length === 0) break;
+
+    all.push(...entries);
+
+    if (!hasNextPage(res.body, page)) break;
+    page++;
+    await new Promise(r => setTimeout(r, 150));
   }
 
-  console.log('  ⚠  No working endpoint found via HTTP.');
-  return null;
+  return all;
+}
+
+// ─── PDF text extraction + parsing ───────────────────────────────────────────
+
+// Parse Spanish/European number format: "1.234,56" → 1234.56, "15,45" → 15.45
+function parseEsNum(s) {
+  if (!s) return null;
+  const str = s.trim().replace(/\s/g, '');
+  if (!str || str === '-') return null;
+  if (/\d\.\d{3},/.test(str)) {
+    // Spanish thousands-dot, decimal-comma: 1.234,56
+    return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  }
+  if (/\d,\d{3}\./.test(str)) {
+    // English thousands-comma, decimal-dot: 1,234.56
+    return parseFloat(str.replace(/,/g, ''));
+  }
+  if (/^\d[\d.]*,\d{1,4}$/.test(str)) {
+    // Decimal comma only: "15,45" or "1.234,5"
+    return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  }
+  return parseFloat(str.replace(/,/g, '')) || null;
+}
+
+function parsePdfText(text) {
+  if (!text || text.length < 50) return {};
+
+  // ── Transaction type ──────────────────────────────────────────────────────
+  // CNMV PDFs use ESMA standard column 4.c "Naturaleza de la operación":
+  //   Adquisición / Otros → BUY
+  //   Transmisión y disposición / Disposición / Enajenación → SELL
+  // Check SELL first (more specific vocabulary).
+  let txType = null;
+  if (/transmisi[oó]n\s+y\s+disposici[oó]n|disposici[oó]n|transmisi[oó]n|enajenaci[oó]n|\bventa\b|\bdisposal\b|\bsale\b/i.test(text)) {
+    txType = 'SELL';
+  } else if (/adquisici[oó]n|\bcompra\b|\botros\b|ejercicio\s+de\s+opci[oó]n|\bvesting\b|\baward\b/i.test(text)) {
+    txType = 'BUY';
+  }
+
+  // ── ISIN, price, volume: from ISIN-anchored data row ─────────────────────
+  // CNMV PDFs: data row format is:
+  //   ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
+  // e.g.: ES0105229001 Acción Otros 09/04/2026 XOFF 115513,00 0,63 EUR
+  let isin = null, shares = null, price = null, currency = CURRENCY;
+
+  // Primary: ISIN-anchored row pattern (handles 1–4 words between ISIN and date)
+  const rowMatch = text.match(
+    /([A-Z]{2}[A-Z0-9]{10})\s+\S+(?:\s+\S+){1,4}\s+\d{2}\/\d{2}\/\d{4}\s+\S+\s+([\d.,]+)\s+([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/
+  );
+  if (rowMatch) {
+    isin     = rowMatch[1];
+    shares   = Math.round(parseEsNum(rowMatch[2]) || 0) || null;
+    price    = parseEsNum(rowMatch[3]);
+    currency = rowMatch[4];
+  }
+
+  // Fallback ISIN: look near "Código de identificación" label
+  if (!isin) {
+    const codeMatch = text.match(/[Cc][oó]digo\s+de[^\n]{0,60}\n+\s*([A-Z]{2}[A-Z0-9]{10})\b/);
+    if (codeMatch) isin = codeMatch[1];
+  }
+
+  // Fallback: "Total Agregado / Aggregated information" section
+  // Format after heading: volume  unit_price  (two numbers on one line)
+  if (!shares || price == null) {
+    const aggIdx = text.search(/total\s+agregado|aggregated\s+information/i);
+    if (aggIdx >= 0) {
+      const afterAgg = text.slice(aggIdx, aggIdx + 300);
+      // Filter out single-digit section numbers (e.g., "5)")
+      const nums = (afterAgg.match(/\d[\d.,]+/g) || []).filter(n => n.length > 1 || /[.,]/.test(n));
+      if (nums.length >= 1 && !shares)      shares = Math.round(parseEsNum(nums[0]) || 0) || null;
+      if (nums.length >= 2 && price == null) price  = parseEsNum(nums[1]);
+    }
+  }
+
+  // Currency (already captured from row; scan full text as last resort)
+  if (currency === CURRENCY) {
+    const currMatch = text.match(/\b(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/);
+    if (currMatch) currency = currMatch[1];
+  }
+
+  return { txType, isin, price, shares, currency };
+}
+
+async function parsePdfFromUrl(docUrl) {
+  if (!docUrl) return {};
+  try {
+    const parser = new PDFParse({ url: docUrl });
+    const result = await parser.getText();
+    await parser.destroy().catch(() => {});
+    return parsePdfText(result.text || '');
+  } catch {
+    return {};
+  }
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeES() {
-  console.log('🇪🇸  CNMV Spain — MAR insider transactions (stealth browser)');
-  const t0   = Date.now();
-  const co   = cutoff();
-  const from = isoDate(co);
-  const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to}…`);
+  console.log('🇪🇸  CNMV Spain — MAR Art. 19 insider transactions (Consultas + PDF)');
+  const t0 = Date.now();
 
-  // Phase 1: Puppeteer stealth
-  let data = await scrapeViaStealth(from, to);
+  const co     = cutoff();
+  const fechad = toCnmvDate(co);
+  const fechah = toCnmvDate(new Date());
+  console.log(`  Fetching ${fechad} → ${fechah}…`);
 
-  // Phase 2: Direct HTTP fallback
-  if (!data) data = await scrapeViaHttp(from, to);
+  // Step 1: collect all filing metadata from paginated HTML results
+  const filings = await fetchAllFilings(fechad, fechah);
+  if (filings.length === 0) {
+    console.log('  No filings found in window.');
+    return { saved: 0 };
+  }
+  console.log(`  Found ${filings.length} filings — fetching PDFs…`);
 
-  if (!data) {
-    console.log('  ⚠  CNMV did not return usable data.');
-    console.log('  ℹ  Portal: https://www.cnmv.es/Portal/MAR/Operaciones-Directivos');
-    console.log('  ℹ  Requires EU IP (Hetzner VPS, GitHub Actions EU runners).');
-    console.log('  ℹ  0 rows saved.');
+  // Step 2: fetch PDFs in parallel batches and parse transaction details
+  const rows = [];
+  let pdfFailed = 0;
+
+  for (let i = 0; i < filings.length; i += PDF_CONCURRENCY) {
+    const batch = filings.slice(i, i + PDF_CONCURRENCY);
+
+    const results = await Promise.all(
+      batch.map(f => parsePdfFromUrl(f.docUrl).then(pdf => ({ f, pdf })))
+    );
+
+    for (const { f, pdf } of results) {
+      if (!pdf.txType) { pdfFailed++; continue; }
+
+      const shares = pdf.shares ?? null;
+      const price  = pdf.price  ?? null;
+
+      rows.push({
+        filing_id:        `ES-${f.regNum}`,
+        country_code:     COUNTRY_CODE,
+        source:           SOURCE,
+        ticker:           getTicker(f.company),
+        company:          f.company,
+        insider_name:     f.insiderName,
+        insider_role:     f.role || 'Not disclosed',
+        transaction_type: pdf.txType,
+        transaction_date: f.txDate,
+        shares,
+        price_per_share:  price,
+        total_value:      (price != null && shares) ? Math.round(price * shares) : null,
+        currency:         pdf.currency || CURRENCY,
+        filing_url:       f.docUrl || `https://www.cnmv.es/Portal/Consultas/Directivos-Resultado.aspx`,
+      });
+    }
+
+    if (i % 40 === 0 && i > 0) {
+      console.log(`  Progress: ${i}/${filings.length} PDFs, ${rows.length} rows…`);
+    }
+    if (i + PDF_CONCURRENCY < filings.length) {
+      await new Promise(r => setTimeout(r, PDF_DELAY_MS));
+    }
+  }
+
+  const parseRate = filings.length > 0
+    ? ((rows.length / filings.length) * 100).toFixed(0)
+    : 0;
+  console.log(`  Parsed ${rows.length}/${filings.length} filings (${parseRate}% success, ${pdfFailed} skipped)`);
+
+  if (rows.length === 0) {
+    console.log('  No BUY/SELL transactions extracted from PDFs.');
     return { saved: 0 };
   }
 
-  const rows = extractRows(data, from);
-  if (!rows.length) {
-    console.log('  No BUY/SELL transactions in retention window.');
-    return { saved: 0 };
-  }
-
-  // Preview
   for (const r of rows.slice(0, 3)) {
-    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} shares @ ${r.price_per_share} | ${r.transaction_date}`);
+    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? '?'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
   const { error } = await saveInsiderTransactions(rows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  if (error) {
+    console.error('  ❌ Supabase:', error.message);
+    process.exit(1);
+  }
 
-  const buys  = rows.filter(r => r.transaction_type === 'BUY').length;
-  const sells = rows.filter(r => r.transaction_type === 'SELL').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${rows.length} saved (${buys} BUY, ${sells} SELL)`);
+  const buys    = rows.filter(r => r.transaction_type === 'BUY').length;
+  const sells   = rows.filter(r => r.transaction_type === 'SELL').length;
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`  ✅ ${elapsed}s — ${rows.length} rows saved (${buys} BUY, ${sells} SELL)`);
   return { saved: rows.length };
 }
 
-scrapeES().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+scrapeES().catch(err => {
+  console.error('❌ Fatal:', err.message);
+  process.exit(1);
+});
