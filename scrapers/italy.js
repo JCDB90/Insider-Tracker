@@ -297,6 +297,22 @@ function parsePdfText(text) {
   const priceMatch = text.match(/Prezzo:\s*([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)/i);
   if (priceMatch) { price = parseItNum(priceMatch[1]); currency = priceMatch[2]; }
 
+  // Fallback: bond/note price as "Prezzo: 100.69 %" (percentage, no currency on same line)
+  if (price == null) {
+    const bondPctMatch = text.match(/Prezzo:\s*([\d.,]+)\s*%/i);
+    if (bondPctMatch) price = parseItNum(bondPctMatch[1]);
+  }
+
+  // Fallback: bond row "N % VOLUME EUR" (e.g. "100.69 % 5000 EUR" in section 4.c table)
+  if (!shares || price == null) {
+    const bondRowMatch = text.match(/([\d.,]+)\s*%\s+(\d[\d.,]*)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)/);
+    if (bondRowMatch) {
+      if (price == null) price  = parseItNum(bondRowMatch[1]);
+      if (!shares)       shares = Math.round(parseItNum(bondRowMatch[2]) || 0) || null;
+      currency = bondRowMatch[3];
+    }
+  }
+
   // Fallback: parse from individual transaction row "PRICE CURRENCY VOLUME"
   if (!shares || price == null) {
     const rowMatch = text.match(/([\d.,]+)\s+(EUR|USD|GBP|CHF)\s+(\d[\d.,]*)/);
@@ -308,16 +324,17 @@ function parsePdfText(text) {
   }
 
   // ── Transaction date (section 4.e — ISO format in PDF) ───────────────────
+  // Formats seen: "2026-04-17 From: 17:35:00" or "2026-04-15 - 16:30:00"
   let txDate = null;
-  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})\s+From:/i);
-  if (dateMatch) txDate = dateMatch[1];
+  const sec4eIdx = text.search(/4[.\s]*e\)|Data\s+dell.operazione/i);
+  if (sec4eIdx >= 0) {
+    const isoMatch = text.slice(sec4eIdx, sec4eIdx + 400).match(/(\d{4}-\d{2}-\d{2})/);
+    if (isoMatch) txDate = isoMatch[1];
+  }
+  // Last resort: first ISO date found anywhere in the document (skipping garbled matches)
   if (!txDate) {
-    // Fallback: any ISO date in section 4.e area
-    const sec4eIdx = text.search(/4[.\s]*e\)|Data\s+dell.operazione/i);
-    if (sec4eIdx >= 0) {
-      const isoMatch = text.slice(sec4eIdx, sec4eIdx + 200).match(/(\d{4}-\d{2}-\d{2})/);
-      if (isoMatch) txDate = isoMatch[1];
-    }
+    const anyDate = text.match(/\b(202\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b/);
+    if (anyDate) txDate = anyDate[1];
   }
 
   return { insiderName, role, company, isin, txType, shares, price, currency, txDate };
