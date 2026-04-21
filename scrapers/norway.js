@@ -23,7 +23,11 @@
  */
 'use strict';
 
-const https = require('https');
+const https        = require('https');
+const { execFile } = require('child_process');
+const os           = require('os');
+const path         = require('path');
+const fs           = require('fs');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 
@@ -113,6 +117,23 @@ function postJson(urlStr, body) {
   });
 }
 
+function getBytes(urlStr, maxBytes = 600000, absoluteMs = 25000) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; clearTimeout(abortTimer); resolve(val); } };
+    // Hard wall-clock timeout — fires even if data is actively flowing (slow large PDFs)
+    const abortTimer = setTimeout(() => { req.destroy(); finish(null); }, absoluteMs);
+    const u = new URL(urlStr);
+    const req = https.get({ hostname: u.hostname, path: u.pathname + u.search, headers: HEADERS }, res => {
+      const chunks = []; let total = 0;
+      res.on('data', c => { total += c.length; chunks.push(c); if (total >= maxBytes) { req.destroy(); finish(null); } });
+      res.on('end', () => { if (res.statusCode !== 200) return finish(null); finish(Buffer.concat(chunks)); });
+      res.on('error', () => finish(null));
+    });
+    req.on('error', () => finish(null));
+  });
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function getApiBase() {
@@ -131,6 +152,134 @@ async function getInsiCategoryId(apiBase) {
     String(c.id) === String(INSI_CAT_ID_FALLBACK)
   );
   return cat?.id ?? INSI_CAT_ID_FALLBACK;
+}
+
+// ─── PDF helpers ─────────────────────────────────────────────────────────────
+
+async function pdfToText(buffer) {
+  const tmp = path.join(os.tmpdir(), `oslo-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
+  try {
+    fs.writeFileSync(tmp, buffer);
+    return await new Promise(resolve => {
+      execFile('pdftotext', [tmp, '-'], { maxBuffer: 3 * 1024 * 1024, timeout: 15000 }, (err, stdout) => {
+        resolve(err ? '' : stdout);
+      });
+    });
+  } catch { return ''; }
+  finally { try { fs.unlinkSync(tmp); } catch {} }
+}
+
+/**
+ * Parse one MAR Article 19 transaction block extracted from a PDF.
+ * Handles both the "clean" format (Borr Drilling) and the multi-column
+ * format (Observe Medical) where the name appears in an unusual position.
+ * Returns null if the block describes a non-market transaction (grant/RSU/option).
+ */
+function parsePdfMarBlock(text) {
+  const t = text.replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+
+  // ── Transaction type ── skip non-market grants/RSU/options
+  const txTypeM = t.match(/Nature of the transaction\s*\n+([\s\S]*?)(?=\n\s*\n|\nc\)|\nPrice)/i);
+  const txTypeRaw = txTypeM ? txTypeM[1].replace(/\n/g, ' ').trim() : '';
+  if (!txTypeRaw) return null;
+  if (/\b(grant|award|vest|RSU|PSU|incentive\s+plan|warrant|options?\s+plan)\b/i.test(txTypeRaw)
+      && !/\b(purchase|acquisition|sale|sell)\b/i.test(txTypeRaw)) return null;
+
+  const txType = /purchase|acqui|buy/i.test(txTypeRaw) ? 'BUY'
+               : /sale|sell|dispos/i.test(txTypeRaw)   ? 'SELL'
+               : null;
+  if (!txType) return null;
+
+  // ── Price + shares from aggregated section (4d) — most reliable ──
+  let shares = null, price = null, total = null, currency = null;
+
+  const aggM = t.match(/Aggregated(?:\s+information)?[:\s\-•]+([\s\S]*?)(?=\ne\)|\nDate of the transaction|$)/i);
+  const agg  = aggM ? aggM[1] : t;
+
+  // "500,000 common shares" / "182 000 shares"
+  const sharesM = agg.match(/([\d,. ]+)\s+(?:common\s+)?shares?\b/i);
+  if (sharesM) { const n = parseNum(sharesM[1]); if (n > 0) shares = Math.round(n); }
+
+  // "for a total of USD 2,790,900" or "Aggregated price: NOK 196 741,21"
+  const totM = agg.match(/\b(NOK|USD|EUR|SEK|DKK|GBP|CHF)\s+([\d,. ]+)/i);
+  if (totM) { currency = totM[1].toUpperCase(); total = parseNum(totM[2]); }
+
+  if (total && shares && shares > 0 && total > shares) price = total / shares;
+
+  // Fallback: price directly from 4c table — "CURRENCY DECIMAL" pattern
+  if (!price) {
+    const priceM = t.match(/\b(NOK|USD|EUR|SEK|DKK|GBP|CHF)\s+([\d]+[.,][\d]+)\b/i);
+    if (priceM) { currency = currency || priceM[1].toUpperCase(); price = parseNum(priceM[2]); }
+  }
+
+  // ── Date (4e) ──
+  let txDate = null;
+  const dateSection = (t.match(/Date of the transaction\s*\n+([\s\S]*?)(?=\n\s*\nf\)|\nPlace|$)/i) || [])[1] || '';
+  const dateRaw = dateSection.trim();
+  const dM = dateRaw.match(/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i)
+          || dateRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (dM) {
+    if (dM[0].includes('-')) txDate = dM[0].slice(0, 10);
+    else {
+      const mo = { january:1,february:2,march:3,april:4,may:5,june:6,july:7,august:8,september:9,october:10,november:11,december:12 };
+      txDate = `${dM[3]}-${String(mo[dM[2].toLowerCase()]).padStart(2,'0')}-${String(dM[1]).padStart(2,'0')}`;
+    }
+  }
+
+  // ── Name ──
+  let name = null, role = null;
+
+  // Strategy 1: after "a) Name" (skip any section number like "2" that pdftotext inserts)
+  const name1M = t.match(/\ba\)\s*Name\b\s*\n+(?:\d+\s*\n+\s*)?([\w(][^\n]{1,80})/i);
+  if (name1M) {
+    const c = name1M[1].trim();
+    if (!/^(?:Reason for|Details of|Initial notification|\d+$)/i.test(c)) name = c;
+  }
+
+  // Strategy 2: position/status block — first line may be entity name (e.g. "Glimt Invest AS")
+  const posM = t.match(/Position\/status\s*\n+([\s\S]*?)(?=\nb\)\s*Initial)/i);
+  if (posM) {
+    const lines = posM[1].split('\n').map(l => l.trim()).filter(Boolean);
+    if (!name && lines[0]) {
+      const first = lines[0];
+      if (!/^(CEO|CFO|COO|CTO|Chair|Director|President|Board|Primary|Close associate|Managing)/i.test(first)) {
+        name = first;
+        role = lines.slice(1).join(', ').trim() || null;
+      } else {
+        role = lines[0];
+      }
+    } else if (!role) {
+      role = lines[0] || null;
+    }
+  }
+
+  // Strategy 3: name appears after "auctioneer, or the / auction monitor" (multi-column layout)
+  if (!name) {
+    const weirdM = t.match(/(?:auctioneer,?\s+or\s+the|auction\s+monitor)\s*\n+([\w][^\n]{2,60})\n/i);
+    if (weirdM) {
+      const c = weirdM[1].trim();
+      if (/^[A-ZÆØÅ]/.test(c) && !/^(?:a\)|b\)|c\)|d\)|e\)|f\)|Business|LEI|Details|Description|ISIN)/i.test(c)) {
+        name = c;
+      }
+    }
+  }
+
+  return { name, role, txType, price: price || null, shares, total, currency, txDate };
+}
+
+/**
+ * Split PDF text into per-transaction blocks and parse each one.
+ * A single PDF often contains multiple transactions (one per insider).
+ */
+function parsePdfMarBlocks(pdfText) {
+  // Split on the repeated "NOTIFICATION OF TRANSACTIONS..." header or "1\n\nDetails of the person"
+  const splitRe = /(?=NOTIFICATION OF TRANSACTIONS|(?:^|\n\n)1\s*\n+Details of the person)/i;
+  const rawBlocks = pdfText.split(splitRe)
+    .filter(b => /Nature of the transaction/i.test(b));
+
+  return rawBlocks
+    .map(b => parsePdfMarBlock(b))
+    .filter(Boolean);  // null = skipped (grant/option/non-market)
 }
 
 // ─── Body parser ──────────────────────────────────────────────────────────────
@@ -176,7 +325,9 @@ function parseBody(raw) {
     // "for NOK X per share"
     text.match(/for\s+(?:NOK|EUR|SEK|DKK|USD|GBP)\s*([\d,.]+)\s+per\s+share/i) ||
     // "til kurs NOK X" / "til NOK X per aksje" (Norwegian)
-    text.match(/til\s+(?:kurs\s+)?(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)\s*(?:per\s+aksje|kroner\s+per\s+aksje)?/i);
+    text.match(/til\s+(?:kurs\s+)?(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)\s*(?:per\s+aksje|kroner\s+per\s+aksje)?/i) ||
+    // "at NUMBER per share" with no currency (e.g. "purchased at 161,44 per share")
+    text.match(/\bat\s+([\d]+[.,][\d]+)\s+per\s+(?:share|aksje)\b/i);
   if (priceM) {
     const p = parseNum(priceM[1]);
     if (p && p > 0) price = p;
@@ -334,13 +485,14 @@ async function scrapeNO() {
 
     // Fetch body for parsing
     let parsed = {};
+    let msgAttachments = [];
     if (msgId) {
       const msgData = await getJson(`${apiBase}/v1/newsreader/message?messageId=${msgId}`);
       if (msgData && typeof msgData === 'object') {
-        // API wraps: { header: {...}, data: { message: { body: "..." } } }
         const msgObj   = msgData.data?.message || msgData.data || msgData;
         const bodyText = msgObj.body || msgObj.content || msgObj.messageBody || '';
         if (bodyText) parsed = parseBody(bodyText);
+        msgAttachments = msgObj.attachments || [];
       }
       detailsFetched++;
       await new Promise(r => setTimeout(r, 100)); // gentle rate-limit
@@ -355,11 +507,55 @@ async function scrapeNO() {
     })();
     const txType = (parsed.txType && parsed.txType !== 'OTHER') ? parsed.txType : txTypeFromTitle;
 
+    // PDF enrichment: only when body is incomplete AND title doesn't signal a non-market event
+    // (RSU/option grants have no market price — skip fetching their PDFs to avoid slow runs)
+    const isNonMarketTitle = /\b(RSU|PSU|share\s+option|option\s+grant|incentive\s+plan|vesting|warrant|grant\s+of|right\s+issue|allot)\b/i.test(m.title || '');
+    const needsPdf = msgAttachments.length > 0 && !isNonMarketTitle &&
+      (parsed.price == null || !parsed.insiderName);
+
+    if (needsPdf) {
+      const att = msgAttachments[0];
+      const pdfUrl = `${apiBase}/v1/newsreader/attachment?messageId=${msgId}&attachmentId=${att.id}`;
+      const pdfBytes = await getBytes(pdfUrl);
+      if (pdfBytes && pdfBytes.slice(0, 4).toString() === '%PDF') {
+        const pdfText  = await pdfToText(pdfBytes);
+        const pdfBlocks = parsePdfMarBlocks(pdfText);
+        if (pdfBlocks.length > 0) {
+          // Replace the single body-parsed row with one row per PDF transaction block
+          // (outer loop already deduped msgId via seen.add(fid), so no seen check needed here)
+          for (let i = 0; i < pdfBlocks.length; i++) {
+            const b       = pdfBlocks[i];
+            const pdfFid  = pdfBlocks.length === 1 ? fid : `${fid}-pdf-${i}`;
+            const blkDate = b.txDate || txDate;
+            dbRows.push({
+              filing_id:        pdfFid,
+              country_code:     COUNTRY_CODE,
+              ticker,
+              company,
+              insider_name:     b.name || parsed.insiderName || null,
+              insider_role:     translateRole(b.role || parsed.role) || null,
+              transaction_type: b.txType || txType,
+              transaction_date: blkDate,
+              shares:           b.shares ?? parsed.shares ?? null,
+              price_per_share:  b.price  != null ? Math.round(b.price * 10000) / 10000 : (parsed.price ?? null),
+              total_value:      b.total  != null ? Math.round(b.total) : (parsed.total ?? null),
+              currency:         b.currency || CURRENCY,
+              filing_url:       `https://newsweb.oslobors.no/message/${msgId}`,
+              source:           SOURCE,
+            });
+          }
+          console.log(`  ⬇  PDF: ${company} (${msgId}) → ${pdfBlocks.length} block(s)`);
+          continue; // skip the normal push below
+        }
+      }
+      await new Promise(r => setTimeout(r, 80));
+    }
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           ticker,
-      company:          company,
+      ticker,
+      company,
       insider_name:     parsed.insiderName || null,
       insider_role:     translateRole(parsed.role) || null,
       transaction_type: txType,
