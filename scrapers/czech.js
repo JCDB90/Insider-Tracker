@@ -2,19 +2,18 @@
  * CZ — Insider Transactions Scraper
  *
  * Source: Czech National Bank (CNB) / Prague Stock Exchange (PSE)
- * URL: https://www.cnb.cz/en/financial-markets/capital-market/
- * Alternative: https://www.pse.cz/en/
  *
- * MAR Article 19 notifications for Czech Republic are submitted to the CNB.
- * The CNB and PSE do not offer a public machine-readable API for insider transactions
- * — all relevant paths return HTTP 404.
+ * STATUS: Currently non-functional — no publicly accessible API exists.
  *
- * The PSE publishes company announcements via its disclosure system. As of 2026
- * the PSE website appears to be under reconstruction (all API paths 404, root page
- * returns JS-only Cloudflare shell).
+ * Investigated options (all blocked):
+ *   - PSE (www.pse.cz): Cloudflare IP-block — ECONNRESET on all requests
+ *   - CNB OAM (oam.cnb.cz): Oracle DB Forms app, TCP-resets non-Czech IPs
+ *   - CNB open data portal: returns 404
+ *   - Vienna Stock Exchange (PSE parent): no insider transaction API found
  *
- * To enable: find the CNB/PSE data export URL or implement Puppeteer automation.
- * Potential alternative: the Prague Stock Exchange XPRA Euronext gateway.
+ * To enable: either find a VPN/proxy endpoint in CZ, or implement Puppeteer
+ * automation against the CNB OAM system (if it can be browser-rendered from
+ * a Czech IP via a headless browser proxy).
  */
 'use strict';
 
