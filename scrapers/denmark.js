@@ -18,6 +18,7 @@ const fs         = require('fs');
 const path       = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
+const { looksLikeCorp }          = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
@@ -303,7 +304,17 @@ function parseNotificationText(text) {
     if (parts.length === 2 && parts[1]) insiderName = `${parts[1]} ${parts[0]}`;
   }
 
-  return { insiderName, insiderRole, isin, txDate, shares, price, totalValue, nature, transactionType: mapType(nature || '') };
+  // If insiderName looks like a corporate entity, check ESMA section 2b for the associated person
+  let viaEntity = null;
+  if (insiderName && looksLikeCorp(insiderName)) {
+    const assocM = text.match(/closely\s+associated\s+(?:with\s+)?(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member)|\s*$)/im);
+    if (assocM) {
+      viaEntity   = insiderName;
+      insiderName = assocM[1].trim();
+    }
+  }
+
+  return { insiderName, viaEntity, insiderRole, isin, txDate, shares, price, totalValue, nature, transactionType: mapType(nature || '') };
 }
 
 function get(hostname, path, headers = {}, _redirects = 5) {
@@ -564,6 +575,7 @@ async function scrapeDK() {
       ticker:           (det && det.isin) || '',
       company:          r.company || null,
       insider_name:     det && det.insiderName ? det.insiderName : null,
+      via_entity:       det && det.viaEntity   ? det.viaEntity  : null,
       insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
       transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
       transaction_date: txIso,

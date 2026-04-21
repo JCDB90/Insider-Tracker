@@ -27,6 +27,7 @@ const fs      = require('fs');
 const path    = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { splitFrPersonLiee }       = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'FR';
 const SOURCE         = 'AMF France / BDIF';
@@ -171,9 +172,10 @@ function parseFrPdf(text) {
   const nameLine    = nameLineIdx >= 0 ? lines[nameLineIdx + 1] || null : null;
 
   let insiderName = null;
+  let viaEntity   = null;
   let roleRaw     = null;
   if (nameLine) {
-    // Value format: "NAME, Role"  or  "NAME personne liée à OTHER, Role"
+    // Value format: "NAME, Role"  or  "NAME personne liée à ENTITY, Role"
     // Split at last comma to separate role
     const commaIdx = nameLine.lastIndexOf(',');
     if (commaIdx > 0) {
@@ -181,6 +183,11 @@ function parseFrPdf(text) {
       roleRaw     = nameLine.slice(commaIdx + 1).trim();
     } else {
       insiderName = nameLine;
+    }
+    // Split "NAME personne liée à ENTITY" into person + via_entity
+    if (insiderName) {
+      const liee = splitFrPersonLiee(insiderName);
+      if (liee) { insiderName = liee.person; viaEntity = liee.entity; }
     }
   }
 
@@ -235,6 +242,7 @@ function parseFrPdf(text) {
   return {
     txType,
     insiderName: insiderName || null,
+    viaEntity:   viaEntity   || null,
     role:        roleRaw     || null,
     shares:      parseNum(sharesRaw),
     price:       parseNum(priceRaw),
@@ -347,6 +355,7 @@ async function scrapeFR() {
       ticker,
       company,
       insider_name:     parsed.insiderName || 'Not disclosed',
+      via_entity:       parsed.viaEntity   || null,
       insider_role:     translateRole(parsed.role) || null,
       transaction_type: parsed.txType,
       transaction_date: txIso,

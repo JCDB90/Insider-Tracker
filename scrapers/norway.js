@@ -30,6 +30,7 @@ const path         = require('path');
 const fs           = require('fs');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors / Euronext Oslo';
@@ -344,8 +345,9 @@ function parseBody(raw) {
   }
   if (!total && shares && price) total = Math.round(shares * price);
 
-  // ── Insider name & role ──
+  // ── Insider name, role & via_entity ──
   let insiderName = null;
+  let viaEntity   = null;
   let role = null;
 
   // Table format: "Innsider/Insider: Name"
@@ -390,12 +392,16 @@ function parseBody(raw) {
       const rolePart = afterName.match(/^([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
       role = rolePart ? rolePart[1].trim() : personRoleM[2].trim();
     } else {
-      // ② "close associate of [Mr./Mrs./Ms.] Name, Role" — the PDMR is the insider
+      // ② "close associate of [Mr./Mrs./Ms.] Name, Role" — the PDMR is the insider;
+      //    the entity filing on their behalf may appear at the start of the prose.
       const closeAssocM = text.match(
         /close\s+associate\s+of\s+(?:Mr\.?\s*|Mrs\.?\s*|Ms\.?\s*)?([A-ZÆØÅ][a-zA-ZÆØÅæøå\- \.]{2,50}(?:\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\-\.]{1,20}){0,3})(?:,|\s+(?:Director|CEO|CFO|Chair|Board|President|Managing|Officer))/i
       );
       if (closeAssocM) {
         insiderName = closeAssocM[1].trim();
+        // Capture entity name from prose start: "Kaldvik AS, close associate of..."
+        const entityM = prose.match(/^([A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{1,50}?(?:AS|ASA|Ltd|LLC|NV|BV|AB|Holding|Invest|Capital|Fund|Trust))\b/);
+        if (entityM) viaEntity = entityM[1].trim();
       } else {
         // ③ "controlled by / in which / related party to / primary insider / informed that / published by NAME"
         const controlledByM = text.match(
@@ -413,7 +419,7 @@ function parseBody(raw) {
     }
   }
 
-  return { txType, insiderName, role, shares, price, total };
+  return { txType, insiderName, viaEntity, role, shares, price, total };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -533,6 +539,7 @@ async function scrapeNO() {
               ticker,
               company,
               insider_name:     b.name || parsed.insiderName || null,
+              via_entity:       (looksLikeCorp(b.name) ? null : (parsed.viaEntity || null)),
               insider_role:     translateRole(b.role || parsed.role) || null,
               transaction_type: b.txType || txType,
               transaction_date: blkDate,
@@ -557,6 +564,7 @@ async function scrapeNO() {
       ticker,
       company,
       insider_name:     parsed.insiderName || null,
+      via_entity:       parsed.viaEntity   || null,
       insider_role:     translateRole(parsed.role) || null,
       transaction_type: txType,
       transaction_date: txDate,

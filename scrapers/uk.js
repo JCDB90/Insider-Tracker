@@ -16,6 +16,7 @@
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
@@ -329,6 +330,20 @@ function parseDocumentContent(content, meta) {
 
   if (names.length === 0) return [];  // Cannot determine insider name
 
+  // For each name: if it looks like a corporate entity, try to extract the associated person
+  // from the position/status section ("Closely associated with PERSON PDMR").
+  const viaEntities = new Array(names.length).fill(null);
+  for (let i = 0; i < names.length; i++) {
+    if (looksLikeCorp(names[i])) {
+      const posText = positions[i] || positions[0] || posSec || '';
+      const assocM = posText.match(/closely\s+associated\s+with\s+([A-Z][a-zA-Z\s\-\.]{2,50}?)(?:\s+PDMR|\s*$)/i);
+      if (assocM) {
+        viaEntities[i] = names[i];
+        names[i] = assocM[1].trim();
+      }
+    }
+  }
+
   const company = issuerSec || meta.company || null;
 
   // Fall back to filing submission date if transaction date couldn't be parsed
@@ -343,6 +358,7 @@ function parseDocumentContent(content, meta) {
     ticker:           isin || '',
     company:          company || null,
     insider_name:     name,
+    via_entity:       viaEntities[i] || null,
     insider_role:     translateRole(positions[i] || positions[0] || null),
     transaction_type: txType,
     transaction_date: effectiveDate,

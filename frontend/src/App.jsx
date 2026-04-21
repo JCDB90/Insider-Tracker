@@ -244,8 +244,11 @@ function InsiderTradesTable({ rows, loading, sortBy, sortDir, onSort, onClear })
                 <td className="px-4 py-2.5">
                   <span className="font-mono text-sm font-semibold text-blue-400">{row.ticker}</span>
                 </td>
-                <td className="px-4 py-2.5 max-w-[160px]">
-                  <span className="text-sm text-slate-200 truncate block">{row.insider_name || '—'}</span>
+                <td className="px-4 py-2.5 max-w-[200px]">
+                  <span className="text-sm text-slate-200 block">{row.insider_name || '—'}</span>
+                  {row.via_entity && (
+                    <span className="text-xs text-slate-500 italic truncate block">via {row.via_entity}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 max-w-[120px]">
                   <span className="text-xs text-slate-500 truncate block">{row.insider_role || '—'}</span>
@@ -411,7 +414,7 @@ export default function App() {
   }
 
   const filteredTrades = useMemo(() => {
-    const base = applyFilters(trades, ['company', 'ticker', 'insider_name']);
+    const base = applyFilters(trades, ['company', 'ticker', 'insider_name', 'via_entity']);
     return sortRows(base, tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']);
   }, [trades, selectedCountries, search, tradeSort]);
 

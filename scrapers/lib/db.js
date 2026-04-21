@@ -8,7 +8,8 @@
  *   SUPABASE_KEY  - service_role or anon key
  */
 
-const { createClient } = require('@supabase/supabase-js');
+const { createClient }   = require('@supabase/supabase-js');
+const { looksLikeCorp } = require('./entityUtils');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -19,6 +20,20 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Lazy check: does the via_entity column exist in the DB yet?
+let _viaEntityChecked = false;
+let _viaEntityExists  = false;
+async function hasViaEntityColumn() {
+  if (_viaEntityChecked) return _viaEntityExists;
+  _viaEntityChecked = true;
+  const { error } = await supabase.from('insider_transactions').select('via_entity').limit(1);
+  _viaEntityExists = !error;
+  if (!_viaEntityExists) {
+    console.log('  ℹ  via_entity column not yet in DB — run: node scrapers/migrate-via-entity.js');
+  }
+  return _viaEntityExists;
+}
 
 /**
  * Upsert insider transactions. Deduplicates on filing_id.
@@ -35,9 +50,18 @@ async function saveInsiderTransactions(rows) {
   }
   if (filtered.length === 0) return { inserted: 0 };
 
+  // Auto-detect corporate entities: if insider_name looks like a company name and via_entity
+  // isn't already set, move the name to via_entity and set insider_name = 'Not disclosed'.
+  const withEntityResolved = filtered.map(r => {
+    if (r.insider_name && !r.via_entity && looksLikeCorp(r.insider_name)) {
+      return { ...r, via_entity: r.insider_name, insider_name: 'Not disclosed' };
+    }
+    return r;
+  });
+
   // Require insider_name, shares > 0, and a positive price_per_share.
   // price=null or price=0 means no real market transaction (vesting, award, or missing data) → skip.
-  const complete = filtered.filter(r => {
+  const complete = withEntityResolved.filter(r => {
     const hasName   = r.insider_name && r.insider_name.trim() !== '';
     const hasShares = r.shares != null && r.shares > 0;
     const hasPrice  = r.price_per_share != null && r.price_per_share > 0;
@@ -47,14 +71,20 @@ async function saveInsiderTransactions(rows) {
     }
     return true;
   });
-  if (complete.length < filtered.length) {
-    console.log(`  ℹ  Dropped ${filtered.length - complete.length} rows missing name/shares/price`);
+  if (complete.length < withEntityResolved.length) {
+    console.log(`  ℹ  Dropped ${withEntityResolved.length - complete.length} rows missing name/shares/price`);
   }
   if (complete.length === 0) return { inserted: 0 };
 
+  // Strip via_entity from rows if the column doesn't exist yet (avoids DB errors)
+  const viaExists = await hasViaEntityColumn();
+  const upsertRows = viaExists
+    ? complete
+    : complete.map(({ via_entity, ...rest }) => rest);
+
   const { data, error } = await supabase
     .from('insider_transactions')
-    .upsert(complete, { onConflict: 'filing_id', ignoreDuplicates: false });
+    .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
     console.error('  DB error (insider_transactions):', error.message);
