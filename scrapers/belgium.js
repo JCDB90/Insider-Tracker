@@ -258,6 +258,12 @@ async function scrapeBE() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
+    // Skip vestings / free grants (price=0 or null means no real market transaction)
+    if (d.price == null || d.price === 0) {
+      console.log(`  ⚠  Skipping vesting/no-price row: ${d.company} ${d.insiderName} ${d.txDate}`);
+      continue;
+    }
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,

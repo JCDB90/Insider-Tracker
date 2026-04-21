@@ -251,23 +251,15 @@ function parseXml(xml, cutoffDate) {
       pushed++;
     }
 
-    // ── Free-share vesting / grant (BUY @ €0) ──────────────────────────────────
-    if (sumFreeGain > 0) {
-      const suffix = pushed > 0 ? '-v' : '';
-      const valuta = freeGains[0]?.valuta || CURRENCY;
-      rows.push({ ...base, filing_id: `NL-${id}${suffix}`, transaction_type: 'BUY',
-        shares: sumFreeGain, price_per_share: 0, currency: valuta, total_value: null });
-      pushed++;
-    }
-
     // ── Fallback: conditional/restricted/performance instruments only ───────────
     if (pushed === 0 && netCond !== 0) {
       const txType = netCond > 0 ? 'BUY' : 'SELL';
       const shares = Math.abs(netCond);
       const pe = conditionalChanges.find(c => c.prijs > 0) || conditionalChanges[0];
       const price  = pe?.prijs  ?? 0;
+      if (price === 0) { skipped++; continue; }  // skip price-less vestings
       const valuta = pe?.valuta ?? CURRENCY;
-      const total  = price > 0 ? Math.round(price * shares) : null;
+      const total  = Math.round(price * shares);
       rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: txType,
         shares, price_per_share: price, currency: valuta, total_value: total });
       pushed++;

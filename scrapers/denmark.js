@@ -35,9 +35,21 @@ function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
   if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
-      l.includes('subscribe') || l.includes('exercise') || l.includes('buy')) return 'BUY';
-  if (l.includes('dispos') || l.includes('sale') || l.includes('sell')) return 'SELL';
+      l.includes('subscribe') || l.includes('exercise') || l.includes('buy') ||
+      l.includes('køb') || l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
+  if (l.includes('dispos') || l.includes('sale') || l.includes('sell') ||
+      l.includes('salg') || l.includes('afstå')) return 'SELL';
   return 'OTHER';
+}
+
+// Parse numbers in both Danish (period=thousands, comma=decimal) and English formats
+function parseNum(raw) {
+  if (!raw) return NaN;
+  const s = raw.trim().replace(/\s/g, '');
+  if (/\d\.\d{3},/.test(s)) return parseFloat(s.replace(/\./g, '').replace(',', '.'));   // 1.234,56
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));          // 22.345 (thousands)
+  if (/,/.test(s) && !/\./.test(s)) return parseFloat(s.replace(',', '.'));               // 61,7088 (decimal)
+  return parseFloat(s.replace(/,/g, ''));
 }
 
 function stripHtml(html) {
@@ -70,6 +82,8 @@ function parseNotificationText(text) {
     /1\.1\b[^\n]*\n[ \t]*([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*\n/m,
     // Tabular ESMA form: "a)   Name                     John Smith"
     /\ba\)\s+Name\s{2,}([^\n]{2,80})/im,
+    // Danish ESMA form: "a)   Navn\n                      Christian Herskind Jørgensen"
+    /\ba\)\s+Navn\s*\n\s+([A-ZÆØÅ][^\n]{1,80})/im,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
     /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
     /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
@@ -79,8 +93,12 @@ function parseNotificationText(text) {
     // ESMA section 1.2 with -layout: "1.2  Position/status   CEO" on one line
     /1\.2\s+\S[^\n]*?([A-Z][a-zA-Z\s\-\/]{2,60}?)\s*$/m,
     /1\.2\b[^\n]*\n[ \t]*([A-Z][a-zA-Z\s\-\/]{2,60})\s*\n/m,
-    // Tabular ESMA form: "a)   Position/status          CEO" — only short values (< 80 chars before newline or comma)
+    // Tabular ESMA form: "a)   Position/status          CEO"
     /\ba\)\s+Position\/status\s{2,}([A-Z][a-zA-Z\s\-\/]{2,79}?)(?:\.|,|\n)/im,
+    // Danish: "a)   Stilling/titel\n                      Direktør og bestyrelsesmedlem"
+    /\ba\)\s+Stilling\/titel\s*\n\s+([^\n]{2,80})/im,
+    // Also Danish "Occupation / title" fallback
+    /\ba\)\s+Occupation\s*\/\s*title\s{2,}([A-Z][a-zA-Z\s\-\/]{2,79}?)(?:\.|,|\n)/im,
     /\bPosition\s*[:|]\s*([^\n|]+?)(?=\s+(?:Issuer|LEI|ISIN|Reference|Notification type|Name)\s*[:|])/i,
     /Position\s*\/\s*status\s*[:|]\s*([^\n|]{2,80})/i,
   );
@@ -143,9 +161,13 @@ function parseNotificationText(text) {
   const nature = grabAfter(text,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]+?)(?=\s+Transaction\s+details|\s+Volume|\s*$)/i,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]{2,120})/i,
-    // Tabular ESMA form: "Nature of the            Sale" (label wraps, value is on label's first line)
+    // Tabular ESMA form: "Nature of the            Sale"
     /Nature\s+of\s+the\b[^\n]*(Sale|Acquisition|Disposal|Subscription|Exercise|Grant|Award)\b/im,
     /\bNature\s+of\s+the\b[^\n]*?([A-Z][a-z]{2,}(?:ition|al|ion|ise|ize|ase|ent)?)\s*$/im,
+    // Danish: "b)   Transaktionens art\n                      Salg af aktier..."
+    /\bb\)\s+Transaktionens\s+art\s*\n\s+([^\n]{2,120})/im,
+    // Danish: "b)   Transaction type\n                      Sale..."
+    /\bb\)\s+Transaction\s+type\s*\n\s+([^\n]{2,120})/im,
   );
 
   const txDateRaw = grabAfter(text,
@@ -153,7 +175,9 @@ function parseNotificationText(text) {
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/i,
     // Tabular ESMA form: "Date of the              2026-04-13"
     /Date\s+of\s+the\b[^\n]*(\d{4}-\d{2}-\d{2})/im,
-    /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,  // "today... 10th April 2026"
+    // Danish: "e)   Dato for transaktionen\n                      2026-04-16"
+    /\be\)\s+Dato\s+for\s+transaktionen\s*\n\s*(\d{4}-\d{2}-\d{2})/im,
+    /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,
   );
   let txDate = null;
   if (txDateRaw) {
@@ -178,12 +202,12 @@ function parseNotificationText(text) {
   }
 
   // Tabular ESMA form: "DKK 285.36                              2,160" on one line
-  // Currency + price + whitespace + volume (no "at" between them)
+  // Also Danish: "DKK 61,7088                         22.345" (comma=decimal, period=thousands in volume)
   if (!shares) {
-    const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,]+)\s*$/im);
+    const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,\.]+)\s*$/im);
     if (priceVolLine) {
-      const pv = parseFloat(priceVolLine[1].replace(/,/g, ''));
-      const sv = parseFloat(priceVolLine[2].replace(/,/g, ''));
+      const pv = parseNum(priceVolLine[1]);
+      const sv = parseNum(priceVolLine[2]);
       if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
       if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
     }
@@ -231,41 +255,28 @@ function parseNotificationText(text) {
   );
   if (!priceRaw && _pdfPriceFromVol) price = _pdfPriceFromVol;
   if (priceRaw) {
-    // Detect European decimal format (1.234,56) vs US (1,234.56)
-    const isEuropean = /\d\.\d{3},\d/.test(priceRaw);
-    const normalized = isEuropean
-      ? priceRaw.replace(/\./g, '').replace(',', '.')
-      : priceRaw.replace(/,/g, '');
-    const n = parseFloat(normalized);
+    const n = parseNum(priceRaw);
     if (!isNaN(n) && n > 0) price = n;
   }
 
   // Total value: "for a total amount of DKK X" or "at a total price of DKK X"
-  // Also: tabular "DKK 616,377.60\n      — Price" (the aggregated total before "— Price" label)
-  // NOTE: do NOT use bare "DKK X" — that matches the unit price as well.
+  // Also tabular: "DKK 616,377.60\n      — Price" or Danish "Aggregeret pris: DKK 1.378.883"
   const totalRaw = grabAfter(text,
-    /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s*\n[^\n]*—\s*Price/im,   // tabular: aggregated total before "— Price"
+    /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s*\n[^\n]*—\s*Price/im,
+    /Aggregeret\s+pris[^\n]*(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/im,  // Danish aggregated price
     /total\s+(?:amount|price|consideration)\s+of\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
     /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s+(?:total|in total|aggregate)/i,
     /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:total|in total)\b/i,
   );
 
-  function parseAmount(raw) {
-    if (!raw) return NaN;
-    const isEuropean = /\d\.\d{3},\d/.test(raw);
-    return parseFloat(isEuropean
-      ? raw.replace(/\./g, '').replace(',', '.')
-      : raw.replace(/,/g, ''));
-  }
-
   if (!price && totalRaw && shares) {
-    const total = parseAmount(totalRaw);
+    const total = parseNum(totalRaw);
     if (!isNaN(total) && total > 0) {
       totalValue = Math.round(total);
       price = parseFloat((total / shares).toFixed(4));
     }
   } else if (totalRaw) {
-    const total = parseAmount(totalRaw);
+    const total = parseNum(totalRaw);
     if (!isNaN(total) && total > 0) totalValue = Math.round(total);
   }
 

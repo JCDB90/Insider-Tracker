@@ -35,13 +35,12 @@ async function saveInsiderTransactions(rows) {
   }
   if (filtered.length === 0) return { inserted: 0 };
 
-  // Require insider_name, shares > 0, and price_per_share not null.
-  // price=0 is valid (RSU vesting / free share award — the regulator disclosed it as £0).
-  // price=null means the source genuinely did not report a price → skip.
+  // Require insider_name, shares > 0, and a positive price_per_share.
+  // price=null or price=0 means no real market transaction (vesting, award, or missing data) → skip.
   const complete = filtered.filter(r => {
     const hasName   = r.insider_name && r.insider_name.trim() !== '';
     const hasShares = r.shares != null && r.shares > 0;
-    const hasPrice  = r.price_per_share != null;   // 0 is acceptable; null is not
+    const hasPrice  = r.price_per_share != null && r.price_per_share > 0;
     if (!hasName || !hasShares || !hasPrice) {
       console.log(`  ⚠  Skipping incomplete row (${r.company || '?'} ${r.transaction_date || '?'}): name=${r.insider_name || 'null'} shares=${r.shares ?? 'null'} price=${r.price_per_share ?? 'null'}`);
       return false;
