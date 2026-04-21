@@ -275,27 +275,75 @@ function parsePdfText(text) {
 
   // ── Company (section 3.a issuer) ──────────────────────────────────────────
   let company = null;
+  // Bilingual form: "Nome completo dell'entità:" label
   const coMatch = text.match(/Nome\s+completo\s+dell.entit[aà]:[^\n]*\n[^\n]*\n([^\n]+)/i);
   if (coMatch) company = coMatch[1].trim();
+  // Italian-only form: company name precedes the LEI code line
+  if (!company) {
+    const leiCoMatch = text.match(/Nome\s*4?\s*\nName\s*\n([^\n]+)\n[\s\S]{0,80}LEI/i);
+    if (leiCoMatch) company = leiCoMatch[1].trim();
+  }
 
   // ── ISIN ──────────────────────────────────────────────────────────────────
-  const isinMatch = text.match(/ISIN:\s*([A-Z]{2}[A-Z0-9]{10})/i);
-  const isin = isinMatch ? isinMatch[1] : null;
+  let isin = (text.match(/ISIN:\s*([A-Z]{2}[A-Z0-9]{10})/i) || [])[1] || null;
+  // Italian-only form: ISIN appears on its own line without "ISIN:" prefix
+  if (!isin) {
+    const standaloneIsin = text.match(/\n([A-Z]{2}[A-Z0-9]{10})\n/);
+    if (standaloneIsin) isin = standaloneIsin[1];
+  }
 
   // ── Transaction type (section 4.b) ────────────────────────────────────────
+  // Two form layouts exist:
+  // 1. Bilingual ESMA form: actual value on line immediately after English instruction ends
+  //    ("Regulation (EU) No 596/2014.\nCESSIONE" or "...ACQUISTO")
+  // 2. Italian-only form: free-text description after "Nature of the transaction\n"
+  //    ("Vendita di azioni ordinarie..." / "Acquisto di azioni ordinarie...")
+  // DO NOT scan the whole document — boilerplate contains "acquisto, vendita" in
+  // footnote 9 instruction text on every form, causing false SELL detection.
   let txType = null;
-  if (/\bCESSIONE\b|\bVENDITA\b|\bDisposizione\b|\bDisposal\b/i.test(text)) txType = 'SELL';
-  else if (/\bACQUISTO\b|\bSOTTOSCRIZIONE\b|\bAcquisition\b|\bSubscription\b/i.test(text)) txType = 'BUY';
+
+  // Method 1: bilingual form — value after English instruction end
+  const txValMatch = text.match(/Regulation\s*\(EU\)\s*No\s*596\/2014\.\s*\n([^\n]+)\n/i);
+  if (txValMatch) {
+    const val = txValMatch[1].trim();
+    if (/\bCESSIONE\b|\bVENDITA\b|\bDisposizione\b|\bDisposal\b|\bSale\b/i.test(val)) txType = 'SELL';
+    else if (/\bACQUISTO\b|\bSOTTOSCRIZIONE\b|\bAcquisition\b|\bSubscription\b|\bALTRO\b|\bOther\b|\bASSEGNAZIONE\b|\bEsercizio\b|\bGrant\b|\bVesting\b/i.test(val)) txType = 'BUY';
+  }
+
+  // Method 2: Italian-only form — description directly after "Nature of the transaction"
+  if (!txType) {
+    const natMatch = text.match(/Nature of the transaction\s*\n([^\n]+)/i);
+    if (natMatch) {
+      const val = natMatch[1].trim();
+      if (!/^Descrizione/i.test(val)) { // skip if it's the bilingual instruction preamble
+        if (/[Vv]endita|[Cc]essione|[Dd]isposizione/i.test(val)) txType = 'SELL';
+        else if (/[Aa]cquisto|[Ss]ottoscrizione|[Aa]ssegnazione|[Ee]sercizio/i.test(val)) txType = 'BUY';
+      }
+    }
+  }
 
   // ── Volume aggregato (section 4.d) ────────────────────────────────────────
   let shares = null;
+  // Standard bilingual form: "Volume aggregato: N"
   const volMatch = text.match(/Volume\s+aggregato:\s*([\d.,]+)/i);
   if (volMatch) shares = Math.round(parseItNum(volMatch[1]) || 0) || null;
 
   // ── Weighted average price (section 4.d) ─────────────────────────────────
   let price = null, currency = CURRENCY;
+  // Standard bilingual form: "Prezzo: N EUR"
   const priceMatch = text.match(/Prezzo:\s*([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)/i);
   if (priceMatch) { price = parseItNum(priceMatch[1]); currency = priceMatch[2]; }
+
+  // Italian-only form: aggregate in "PREZZO  VOLUME\nN\tN" after "Aggregated information"
+  // The section 4.d block shows: PREZZO  VOLUME\n10,3239\t10222
+  if (!shares || price == null) {
+    const itAggMatch = text.match(/Aggregated\s+information[\s\S]{0,300}PREZZO\s+VOLUME\s*\n([\d.,]+)\s+([\d.,]+)/i);
+    if (itAggMatch) {
+      if (price == null) price  = parseItNum(itAggMatch[1]);
+      if (!shares)       shares = Math.round(parseItNum(itAggMatch[2]) || 0) || null;
+      // Italian exchange is always EUR — no currency shown in this form layout
+    }
+  }
 
   // Fallback: parse from individual transaction row "PRICE CURRENCY VOLUME"
   if (!shares || price == null) {
@@ -307,19 +355,28 @@ function parsePdfText(text) {
     }
   }
 
-  // Skip debt/bond instruments: only reliable signal is percentage-priced "Prezzo: N %"
-  // with no EUR/currency price found. Equity always has an explicit currency price.
+  // Skip price=0 rows (free vestings, pledge releases, etc.) — no cash transaction
+  if (price === 0) return { _skipped: 'zero_price' };
+
+  // Skip bond instruments: only reliable signal is percentage-priced "Prezzo: N %"
   if (price == null && /Prezzo:\s*[\d.,]+\s*%/i.test(text)) return { _skipped: 'debt' };
 
-  // ── Transaction date (section 4.e — ISO format in PDF) ───────────────────
-  // Formats seen: "2026-04-17 From: 17:35:00" or "2026-04-15 - 16:30:00"
+  // ── Transaction date (section 4.e) ────────────────────────────────────────
   let txDate = null;
-  const sec4eIdx = text.search(/4[.\s]*e\)|Data\s+dell.operazione/i);
+  // Broaden search anchor to handle Italian form "Data dell' operazione" (space after apostrophe)
+  const sec4eIdx = text.search(/4[.\s]*e\)|Data\s+dell.\s*operazione/i);
   if (sec4eIdx >= 0) {
-    const isoMatch = text.slice(sec4eIdx, sec4eIdx + 400).match(/(\d{4}-\d{2}-\d{2})/);
-    if (isoMatch) txDate = isoMatch[1];
+    const chunk = text.slice(sec4eIdx, sec4eIdx + 400);
+    // ISO format: YYYY-MM-DD
+    const isoM = chunk.match(/(\d{4}-\d{2}-\d{2})/);
+    if (isoM) txDate = isoM[1];
+    // Italian form format: DD/MM/YYYY
+    if (!txDate) {
+      const itM = chunk.match(/(\d{2}\/\d{2}\/\d{4})/);
+      if (itM) txDate = itToIso(itM[1]);
+    }
   }
-  // Last resort: first ISO date found anywhere in the document (skipping garbled matches)
+  // Last resort: first ISO date in document
   if (!txDate) {
     const anyDate = text.match(/\b(202\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b/);
     if (anyDate) txDate = anyDate[1];
@@ -358,7 +415,7 @@ async function scrapeIT() {
 
   // Step 2: fetch and parse PDFs in concurrent batches
   const rows = [];
-  let pdfFailed = 0, pdfDebt = 0; // pdfDebt = bond/percentage-priced instruments skipped
+  let pdfFailed = 0, pdfDebt = 0, pdfZero = 0;
 
   for (let i = 0; i < filings.length; i += PDF_CONCURRENCY) {
     const batch = filings.slice(i, i + PDF_CONCURRENCY);
@@ -367,7 +424,8 @@ async function scrapeIT() {
     );
 
     for (const { f, pdf } of results) {
-      if (pdf._skipped === 'debt') { pdfDebt++; continue; }
+      if (pdf._skipped === 'debt')       { pdfDebt++; continue; }
+      if (pdf._skipped === 'zero_price') { pdfZero++; continue; }
       if (!pdf.txType) { pdfFailed++; continue; }
 
       const company = pdf.company || f.company;
@@ -404,7 +462,7 @@ async function scrapeIT() {
   const parseRate = filings.length > 0
     ? ((rows.length / filings.length) * 100).toFixed(0)
     : 0;
-  console.log(`  Parsed ${rows.length}/${filings.length} filings (${parseRate}% equity, ${pdfDebt} debt skipped, ${pdfFailed} failed)`);
+  console.log(`  Parsed ${rows.length}/${filings.length} (${parseRate}% equity, ${pdfDebt} bond, ${pdfZero} zero-price, ${pdfFailed} failed)`);
 
   if (rows.length === 0) {
     console.log('  No BUY/SELL transactions extracted.');
