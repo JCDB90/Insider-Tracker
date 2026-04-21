@@ -45,15 +45,21 @@ function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS
 
 function parseNum(s) {
   if (!s && s !== 0) return null;
-  const str = String(s).trim().replace(/\s/g, '');
+  const str = String(s).trim().replace(/\s/g, '');   // strip spaces (handles "10 000")
   if (!str) return null;
-  // European: 1.234,56
+  // European decimal: 1.234,56 → 1234.56
   if (/\d\.\d{3},\d/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
-  // American: 1,234.56
-  if (/\d,\d{3}\.\d/.test(str)) return parseFloat(str.replace(/,/g, ''));
-  // Plain comma decimal: 1234,56
+  // Period-thousands (no decimal): 10.000 or 1.234.567 → 10000, 1234567
+  if (/^\d{1,3}(\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
+  // American thousands+decimal: 1,234.56 → 1234.56
+  if (/\d,\d{3}\./.test(str)) return parseFloat(str.replace(/,/g, ''));
   if (/,/.test(str) && !/\./.test(str)) {
     const parts = str.split(',');
+    // Multiple commas: always thousands — "5,496,534" → 5496534
+    if (parts.length > 2) return parseFloat(str.replace(/,/g, ''));
+    // 3-digit tail: thousands — "138,500" → 138500; "1,234" → 1234
+    if (parts[1] && parts[1].length === 3) return parseFloat(str.replace(/,/g, ''));
+    // 1-2 or 4-digit tail: decimal — "27,60" → 27.60; "61,7088" → 61.7088
     if (parts[1] && parts[1].length <= 4) return parseFloat(str.replace(',', '.'));
     return parseFloat(str.replace(/,/g, ''));
   }
@@ -143,8 +149,10 @@ function parseBody(raw) {
   // ── Transaction type ──
   const txType = (() => {
     const l = text.toLowerCase();
-    if (/\b(purchased?|bought|acqui|kjøpte?|ervervet|kjøp|erverv|subscri)\b/.test(l)) return 'BUY';
-    if (/\b(sold?|disposed?|salg|solgte?|avhendet|divest)\b/.test(l)) return 'SELL';
+    // BUY: purchased/bought/acquired/subscribed + Norwegian: kjøpte/kjøpt/ervervet/kjøp
+    if (/\b(purchased?|bought|acqui|subscri|kjøpte?|kjøpt|ervervet|kjøp|erverv)\b/.test(l)) return 'BUY';
+    // SELL: sold/disposed/divested + Norwegian: salg/solgte/solgt/avhendet
+    if (/\b(sold?|disposed?|divest|salg|solgte?|solgt|avhendet)\b/.test(l)) return 'SELL';
     return 'OTHER';
   })();
 
@@ -201,31 +209,56 @@ function parseBody(raw) {
     insiderName = tableNameM[1].trim();
     role = tableRoleM ? tableRoleM[1].trim() : null;
   } else {
-    // Prose format — strip date/location headers before extracting name
+    // Prose format — strip legal/boilerplate headers before extracting name
     let prose = text;
-    // Strip date header: "April 20, 2026 " or "20 April 2026 "
-    prose = prose.replace(/^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}[:\s]*/i, '');
+    // Strip "NOT FOR PUBLICATION..." legal disclaimer header
+    prose = prose.replace(/^NOT\s+FOR\s+PUBLICATION[^.]*\.\s*/i, '');
+    // Strip date header: "(April 10, 2026 - Oslo)" — parenthesized form, [^)]* is safe here
+    prose = prose.replace(/^\(\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}[^)]*\)\s*[-–]?\s*/i, '');
+    // Strip plain date: "April 20, 2026 " or "April 20 2026: "
+    prose = prose.replace(/^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}[:\s–-]{0,5}/i, '');
     prose = prose.replace(/^\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}[:\s]*/i, '');
-    // Strip location header: "Frøya, Norway, 20 April 2026: " or "Athens, Greece, 20 April 2026: "
-    prose = prose.replace(/^[A-Z][a-zæøåÆØÅ]{2,20}(?:,\s*[A-Z][a-z]{2,20})?,\s*\d{1,2}\s+[A-Z][a-z]+\s+\d{4}[:\s]*/i, '');
+    // Strip location header: "Frøya, Norway, 20 April 2026: " or "Singapore, 14 April 2026 "
+    prose = prose.replace(/^[A-Z][a-zæøåÆØÅ]{2,20}(?:,\s*[A-Z][a-z]{2,20})?,?\s*\d{1,2}\s+[A-Z][a-z]+\s+\d{4}[:\s–-]*/i, '');
+    // Strip "Company – " prefix before the person's name (e.g., "Endúr ASA – Jeppe Raaholt...")
+    prose = prose.replace(/^[A-Z][a-zA-ZÆØÅ\s\.]{2,40}\s*[–—-]+\s*/u, '');
 
-    // "Name, CEO/CFO/Director/etc of/in Company..."
-    const roleKW = 'CEO|CFO|COO|CTO|Chair(?:man)?|Vice|Board|Chief|President|Managing|Senior|General|Member|Director|Officer|Founder|Advisor|Partner|Head';
+    const roleKW = 'CEO|CFO|COO|CTO|Chair(?:man)?|Vice|Board|Chief|President|Managing|Senior|General|Member|Director|Officer|Founder|Advisor|Partner|Head|EVP|SVP|VP|Controller|Secretary';
+
+    // ① "Name, ROLE of/in Company..."
+    // WORD: single capitalised word, no space within the first char class (prevents matching sentence fragments)
+    const WORD = '[A-ZÆØÅ][a-zA-ZÆØÅæøå\\.\\-]{1,25}';
+    // No 'i' flag: WORD requires uppercase start, preventing lowercase words like "been",
+    // "were", "primary", "informed" from being captured as part of the name.
     const personRoleM = prose.match(
-      new RegExp(`([A-ZÆØÅ][a-zA-ZÆØÅæøå\\- \\.]{2,50}(?:\\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\\-\\.]{1,20}){0,3}),\\s*(${roleKW})`, 'i')
+      new RegExp(`(${WORD}(?:\\s+${WORD}){0,4}),\\s*(${roleKW})`)
     );
     if (personRoleM) {
       insiderName = personRoleM[1].trim();
-      // Role runs from the matched keyword to the next "of"/"in"
       const afterName = prose.slice(prose.indexOf(personRoleM[0]) + personRoleM[1].length + 1).trim();
       const rolePart = afterName.match(/^([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
       role = rolePart ? rolePart[1].trim() : personRoleM[2].trim();
     } else {
-      // Fallback: first words before comma (as long as they look like a name, not a company)
-      const fallbackM = prose.match(/^([A-ZÆØÅ][a-zA-ZÆØÅæøå\- \.]{4,50}(?:\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\-\.]{1,20}){1,3}),/);
-      if (fallbackM) insiderName = fallbackM[1].trim();
-      const proseRoleM = prose.match(/^[^,]+,\s*([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
-      if (proseRoleM) role = proseRoleM[1].trim();
+      // ② "close associate of [Mr./Mrs./Ms.] Name, Role" — the PDMR is the insider
+      const closeAssocM = text.match(
+        /close\s+associate\s+of\s+(?:Mr\.?\s*|Mrs\.?\s*|Ms\.?\s*)?([A-ZÆØÅ][a-zA-ZÆØÅæøå\- \.]{2,50}(?:\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\-\.]{1,20}){0,3})(?:,|\s+(?:Director|CEO|CFO|Chair|Board|President|Managing|Officer))/i
+      );
+      if (closeAssocM) {
+        insiderName = closeAssocM[1].trim();
+      } else {
+        // ③ "controlled by / in which / related party to / primary insider / informed that / published by NAME"
+        const controlledByM = text.match(
+          new RegExp(`(?:controlled\\s+by|in\\s+which|related\\s+party\\s+(?:to|of)|primary\\s+insider|informed\\s+that|published\\s+by|allocated\\s+to|exercised\\s+by)\\s+(?:Mr\\.?\\s*|Mrs\\.?\\s*|Ms\\.?\\s*)?(${WORD}(?:\\s+${WORD}){0,4})(?:,|\\b)`, 'i')
+        );
+        if (controlledByM) insiderName = controlledByM[1].trim();
+      }
+      if (!insiderName) {
+        // ④ Fallback: first 2-4 capitalised words before a comma (no space in char class)
+        const fallbackM = prose.match(new RegExp(`^(${WORD}(?:\\s+${WORD}){1,3}),`));
+        if (fallbackM) insiderName = fallbackM[1].trim();
+        const proseRoleM = prose.match(/^[^,]+,\s*([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
+        if (proseRoleM) role = proseRoleM[1].trim();
+      }
     }
   }
 
