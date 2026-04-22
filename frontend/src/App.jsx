@@ -245,9 +245,15 @@ function InsiderTradesTable({ rows, loading, sortBy, sortDir, onSort, onClear })
                   <span className="font-mono text-sm font-semibold text-blue-400">{row.ticker}</span>
                 </td>
                 <td className="px-4 py-2.5 max-w-[200px]">
-                  <span className="text-sm text-slate-200 block">{row.insider_name || '—'}</span>
-                  {row.via_entity && (
-                    <span className="text-xs text-slate-500 italic truncate block">via {row.via_entity}</span>
+                  {row.insider_name === 'Not disclosed' && row.via_entity ? (
+                    <span className="text-sm text-slate-200 block">{row.via_entity}</span>
+                  ) : (
+                    <>
+                      <span className="text-sm text-slate-200 block">{row.insider_name || '—'}</span>
+                      {row.via_entity && (
+                        <span className="text-xs text-slate-500 italic truncate block">via {row.via_entity}</span>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="px-4 py-2.5 max-w-[120px]">

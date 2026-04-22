@@ -147,9 +147,10 @@ function cutoff() {
 
 function mapTransactionType(art) {
   if (!art) return 'UNKNOWN';
-  const lower = art.toLowerCase();
-  if (lower === 'kauf')     return 'BUY';
-  if (lower === 'verkauf')  return 'SELL';
+  const lower = art.toLowerCase().trim();
+  if (lower === 'kauf' || lower === 'erwerb') return 'BUY';
+  if (lower === 'verkauf' || lower === 'veräußerung') return 'SELL';
+  if (lower.startsWith('ausübung') || lower === 'zeichnung') return 'BUY';
   return 'OTHER';
 }
 

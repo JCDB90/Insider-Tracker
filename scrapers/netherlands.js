@@ -34,6 +34,7 @@
 const https   = require('https');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
+const { getClosePrice }          = require('./lib/yahooFinance');
 
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
@@ -174,7 +175,7 @@ function getTag(xml, tag) {
 /**
  * Parse the XML export and return rows ready for Supabase.
  */
-function parseXml(xml, cutoffDate) {
+async function parseXml(xml, cutoffDate) {
   const records = xml.match(/<vermelding>[\s\S]*?<\/vermelding>/g) || [];
   const rows = [];
   let skipped = 0;
@@ -251,6 +252,21 @@ function parseXml(xml, cutoffDate) {
       pushed++;
     }
 
+    // ── RSU/grant vestings: ordinary shares received at price=0 ─────────────
+    // Look up market closing price on transaction date via Yahoo Finance.
+    if (pushed === 0 && sumFreeGain > 0) {
+      const ticker = getTicker(company);
+      const marketPrice = ticker ? await getClosePrice(ticker, txDate, 'NL') : null;
+      if (marketPrice) {
+        rows.push({ ...base, filing_id: `NL-${id}-vest`, transaction_type: 'BUY',
+          shares: sumFreeGain, price_per_share: marketPrice, currency: CURRENCY,
+          total_value: Math.round(marketPrice * sumFreeGain) });
+        pushed++;
+      } else {
+        skipped++;  // no price found, skip rather than record €0
+      }
+    }
+
     // ── Fallback: conditional/restricted/performance instruments only ───────────
     if (pushed === 0 && netCond !== 0) {
       const txType = netCond > 0 ? 'BUY' : 'SELL';
@@ -292,7 +308,7 @@ async function scrapeNL() {
     return { saved: 0 };
   }
 
-  const rows = parseXml(xml, co);
+  const rows = await parseXml(xml, co);
   if (rows.length === 0) {
     console.log('  No BUY/SELL ordinary share transactions in the window.');
     return { saved: 0 };

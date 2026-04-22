@@ -182,7 +182,15 @@ function parseFrPdf(text) {
       insiderName = nameLine.slice(0, commaIdx).trim();
       roleRaw     = nameLine.slice(commaIdx + 1).trim();
     } else {
-      insiderName = nameLine;
+      // No comma — strip known role keywords appended to name
+      const roleKwRe = /\s+(?:DIRECTEUR|DIRECTRICE|PRÉSIDENT|PRÉSIDENTE|PDG|P-DG|CEO|CFO|COO|ADMINISTRATEUR|ADMINISTRATRICE|MEMBRE DU CONSEIL|VICE[- ]?PRÉSIDENT|SECRÉTAIRE GÉNÉRAL)\b.*/i;
+      const roleKwM = nameLine.match(roleKwRe);
+      if (roleKwM) {
+        insiderName = nameLine.slice(0, roleKwM.index).trim();
+        roleRaw     = roleKwM[0].trim();
+      } else {
+        insiderName = nameLine;
+      }
     }
     // Split "NAME personne liée à ENTITY" into person + via_entity
     if (insiderName) {
