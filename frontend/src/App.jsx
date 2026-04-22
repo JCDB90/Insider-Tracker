@@ -392,125 +392,135 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort }) {
     return <span style={{ color: '#D1D5DB' }}> ↕</span>;
   }
 
+  const truncCell = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
   return (
     <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
-              {cols.map(col => (
-                <th
-                  key={col.key}
-                  onClick={() => col.sortable && onSort(col.key)}
-                  style={{
-                    padding: '10px 16px', textAlign: col.align,
-                    fontSize: 11, fontWeight: 600, color: '#9CA3AF',
-                    letterSpacing: '0.06em', textTransform: 'uppercase',
-                    cursor: col.sortable ? 'pointer' : 'default',
-                    userSelect: 'none', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {col.label}<SortIndicator col={col} />
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              Array.from({ length: 12 }).map((_, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #F9FAFB' }}>
-                  {cols.map((col, j) => (
-                    <td key={j} style={{ padding: rowPad }}>
-                      <div style={{
-                        height: 14, borderRadius: 4, background: '#F3F4F6',
-                        width: j === 1 ? 120 : j === 2 ? 100 : 60,
-                        animation: 'pulse 1.5s infinite',
-                      }} />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={cols.length} style={{ padding: '60px 20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#9CA3AF' }}>No results found</div>
-                  <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Try adjusting your search or country filter</div>
-                </td>
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: 100 }} />  {/* Date */}
+          <col style={{ width: 150 }} />  {/* Company */}
+          <col style={{ width: 150 }} />  {/* Insider */}
+          <col style={{ width: 88 }} />   {/* Type */}
+          <col style={{ width: 110 }} />  {/* Price */}
+          <col style={{ width: 110 }} />  {/* Value */}
+          <col style={{ width: 72 }} />   {/* Country */}
+        </colgroup>
+        <thead>
+          <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+            {cols.map(col => (
+              <th
+                key={col.key}
+                onClick={() => col.sortable && onSort(col.key)}
+                style={{
+                  padding: '10px 16px', textAlign: col.align,
+                  fontSize: 11, fontWeight: 600, color: '#9CA3AF',
+                  letterSpacing: '0.06em', textTransform: 'uppercase',
+                  cursor: col.sortable ? 'pointer' : 'default',
+                  userSelect: 'none', whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                }}
+              >
+                {col.label}<SortIndicator col={col} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            Array.from({ length: 12 }).map((_, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #F9FAFB' }}>
+                {cols.map((col, j) => (
+                  <td key={j} style={{ padding: rowPad }}>
+                    <div style={{
+                      height: 14, borderRadius: 4, background: '#F3F4F6',
+                      width: j === 1 ? 120 : j === 2 ? 100 : 60,
+                      animation: 'pulse 1.5s infinite',
+                    }} />
+                  </td>
+                ))}
               </tr>
-            ) : (
-              rows.map((row, i) => {
-                const name = row.insider_name && row.insider_name !== 'Not disclosed'
-                  ? row.insider_name
-                  : null;
-                const entityFallback = row.via_entity;
+            ))
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan={cols.length} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{ fontSize: 13, color: '#9CA3AF' }}>No results found</div>
+                <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Try adjusting your search or country filter</div>
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, i) => {
+              const name = row.insider_name && row.insider_name !== 'Not disclosed'
+                ? row.insider_name
+                : null;
+              const entityFallback = row.via_entity;
 
-                return (
-                  <tr
-                    key={row.id ?? i}
-                    style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}
-                  >
-                    {/* Date */}
-                    <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
-                      {formatDateShort(row.transaction_date)}
-                    </td>
-                    {/* Company */}
-                    <td style={{ padding: rowPad }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', whiteSpace: 'nowrap' }}>{row.company}</div>
-                      {row.ticker && (
-                        <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>
-                      )}
-                    </td>
-                    {/* Insider */}
-                    <td style={{ padding: rowPad, maxWidth: 200 }}>
-                      {name ? (
-                        <>
-                          <div style={{ fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-                          {row.via_entity && (
-                            <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              via {row.via_entity}
-                            </div>
-                          )}
-                          {row.insider_role && !row.via_entity && (
-                            <div style={{ fontSize: 11, color: '#9CA3AF' }}>{row.insider_role}</div>
-                          )}
-                        </>
-                      ) : entityFallback ? (
-                        <>
-                          <div style={{ fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entityFallback}</div>
-                          {row.insider_role && (
-                            <div style={{ fontSize: 11, color: '#9CA3AF' }}>{row.insider_role}</div>
-                          )}
-                        </>
-                      ) : (
-                        <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
-                      )}
-                    </td>
-                    {/* Type */}
-                    <td style={{ padding: rowPad }}><TypeChip type={row.transaction_type} /></td>
-                    {/* Price */}
-                    <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {formatPrice(row.price_per_share, row.currency)}
-                    </td>
-                    {/* Value */}
-                    <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {formatValue(row.total_value, row.currency)}
-                    </td>
-                    {/* Country */}
-                    <td style={{ padding: rowPad }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Flag code={row.country_code} />
-                        <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+              return (
+                <tr
+                  key={row.id ?? i}
+                  style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}
+                >
+                  {/* Date */}
+                  <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    {formatDateShort(row.transaction_date)}
+                  </td>
+                  {/* Company */}
+                  <td style={{ padding: rowPad, overflow: 'hidden' }} title={row.company}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', ...truncCell }}>{row.company}</div>
+                    {row.ticker && (
+                      <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>
+                    )}
+                  </td>
+                  {/* Insider */}
+                  <td style={{ padding: rowPad, overflow: 'hidden' }}>
+                    {name ? (
+                      <>
+                        <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={name}>{name}</div>
+                        {row.via_entity && (
+                          <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', ...truncCell }}>
+                            via {row.via_entity}
+                          </div>
+                        )}
+                        {row.insider_role && !row.via_entity && (
+                          <div style={{ fontSize: 11, color: '#9CA3AF', ...truncCell }}>{row.insider_role}</div>
+                        )}
+                      </>
+                    ) : entityFallback ? (
+                      <>
+                        <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={entityFallback}>{entityFallback}</div>
+                        {row.insider_role && (
+                          <div style={{ fontSize: 11, color: '#9CA3AF', ...truncCell }}>{row.insider_role}</div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
+                    )}
+                  </td>
+                  {/* Type */}
+                  <td style={{ padding: rowPad }}><TypeChip type={row.transaction_type} /></td>
+                  {/* Price */}
+                  <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    {formatPrice(row.price_per_share, row.currency)}
+                  </td>
+                  {/* Value */}
+                  <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    {formatValue(row.total_value, row.currency)}
+                  </td>
+                  {/* Country */}
+                  <td style={{ padding: rowPad, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Flag code={row.country_code} />
+                      <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

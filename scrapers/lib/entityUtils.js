@@ -13,8 +13,11 @@ function looksLikeCorp(name) {
   if (!name || typeof name !== 'string') return false;
   const n = name.trim();
   if (n.length < 2) return false;
-  if (CORP_SUFFIX_RE.test(n)) return true;
-  if (CORP_KEYWORD_RE.test(n)) return true;
+  // Normalize: NFD decompose + strip combining diacritics so accented letters
+  // like Ñ don't create false \b word boundaries (e.g. "DUEÑAS" → "DUENAS").
+  const normalized = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (CORP_SUFFIX_RE.test(normalized)) return true;
+  if (CORP_KEYWORD_RE.test(normalized)) return true;
   // Org number pattern: "Name (987654321)" or "Name (org.nr. 987654321)"
   if (/\(\s*(?:org\.?\s*nr\.?\s*)?[\d\s]{6,11}\s*\)/.test(n)) return true;
   return false;

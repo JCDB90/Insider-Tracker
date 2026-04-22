@@ -27,9 +27,9 @@
 
 'use strict';
 
-const https   = require('https');
-const cheerio = require('cheerio');
-const { PDFParse } = require('pdf-parse');
+const https    = require('https');
+const cheerio  = require('cheerio');
+const pdfParse = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'ES';
@@ -313,12 +313,40 @@ function parsePdfText(text) {
   return { txType, isin, price, shares, currency };
 }
 
+function httpGetBuffer(hostname, path) {
+  return new Promise(resolve => {
+    const req = https.get({
+      hostname,
+      path,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/pdf,*/*',
+      },
+    }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        // Follow one redirect
+        try {
+          const loc = new URL(res.headers.location, `https://${hostname}`);
+          resolve(httpGetBuffer(loc.hostname, loc.pathname + (loc.search || '')));
+        } catch { resolve(null); }
+        return;
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(30000, () => { req.destroy(); resolve(null); });
+  });
+}
+
 async function parsePdfFromUrl(docUrl) {
   if (!docUrl) return {};
   try {
-    const parser = new PDFParse({ url: docUrl });
-    const result = await parser.getText();
-    await parser.destroy().catch(() => {});
+    const url = new URL(docUrl.startsWith('http') ? docUrl : `https://www.cnmv.es${docUrl}`);
+    const buf = await httpGetBuffer(url.hostname, url.pathname + (url.search || ''));
+    if (!buf || buf.length < 100) return {};
+    const result = await pdfParse(buf);
     return parsePdfText(result.text || '');
   } catch {
     return {};
