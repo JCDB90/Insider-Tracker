@@ -134,6 +134,8 @@ async function main() {
   for (const row of toProcess) {
     // CH has no individual names (all "Not disclosed") → skip to avoid skewing averages
     if (row.country_code === 'CH') continue;
+    // Skip rows with no identified insider — pollutes leaderboard
+    if (!row.insider_name || row.insider_name === 'Not disclosed') continue;
     if (!row.ticker || isISIN(row.ticker)) { errors++; continue; } // can't look up ISIN on Yahoo
     try {
       const txPrice = Number(row.price_per_share);
