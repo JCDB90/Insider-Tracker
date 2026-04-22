@@ -191,6 +191,84 @@ function ConvictionBadge({ label, score, compact = false }) {
   );
 }
 
+// ─── ReturnCell — table cell for a post-trade return value ───────────────────
+
+function ReturnCell({ value, daysSince, horizon, style: extraStyle = {} }) {
+  const base = { padding: '10px 12px', textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap', ...extraStyle };
+  if (value !== null && value !== undefined) {
+    const pct = (Number(value) * 100).toFixed(1);
+    const pos = Number(value) > 0;
+    return <td style={{ ...base, color: pos ? '#15803D' : '#B91C1C', fontWeight: 600 }}>{pos ? '+' : ''}{pct}%</td>;
+  }
+  if (daysSince < horizon) {
+    return <td style={{ ...base, color: '#9CA3AF', fontStyle: 'italic', fontSize: 11 }}>pending</td>;
+  }
+  return <td style={{ ...base, color: '#D1D5DB' }}>—</td>;
+}
+
+// ─── computeInsiderScorecard ──────────────────────────────────────────────────
+
+const PERF_PERIODS = [
+  { key: '30d',  label: '30d',      rKey: 'return_30d',  hKey: 'hit_rate_30d',  days: 30  },
+  { key: '90d',  label: '90d',      rKey: 'return_90d',  hKey: 'hit_rate_90d',  days: 90  },
+  { key: '180d', label: '6 months', rKey: 'return_180d', hKey: 'hit_rate_180d', days: 180 },
+  { key: '365d', label: '1 year',   rKey: 'return_365d', hKey: 'hit_rate_365d', days: 365 },
+];
+
+function computePeriodStats(perfRows) {
+  return PERF_PERIODS.map(p => {
+    const mature = perfRows.filter(r => r[p.rKey] != null);
+    const hits   = mature.filter(r => r[p.hKey] === true);
+    return {
+      ...p,
+      count:       mature.length,
+      pending:     perfRows.length - mature.length,
+      successRate: mature.length > 0 ? Math.round(hits.length / mature.length * 100) : null,
+      avgReturn:   mature.length > 0 ? +(mature.reduce((s, r) => s + r[p.rKey], 0) / mature.length * 100).toFixed(1) : null,
+    };
+  });
+}
+
+function computeInsiderScorecard(trades, performance) {
+  const perfByTxId = {};
+  for (const p of performance) perfByTxId[p.transaction_id] = p;
+
+  const map = {};
+  for (const t of trades) {
+    const name = t.insider_name && t.insider_name !== 'Not disclosed' ? t.insider_name : null;
+    if (!name) continue;
+    const type = (t.transaction_type || '').toUpperCase();
+    if (type !== 'BUY' && type !== 'PURCHASE') continue;
+    if (!map[name]) map[name] = {
+      name, role: t.insider_role, company: t.company,
+      country_code: t.country_code, trades: [], totalValue: 0,
+      totalScore: 0, scoredTrades: 0, latestDate: t.transaction_date,
+    };
+    map[name].trades.push(t);
+    if (t.total_value) map[name].totalValue += Number(t.total_value);
+    if (t.conviction_score != null) { map[name].totalScore += Number(t.conviction_score); map[name].scoredTrades++; }
+    if (t.transaction_date > map[name].latestDate) map[name].latestDate = t.transaction_date;
+  }
+
+  return Object.values(map).map(ins => {
+    const myPerf = ins.trades.map(t => perfByTxId[t.id]).filter(Boolean);
+    const stats  = computePeriodStats(myPerf);
+    const s90    = stats.find(s => s.key === '90d');
+    const avgScore = ins.scoredTrades > 0 ? Math.round(ins.totalScore / ins.scoredTrades * 100) / 100 : null;
+    return { ...ins, buys: ins.trades.length, stats, myPerf, avgScore,
+      successRate90d: s90?.successRate ?? null, avgReturn90d: s90?.avgReturn ?? null };
+  })
+  .sort((a, b) => {
+    const aHas = a.successRate90d !== null ? 1 : 0;
+    const bHas = b.successRate90d !== null ? 1 : 0;
+    if (bHas !== aHas) return bHas - aHas;
+    if (b.successRate90d !== a.successRate90d) return (b.successRate90d || 0) - (a.successRate90d || 0);
+    return b.totalValue - a.totalValue;
+  })
+  .slice(0, 30)
+  .map((ins, i) => ({ ...ins, rank: i + 1 }));
+}
+
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
 function TopBar({ page, setPage, search, setSearch }) {
@@ -439,7 +517,7 @@ function InsiderCard({ row }) {
 
 // ─── TradesTable ──────────────────────────────────────────────────────────────
 
-function TradesTable({ rows, loading, sortBy, sortDir, onSort }) {
+function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick }) {
   const cols = [
     { key: 'transaction_date', label: 'Date',    align: 'left',  sortable: true  },
     { key: 'company',          label: 'Company',  align: 'left',  sortable: true  },
@@ -543,7 +621,15 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort }) {
                   <td style={{ padding: rowPad, overflow: 'hidden' }}>
                     {name ? (
                       <>
-                        <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={name}>{name}</div>
+                        {onInsiderClick ? (
+                          <button onClick={() => onInsiderClick(name)} style={{
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                            fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
+                            fontFamily: "'DM Sans', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
+                          }} title={name}>{name}</button>
+                        ) : (
+                          <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={name}>{name}</div>
+                        )}
                         {row.via_entity && (
                           <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', ...truncCell }}>
                             via {row.via_entity}
@@ -820,7 +906,7 @@ function DashboardPage({
   buybackSort, setBuybackSort,
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
-  countryCounts,
+  countryCounts, onInsiderClick,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
 
@@ -995,6 +1081,7 @@ function DashboardPage({
               sortBy={tradeSort.by}
               sortDir={tradeSort.dir}
               onSort={handleTradeSort}
+              onInsiderClick={onInsiderClick}
             />
           ) : (
             <BuybackTable
@@ -1029,191 +1116,345 @@ function DashboardPage({
   );
 }
 
+// ─── InsiderProfilePage ───────────────────────────────────────────────────────
+
+function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
+  const myTrades = useMemo(() =>
+    trades.filter(t => t.insider_name === insiderName)
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
+    [trades, insiderName]
+  );
+
+  const myBuys = useMemo(() =>
+    myTrades.filter(t => ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase())),
+    [myTrades]
+  );
+
+  const perfByTxId = useMemo(() => {
+    const m = {};
+    for (const p of performance) m[p.transaction_id] = p;
+    return m;
+  }, [performance]);
+
+  const myPerf = useMemo(() => myBuys.map(t => perfByTxId[t.id]).filter(Boolean), [myBuys, perfByTxId]);
+  const stats = useMemo(() => computePeriodStats(myPerf), [myPerf]);
+
+  const role = myTrades[0]?.insider_role;
+  const companies = [...new Set(myTrades.map(t => t.company))];
+  const totalValue = myBuys.reduce((s, t) => s + (Number(t.total_value) || 0), 0);
+  const avgScore = (() => {
+    const scored = myBuys.filter(t => t.conviction_score != null);
+    if (!scored.length) return null;
+    return Math.round(scored.reduce((s, t) => s + Number(t.conviction_score), 0) / scored.length * 100) / 100;
+  })();
+  const initials = insiderName.split(' ').map(n => n[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+
+  return (
+    <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        {/* Back */}
+        <button onClick={onBack} style={{
+          display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none',
+          cursor: 'pointer', color: '#6B7280', fontSize: 13, padding: '0 0 20px',
+          fontFamily: "'DM Sans', sans-serif",
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Back to leaderboard
+        </button>
+
+        {/* Profile header */}
+        <div style={{
+          background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
+          padding: '24px 28px', marginBottom: 24, display: 'flex', gap: 20, alignItems: 'flex-start',
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: '50%', background: ACCENT + '18',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 20, fontWeight: 700, color: ACCENT, flexShrink: 0,
+          }}>{initials}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>{insiderName}</h1>
+              {avgScore != null && (
+                <ConvictionBadge
+                  label={avgScore >= 0.70 ? 'High Conviction' : avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
+                  score={avgScore}
+                />
+              )}
+            </div>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>
+              {role ? role + ' · ' : ''}{companies.slice(0, 3).join(', ')}
+            </div>
+            <div style={{ display: 'flex', gap: 24 }}>
+              {[
+                { label: 'Total Buys',     value: myBuys.length,               color: '#111318' },
+                { label: 'Total Value',    value: formatValue(totalValue),      color: '#16A34A' },
+                { label: 'Tracked Returns', value: myPerf.length,              color: '#111318' },
+              ].map(item => (
+                <div key={item.label}>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>{item.label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: item.color, fontFamily: "'DM Mono', monospace" }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Track Record grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
+          {stats.map(s => (
+            <div key={s.key} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+                {s.label}
+              </div>
+              {s.count > 0 ? (
+                <>
+                  <div style={{
+                    fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em',
+                    fontFamily: "'DM Mono', monospace", lineHeight: 1, marginBottom: 4,
+                    color: s.successRate >= 60 ? '#16A34A' : s.successRate >= 40 ? '#D97706' : '#DC2626',
+                  }}>{s.successRate}%</div>
+                  <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>win rate · {s.count} trades</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: s.avgReturn > 0 ? '#16A34A' : '#DC2626' }}>
+                    {s.avgReturn > 0 ? '+' : ''}{s.avgReturn}% avg
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic', marginTop: 8 }}>
+                  {s.pending > 0 ? `${s.pending} pending` : 'No data'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Transaction history */}
+        <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Transaction History</span>
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>{myTrades.length} transactions</span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 100 }} />{/* Date */}
+              <col style={{ width: 180 }} />{/* Company */}
+              <col style={{ width: 80 }} /> {/* Type */}
+              <col style={{ width: 100 }} />{/* Value */}
+              <col style={{ width: 80 }} /> {/* 30d */}
+              <col style={{ width: 80 }} /> {/* 90d */}
+              <col style={{ width: 80 }} /> {/* 6m */}
+              <col style={{ width: 80 }} /> {/* 1y */}
+            </colgroup>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+                {[
+                  { label: 'Date',  align: 'left' },
+                  { label: 'Company', align: 'left' },
+                  { label: 'Type', align: 'left' },
+                  { label: 'Value', align: 'right' },
+                  { label: '30d',  align: 'right' },
+                  { label: '90d',  align: 'right' },
+                  { label: '6m',   align: 'right' },
+                  { label: '1y',   align: 'right' },
+                ].map(col => (
+                  <th key={col.label} style={{
+                    padding: '10px 12px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
+                    letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: col.align,
+                  }}>{col.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {myTrades.map((t, i) => {
+                const perf = perfByTxId[t.id];
+                const isBuy = ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase());
+                const daysSince = t.transaction_date
+                  ? Math.floor((Date.now() - new Date(t.transaction_date)) / 86400000) : 0;
+                return (
+                  <tr key={t.id}
+                    style={{ borderBottom: i < myTrades.length - 1 ? '1px solid #F9FAFB' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
+                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>
+                      {formatDateShort(t.transaction_date)}
+                    </td>
+                    <td style={{ padding: '10px 12px', overflow: 'hidden' }}>
+                      <div style={{ fontWeight: 500, fontSize: 12, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.company}>{t.company}</div>
+                      {t.ticker && <div style={{ fontSize: 10, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{t.ticker}</div>}
+                    </td>
+                    <td style={{ padding: '10px 12px' }}><TypeChip type={t.transaction_type} /></td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right' }}>
+                      {formatValue(t.total_value, t.currency)}
+                    </td>
+                    {isBuy && perf ? (
+                      <>
+                        <ReturnCell value={perf.return_30d}  daysSince={daysSince} horizon={30}  />
+                        <ReturnCell value={perf.return_90d}  daysSince={daysSince} horizon={90}  />
+                        <ReturnCell value={perf.return_180d} daysSince={daysSince} horizon={180} />
+                        <ReturnCell value={perf.return_365d} daysSince={daysSince} horizon={365} />
+                      </>
+                    ) : (
+                      [0,1,2,3].map(j => (
+                        <td key={j} style={{ padding: '10px 12px', color: '#E5E7EB', textAlign: 'right', fontSize: 12 }}>—</td>
+                      ))
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 // ─── InsidersPage ─────────────────────────────────────────────────────────────
 
-function InsidersPage({ trades, tradesLoading }) {
-  const topInsiders = useMemo(() => {
-    const map = {};
-    for (const t of trades) {
-      const name = t.insider_name && t.insider_name !== 'Not disclosed' ? t.insider_name : null;
-      if (!name) continue;
-      const type = (t.transaction_type || '').toUpperCase();
-      const isBuy = type === 'BUY' || type === 'PURCHASE';
-      if (!map[name]) map[name] = { name, role: t.insider_role, companies: new Set(), trades: 0, buys: 0, totalValue: 0, totalScore: 0, scoredTrades: 0 };
-      map[name].companies.add(t.company);
-      map[name].trades++;
-      if (isBuy) map[name].buys++;
-      if (t.total_value) map[name].totalValue += Number(t.total_value);
-      if (t.conviction_score != null) { map[name].totalScore += Number(t.conviction_score); map[name].scoredTrades++; }
-    }
-    return Object.values(map)
-      .map(ins => ({
-        ...ins,
-        companies: [...ins.companies].slice(0, 2),
-        winRate: Math.round((ins.buys / ins.trades) * 100),
-        avgScore: ins.trades > 0 ? Math.round((ins.totalScore / ins.scoredTrades) * 100) / 100 : null,
-      }))
-      .sort((a, b) => b.totalValue - a.totalValue)
-      .slice(0, 10)
-      .map((ins, i) => ({ ...ins, rank: i + 1 }));
-  }, [trades]);
+function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick }) {
+  const leaderboard = useMemo(() =>
+    tradesLoading ? [] : computeInsiderScorecard(trades, performance),
+    [trades, performance, tradesLoading]
+  );
 
   const rankColors = ['#F59E0B', '#9CA3AF', '#CD7C2F'];
+  const isLoading = tradesLoading || perfLoading;
+
+  function SuccessCell({ value, count }) {
+    if (value === null || value === undefined) {
+      return <td style={{ padding: '12px 14px', textAlign: 'center', color: '#D1D5DB', fontSize: 12 }}>—</td>;
+    }
+    const color = value >= 60 ? '#16A34A' : value >= 40 ? '#D97706' : '#DC2626';
+    return (
+      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: "'DM Mono', monospace" }}>{value}%</div>
+        {count > 0 && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>{count} trades</div>}
+      </td>
+    );
+  }
 
   return (
     <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <div style={{ marginBottom: 28 }}>
+        <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', marginBottom: 4 }}>
             Top Insiders
           </h1>
-          <p style={{ fontSize: 14, color: '#6B7280' }}>Ranked by total transaction value across all tracked markets.</p>
+          <p style={{ fontSize: 14, color: '#6B7280' }}>
+            Ranked by 90-day post-trade win rate. Click an insider name to view their full track record.
+          </p>
         </div>
 
-        {tradesLoading ? (
+        {isLoading ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
-        ) : topInsiders.length === 0 ? (
+        ) : leaderboard.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#9CA3AF', fontSize: 13 }}>No data available</div>
         ) : (
-          <>
-            {/* Podium top 3 */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 28 }}>
-              {topInsiders.slice(0, 3).map((ins, i) => (
-                <div key={ins.name} style={{
-                  background: i === 0 ? '#FFFBEB' : '#fff',
-                  border: '1px solid ' + (i === 0 ? '#FDE68A' : '#E8E9EE'),
-                  borderRadius: 12, padding: '20px 24px',
-                  boxShadow: i === 0 ? '0 4px 20px rgba(245,158,11,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
-                  position: 'relative', overflow: 'hidden',
-                }}>
-                  <div style={{
-                    position: 'absolute', top: 16, right: 16,
-                    width: 32, height: 32, borderRadius: '50%',
-                    background: (rankColors[i] || '#9CA3AF') + '22',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, fontWeight: 800, color: rankColors[i] || '#9CA3AF',
-                  }}>#{ins.rank}</div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: '50%',
-                      background: ACCENT + '18', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', fontSize: 14, fontWeight: 700, color: ACCENT,
-                    }}>
-                      {ins.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: '#111318' }}>{ins.name}</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF' }}>{ins.companies[0]}</div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>Total Value</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#16A34A', fontFamily: "'DM Mono', monospace" }}>
-                        {formatValue(ins.totalValue, 'EUR')}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>Buy Rate</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>
-                        {ins.winRate}%
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 12, color: '#6B7280' }}>{ins.role || 'Insider'}</span>
-                    <span style={{ fontSize: 12, color: '#9CA3AF' }}>{ins.trades} trades</span>
-                  </div>
-                </div>
-              ))}
+          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Leaderboard</span>
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Top {leaderboard.length} insiders · sorted by 90d win rate</span>
             </div>
-
-            {/* Full leaderboard */}
-            <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>Full Leaderboard</span>
-                <span style={{ fontSize: 12, color: '#9CA3AF' }}>Showing {topInsiders.length} insiders</span>
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
-                    {['Rank', 'Insider', 'Companies', 'Buy Rate', 'Avg Score', 'Trades', 'Total Value'].map(col => (
-                      <th key={col} style={{
-                        padding: '10px 20px', textAlign: 'left',
-                        fontSize: 11, fontWeight: 600, color: '#9CA3AF',
-                        letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-                      }}>{col}</th>
+                    {[
+                      { label: '#',          align: 'center' },
+                      { label: 'Insider',    align: 'left'   },
+                      { label: 'Company',    align: 'left'   },
+                      { label: 'Buys',       align: 'center' },
+                      { label: '30d',        align: 'center' },
+                      { label: '90d',        align: 'center' },
+                      { label: '6 months',   align: 'center' },
+                      { label: '1 year',     align: 'center' },
+                      { label: 'Last Trade', align: 'left'   },
+                      { label: 'Conviction', align: 'left'   },
+                    ].map(col => (
+                      <th key={col.label} style={{
+                        padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
+                        letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: col.align,
+                        whiteSpace: 'nowrap',
+                      }}>{col.label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {topInsiders.map((ins, i) => (
-                    <tr key={ins.name}
-                      style={{
-                        borderBottom: i < topInsiders.length - 1 ? '1px solid #F9FAFB' : 'none',
-                        transition: 'background 0.1s',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
-                      onMouseLeave={e => e.currentTarget.style.background = i < 3 ? (i === 0 ? '#FFFDF0' : '#FDFDFD') : ''}
-                    >
-                      <td style={{ padding: '12px 20px' }}>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 24, height: 24, borderRadius: 6,
-                          background: i < 3 ? (rankColors[i] || '#9CA3AF') + '18' : '#F3F4F6',
-                          color: i < 3 ? (rankColors[i] || '#9CA3AF') : '#9CA3AF',
-                          fontSize: 12, fontWeight: 700,
-                        }}>#{ins.rank}</span>
-                      </td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{
-                            width: 30, height: 30, borderRadius: '50%',
-                            background: ACCENT + '14', display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', fontSize: 11, fontWeight: 700, color: ACCENT,
-                          }}>
-                            {ins.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  {leaderboard.map((ins, i) => {
+                    const s30  = ins.stats.find(s => s.key === '30d');
+                    const s90  = ins.stats.find(s => s.key === '90d');
+                    const s180 = ins.stats.find(s => s.key === '180d');
+                    const s365 = ins.stats.find(s => s.key === '365d');
+                    return (
+                      <tr key={ins.name}
+                        style={{ borderBottom: i < leaderboard.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      >
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 24, height: 24, borderRadius: 6,
+                            background: i < 3 ? (rankColors[i] + '22') : '#F3F4F6',
+                            color: i < 3 ? rankColors[i] : '#9CA3AF',
+                            fontSize: 11, fontWeight: 700,
+                          }}>#{ins.rank}</span>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{
+                              width: 30, height: 30, borderRadius: '50%',
+                              background: ACCENT + '14', display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', fontSize: 11, fontWeight: 700, color: ACCENT, flexShrink: 0,
+                            }}>
+                              {ins.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <button onClick={() => onInsiderClick(ins.name)} style={{
+                                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                fontWeight: 600, fontSize: 13, color: ACCENT, textAlign: 'left',
+                                fontFamily: "'DM Sans', sans-serif", display: 'block',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160,
+                              }}>{ins.name}</button>
+                              {ins.role && (
+                                <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{ins.role}</div>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{ins.name}</div>
-                            {ins.role && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{ins.role}</div>}
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{ins.company}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                            <Flag code={ins.country_code} />
+                            <span style={{ fontSize: 11, color: '#9CA3AF' }}>{ins.country_code}</span>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 20px', fontSize: 12, color: '#6B7280' }}>{ins.companies.join(', ')}</td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 60, height: 4, background: '#F3F4F6', borderRadius: 2 }}>
-                            <div style={{ width: ins.winRate + '%', height: '100%', background: ACCENT, borderRadius: 2 }} />
-                          </div>
-                          <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace" }}>{ins.winRate}%</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 20px' }}>
-                        {ins.avgScore != null ? (
-                          <ConvictionBadge
-                            label={ins.avgScore >= 0.70 ? 'High Conviction' : ins.avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
-                            score={ins.avgScore}
-                          />
-                        ) : (
-                          <span style={{ fontSize: 12, color: '#D1D5DB' }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 20px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{ins.trades}</td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: "'DM Mono', monospace" }}>
-                          {formatValue(ins.totalValue, 'EUR')}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{ins.buys}</td>
+                        <SuccessCell value={s30?.successRate  ?? null} count={s30?.count  ?? 0} />
+                        <SuccessCell value={s90?.successRate  ?? null} count={s90?.count  ?? 0} />
+                        <SuccessCell value={s180?.successRate ?? null} count={s180?.count ?? 0} />
+                        <SuccessCell value={s365?.successRate ?? null} count={s365?.count ?? 0} />
+                        <td style={{ padding: '12px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                          {formatDateShort(ins.latestDate)}
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          {ins.avgScore != null ? (
+                            <ConvictionBadge
+                              label={ins.avgScore >= 0.70 ? 'High Conviction' : ins.avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
+                              score={ins.avgScore}
+                            />
+                          ) : <span style={{ fontSize: 12, color: '#D1D5DB' }}>—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          </>
+          </div>
         )}
       </div>
     </main>
@@ -1641,6 +1882,11 @@ export default function App() {
   const [tradesLoading, setTradesLoading] = useState(true);
   const [buybacksLoading, setBuybacksLoading] = useState(true);
 
+  const [performance, setPerformance] = useState([]);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfLoaded, setPerfLoaded] = useState(false);
+  const [selectedInsider, setSelectedInsider] = useState(null);
+
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
 
@@ -1720,6 +1966,21 @@ export default function App() {
     return { total: buybacks.length, markets, latest, avgSize };
   }, [buybacks]);
 
+  useEffect(() => {
+    if (page !== 'insiders' || perfLoaded || perfLoading) return;
+    setPerfLoading(true);
+    fetchAll('insider_performance', 'transaction_date').then(data => {
+      setPerformance(data);
+      setPerfLoaded(true);
+      setPerfLoading(false);
+    });
+  }, [page]);
+
+  function handleInsiderClick(name) {
+    setSelectedInsider(name);
+    setPage('insiders');
+  }
+
   function toggleCountry(code) {
     setSelectedCountries(prev => {
       const next = new Set(prev);
@@ -1745,10 +2006,24 @@ export default function App() {
             toggleCountry={toggleCountry}
             clearCountries={clearCountries}
             countryCounts={countryCounts}
+            onInsiderClick={handleInsiderClick}
           />
         )}
-        {page === 'insiders' && (
-          <InsidersPage trades={trades} tradesLoading={tradesLoading} />
+        {page === 'insiders' && selectedInsider ? (
+          <InsiderProfilePage
+            insiderName={selectedInsider}
+            trades={trades}
+            performance={performance}
+            onBack={() => setSelectedInsider(null)}
+          />
+        ) : page === 'insiders' && (
+          <InsidersPage
+            trades={trades}
+            performance={performance}
+            tradesLoading={tradesLoading}
+            perfLoading={perfLoading}
+            onInsiderClick={handleInsiderClick}
+          />
         )}
         {page === 'alerts' && (
           <AlertsPage trades={trades} tradesLoading={tradesLoading} />

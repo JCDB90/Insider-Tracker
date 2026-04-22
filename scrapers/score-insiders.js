@@ -105,18 +105,26 @@ async function main() {
     process.exit(1);
   }
 
-  // Fetch unscored BUY transactions
-  const { data: rows, error } = await supabase
-    .from('insider_transactions')
-    .select('id, ticker, company, country_code, insider_role, transaction_date, price_per_share, total_value')
-    .in('transaction_type', ['BUY', 'PURCHASE'])
-    .is('conviction_score', null)
-    .not('ticker', 'is', null)
-    .order('transaction_date', { ascending: false })
-    .limit(MAX_PER_RUN);
+  // Fetch all unscored BUY transactions (paginated — PostgREST max_rows = 1000)
+  const rows = [];
+  let from = 0;
+  while (rows.length < MAX_PER_RUN) {
+    const { data, error } = await supabase
+      .from('insider_transactions')
+      .select('id, ticker, company, country_code, insider_role, transaction_date, price_per_share, total_value')
+      .in('transaction_type', ['BUY', 'PURCHASE'])
+      .is('conviction_score', null)
+      .not('ticker', 'is', null)
+      .order('transaction_date', { ascending: false })
+      .range(from, from + 999);
+    if (error) { console.error('❌ Query:', error.message); process.exit(1); }
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+    from += 1000;
+  }
 
-  if (error) { console.error('❌ Query:', error.message); process.exit(1); }
-  if (!rows || rows.length === 0) { console.log('  Nothing to score.'); return; }
+  if (rows.length === 0) { console.log('  Nothing to score.'); return; }
 
   console.log(`  Scoring ${rows.length} BUY transactions…`);
 
