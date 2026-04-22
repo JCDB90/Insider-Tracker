@@ -229,13 +229,25 @@ function computePeriodStats(perfRows) {
   });
 }
 
+// Corporate entity suffixes / patterns — these are via_entity, not real persons
+const CORP_RE = /\b(S\.?A\.?R?\.?L?\.?|N\.?V\.?|B\.?V\.?|Ltd\.?|LLC|Inc\.?|Corp\.?|plc|GmbH|Soci[eé]t[eé]|Holding|Participations?|Invest(?:ment)?|Capital|Fund|Trust|Compagnie|Groupe|Fondation|Foundation|A\.?S\.?A?\.?|A\.?B\.?|O\.?y\.?)\b/i;
+
+function isRealPerson(name) {
+  if (!name) return false;
+  if (name === 'Not disclosed') return false;
+  if (CORP_RE.test(name)) return false;
+  // All-caps long strings are usually entity names (e.g. "FIRMAMENT PARTICIPATIONS")
+  if (name.length > 6 && name === name.toUpperCase() && /\s/.test(name)) return false;
+  return true;
+}
+
 function computeInsiderScorecard(trades, performance) {
   const perfByTxId = {};
   for (const p of performance) perfByTxId[p.transaction_id] = p;
 
   const map = {};
   for (const t of trades) {
-    const name = t.insider_name && t.insider_name !== 'Not disclosed' ? t.insider_name : null;
+    const name = isRealPerson(t.insider_name) ? t.insider_name : null;
     if (!name) continue;
     const type = (t.transaction_type || '').toUpperCase();
     if (type !== 'BUY' && type !== 'PURCHASE') continue;

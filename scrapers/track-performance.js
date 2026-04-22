@@ -132,6 +132,8 @@ async function main() {
   const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);
 
   for (const row of toProcess) {
+    // CH has no individual names (all "Not disclosed") → skip to avoid skewing averages
+    if (row.country_code === 'CH') continue;
     if (!row.ticker || isISIN(row.ticker)) { errors++; continue; } // can't look up ISIN on Yahoo
     try {
       const txPrice = Number(row.price_per_share);
