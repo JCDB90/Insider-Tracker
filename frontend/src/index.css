@@ -3,25 +3,37 @@
 @tailwind utilities;
 
 @layer base {
-  * {
+  *, *::before, *::after {
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
   body {
-    margin: 0;
-    background: #0f172a;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #F7F8FA;
+    color: #111318;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-size: 14px;
+    line-height: 1.5;
   }
 
-  #root {
-    width: 100%;
-    min-height: 100vh;
+  html, body, #root {
+    height: 100%;
   }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #D1D5DB transparent;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
 }
 
 @layer utilities {
   .skeleton {
-    @apply bg-slate-700/40 rounded animate-pulse;
+    @apply bg-gray-200 rounded animate-pulse;
   }
 }
