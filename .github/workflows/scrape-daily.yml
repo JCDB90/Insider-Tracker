@@ -187,6 +187,17 @@ jobs:
         continue-on-error: true
         run: node scrapers/cleanup.js
 
+      # ── Scoring & Performance ────────────────────────────────────────────────
+      - name: 🎯 Score insider conviction
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scrapers/score-insiders.js
+
+      - name: 📈 Track insider performance (7d/30d/90d returns)
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scrapers/track-performance.js
+
       # ── Summary ─────────────────────────────────────────────────────────────
       - name: 📊 Run summary
         if: always()

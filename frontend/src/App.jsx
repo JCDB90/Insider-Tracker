@@ -31,6 +31,19 @@ const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
 
 const ACCENT = '#1B2CC1';
 
+// ─── Watchlist (personal stocks) ─────────────────────────────────────────────
+
+const WATCHLIST = [
+  { ticker: 'VID',  company: 'Vidrala',       country: 'ES', yahoo: 'VID.MC'   },
+  { ticker: 'THEP', company: 'Thermador',      country: 'FR', yahoo: 'THEP.PA'  },
+  { ticker: 'PRX',  company: 'Prosus',         country: 'NL', yahoo: 'PRX.AS'   },
+  { ticker: 'ASML', company: 'ASML',           country: 'NL', yahoo: 'ASML.AS'  },
+  { ticker: 'FLOW', company: 'Flow Traders',   country: 'NL', yahoo: 'FLOW.AS'  },
+  { ticker: 'JEN',  company: 'Jensen Group',   country: 'BE', yahoo: 'JEN.BR'   },
+];
+
+const WATCHLIST_TICKERS = new Set(WATCHLIST.map(w => w.ticker));
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const CURRENCY_SYMBOLS = {
@@ -132,6 +145,49 @@ function Flag({ code }) {
       style={{ width: 16, height: 12, borderRadius: 2, display: 'inline-block', flexShrink: 0 }}
       aria-label={code}
     />
+  );
+}
+
+// ─── ConvictionBadge ──────────────────────────────────────────────────────────
+
+function ConvictionBadge({ label, score, compact = false }) {
+  if (!label) return null;
+  const isHigh = label === 'High Conviction';
+  const isMed  = label === 'Medium Conviction';
+
+  const cfg = isHigh
+    ? { bg: '#FEF9C3', color: '#92400E', border: '#FDE68A', dot: '#F59E0B', short: 'HIGH' }
+    : isMed
+    ? { bg: '#EEF2FF', color: ACCENT,    border: '#C7D2FE', dot: ACCENT,    short: 'MED'  }
+    : { bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB', dot: '#9CA3AF', short: 'LOW'  };
+
+  if (compact) {
+    return (
+      <span title={`${label}${score != null ? ` (${(score * 100).toFixed(0)}%)` : ''}`} style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 20, height: 20, borderRadius: '50%',
+        background: cfg.bg, border: '1px solid ' + cfg.border,
+        fontSize: 9, fontWeight: 700, color: cfg.color, flexShrink: 0,
+        letterSpacing: '-0.02em',
+      }}>{cfg.short}</span>
+    );
+  }
+
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      background: cfg.bg, border: '1px solid ' + cfg.border,
+      borderRadius: 4, padding: '2px 7px',
+      fontSize: 11, fontWeight: 600, color: cfg.color,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.dot, flexShrink: 0 }} />
+      {label}
+      {score != null && (
+        <span style={{ fontFamily: "'DM Mono', monospace", opacity: 0.7, fontSize: 10 }}>
+          {(score * 100).toFixed(0)}%
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -322,16 +378,26 @@ function InsiderCard({ row }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{
-            fontWeight: 700, fontSize: 14, color: '#111318', marginBottom: 2,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            maxWidth: 160,
-          }}>{row.company}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <div style={{
+              fontWeight: 700, fontSize: 14, color: '#111318',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              maxWidth: 150,
+            }}>{row.company}</div>
+            {WATCHLIST_TICKERS.has(row.ticker) && (
+              <span title="In your watchlist" style={{ fontSize: 11, color: ACCENT, fontWeight: 700 }}>★</span>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
             {row.ticker || '—'} · {COUNTRY_NAMES[row.country_code] || row.country_code}
           </div>
         </div>
-        <TypeChip type={row.transaction_type} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <TypeChip type={row.transaction_type} />
+          {row.conviction_label && (
+            <ConvictionBadge label={row.conviction_label} score={row.conviction_score} />
+          )}
+        </div>
       </div>
 
       {/* Insider */}
@@ -498,8 +564,15 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort }) {
                       <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
                     )}
                   </td>
-                  {/* Type */}
-                  <td style={{ padding: rowPad }}><TypeChip type={row.transaction_type} /></td>
+                  {/* Type + conviction */}
+                  <td style={{ padding: rowPad }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <TypeChip type={row.transaction_type} />
+                      {row.conviction_label && (
+                        <ConvictionBadge label={row.conviction_label} score={row.conviction_score} compact />
+                      )}
+                    </div>
+                  </td>
                   {/* Price */}
                   <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatPrice(row.price_per_share, row.currency)}
@@ -623,6 +696,120 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
   );
 }
 
+// ─── WatchlistSection ─────────────────────────────────────────────────────────
+
+function WatchlistSection({ trades }) {
+  const watchlistTrades = useMemo(() => {
+    const result = {};
+    for (const w of WATCHLIST) result[w.ticker] = { ...w, buys: [], sells: [] };
+
+    for (const t of trades) {
+      if (!WATCHLIST_TICKERS.has(t.ticker)) continue;
+      const entry = result[t.ticker];
+      if (!entry) continue;
+      const type = (t.transaction_type || '').toUpperCase();
+      if (type === 'BUY' || type === 'PURCHASE') entry.buys.push(t);
+      else entry.sells.push(t);
+    }
+    return Object.values(result);
+  }, [trades]);
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: ACCENT }}>★</span> My Watchlist
+          </h2>
+          <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>Recent insider activity in your tracked stocks</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+        {watchlistTrades.map(w => {
+          const latestBuy = w.buys[0];
+          const latestSell = w.sells[0];
+          const hasHighConviction = w.buys.some(b => b.conviction_label === 'High Conviction');
+          const recentBuys90 = w.buys.filter(b => {
+            const d = new Date(b.transaction_date);
+            return (Date.now() - d) / 86400000 <= 90;
+          });
+
+          return (
+            <div key={w.ticker} style={{
+              background: '#fff',
+              border: '1px solid ' + (hasHighConviction ? '#FDE68A' : '#E8E9EE'),
+              borderTop: '3px solid ' + (hasHighConviction ? '#F59E0B' : ACCENT + '40'),
+              borderRadius: 10, padding: 16,
+              boxShadow: hasHighConviction
+                ? '0 4px 16px rgba(245,158,11,0.10)'
+                : '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+              {/* Stock header */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#111318' }}>{w.company}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>{w.ticker}</span>
+                    <Flag code={w.country} />
+                  </div>
+                </div>
+                {hasHighConviction && (
+                  <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
+                    HIGH ★
+                  </span>
+                )}
+              </div>
+
+              {/* Stats row */}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Buys (90d)</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: recentBuys90.length > 0 ? '#15803D' : '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
+                    {recentBuys90.length}
+                  </div>
+                </div>
+                {latestBuy && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Last Buy</div>
+                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace" }}>
+                      {formatValue(latestBuy.total_value, latestBuy.currency)}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Latest buy detail */}
+              {latestBuy ? (
+                <div style={{
+                  background: '#F9FAFB', borderRadius: 6, padding: '8px 10px',
+                  borderLeft: '3px solid #16A34A',
+                }}>
+                  <div style={{ fontSize: 11, color: '#374151', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {latestBuy.insider_name && latestBuy.insider_name !== 'Not disclosed'
+                      ? latestBuy.insider_name
+                      : (latestBuy.via_entity || 'Insider')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
+                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>{formatDateShort(latestBuy.transaction_date)}</span>
+                    {latestBuy.conviction_label && (
+                      <ConvictionBadge label={latestBuy.conviction_label} score={latestBuy.conviction_score} compact />
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#D1D5DB', textAlign: 'center', padding: '8px 0' }}>
+                  No recent insider buys
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
 function DashboardPage({
@@ -719,6 +906,9 @@ function DashboardPage({
             </div>
           ))}
         </div>
+
+        {/* Watchlist section */}
+        {!tradesLoading && <WatchlistSection trades={trades} />}
 
         {/* Top Buys section */}
         {!tradesLoading && topBuys.length > 0 && (
@@ -849,14 +1039,20 @@ function InsidersPage({ trades, tradesLoading }) {
       if (!name) continue;
       const type = (t.transaction_type || '').toUpperCase();
       const isBuy = type === 'BUY' || type === 'PURCHASE';
-      if (!map[name]) map[name] = { name, role: t.insider_role, companies: new Set(), trades: 0, buys: 0, totalValue: 0 };
+      if (!map[name]) map[name] = { name, role: t.insider_role, companies: new Set(), trades: 0, buys: 0, totalValue: 0, totalScore: 0, scoredTrades: 0 };
       map[name].companies.add(t.company);
       map[name].trades++;
       if (isBuy) map[name].buys++;
       if (t.total_value) map[name].totalValue += Number(t.total_value);
+      if (t.conviction_score != null) { map[name].totalScore += Number(t.conviction_score); map[name].scoredTrades++; }
     }
     return Object.values(map)
-      .map(ins => ({ ...ins, companies: [...ins.companies].slice(0, 2), winRate: Math.round((ins.buys / ins.trades) * 100) }))
+      .map(ins => ({
+        ...ins,
+        companies: [...ins.companies].slice(0, 2),
+        winRate: Math.round((ins.buys / ins.trades) * 100),
+        avgScore: ins.trades > 0 ? Math.round((ins.totalScore / ins.scoredTrades) * 100) / 100 : null,
+      }))
       .sort((a, b) => b.totalValue - a.totalValue)
       .slice(0, 10)
       .map((ins, i) => ({ ...ins, rank: i + 1 }));
@@ -944,7 +1140,7 @@ function InsidersPage({ trades, tradesLoading }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
-                    {['Rank', 'Insider', 'Companies', 'Buy Rate', 'Trades', 'Total Value'].map(col => (
+                    {['Rank', 'Insider', 'Companies', 'Buy Rate', 'Avg Score', 'Trades', 'Total Value'].map(col => (
                       <th key={col} style={{
                         padding: '10px 20px', textAlign: 'left',
                         fontSize: 11, fontWeight: 600, color: '#9CA3AF',
@@ -996,6 +1192,16 @@ function InsidersPage({ trades, tradesLoading }) {
                           <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace" }}>{ins.winRate}%</span>
                         </div>
                       </td>
+                      <td style={{ padding: '12px 20px' }}>
+                        {ins.avgScore != null ? (
+                          <ConvictionBadge
+                            label={ins.avgScore >= 0.70 ? 'High Conviction' : ins.avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
+                            score={ins.avgScore}
+                          />
+                        ) : (
+                          <span style={{ fontSize: 12, color: '#D1D5DB' }}>—</span>
+                        )}
+                      </td>
                       <td style={{ padding: '12px 20px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{ins.trades}</td>
                       <td style={{ padding: '12px 20px' }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: '#16A34A', fontFamily: "'DM Mono', monospace" }}>
@@ -1018,18 +1224,24 @@ function InsidersPage({ trades, tradesLoading }) {
 
 function AlertsPage({ trades, tradesLoading }) {
   const recentAlerts = useMemo(() => {
-    const buys = trades
+    return trades
       .filter(t => {
         const type = (t.transaction_type || '').toUpperCase();
         return (type === 'BUY' || type === 'PURCHASE') && t.total_value;
       })
       .sort((a, b) => {
+        // Watchlist first, then high conviction, then by date/value
+        const aWatch = WATCHLIST_TICKERS.has(a.ticker) ? 1 : 0;
+        const bWatch = WATCHLIST_TICKERS.has(b.ticker) ? 1 : 0;
+        if (bWatch !== aWatch) return bWatch - aWatch;
+        const aHigh = a.conviction_label === 'High Conviction' ? 1 : 0;
+        const bHigh = b.conviction_label === 'High Conviction' ? 1 : 0;
+        if (bHigh !== aHigh) return bHigh - aHigh;
         if (b.transaction_date > a.transaction_date) return 1;
         if (b.transaction_date < a.transaction_date) return -1;
         return Number(b.total_value) - Number(a.total_value);
       })
-      .slice(0, 20);
-    return buys;
+      .slice(0, 30);
   }, [trades]);
 
   function timeAgo(dateStr) {
@@ -1056,25 +1268,38 @@ function AlertsPage({ trades, tradesLoading }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {recentAlerts.map((row, i) => {
-              const urgent = isHighValue(row);
-              const name = row.insider_name && row.insider_name !== 'Not disclosed'
+              const urgent  = isHighValue(row);
+              const isWatch = WATCHLIST_TICKERS.has(row.ticker);
+              const isHigh  = row.conviction_label === 'High Conviction';
+              const name    = row.insider_name && row.insider_name !== 'Not disclosed'
                 ? row.insider_name : (row.via_entity || 'Insider');
+
+              const accentColor = isWatch ? '#F59E0B' : isHigh ? ACCENT : urgent ? '#F59E0B' : '#E2E4E9';
+              const borderColor = isWatch ? '#FDE68A' : isHigh ? '#C7D2FE' : urgent ? '#FDE68A' : '#E8E9EE';
+
               return (
                 <div key={row.id ?? i} style={{
                   background: '#fff',
-                  border: '1px solid ' + (urgent ? '#FDE68A' : '#E8E9EE'),
-                  borderLeft: '3px solid ' + (urgent ? '#F59E0B' : '#E2E4E9'),
+                  border: '1px solid ' + borderColor,
+                  borderLeft: '3px solid ' + accentColor,
                   borderRadius: 8, padding: '14px 18px',
                   display: 'flex', alignItems: 'center', gap: 16,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600,
-                        background: urgent ? '#FEF9C3' : '#F3F4F6',
-                        color: urgent ? '#92400E' : '#6B7280',
-                        borderRadius: 4, padding: '1px 7px',
-                      }}>{urgent ? 'High-Value Buy' : 'Insider Buy'}</span>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+                      {isWatch && (
+                        <span style={{ fontSize: 11, fontWeight: 700, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 7px' }}>
+                          ★ Watchlist
+                        </span>
+                      )}
+                      {row.conviction_label && (
+                        <ConvictionBadge label={row.conviction_label} score={row.conviction_score} />
+                      )}
+                      {!row.conviction_label && urgent && (
+                        <span style={{ fontSize: 11, fontWeight: 600, background: '#FEF9C3', color: '#92400E', borderRadius: 4, padding: '1px 7px' }}>
+                          High-Value Buy
+                        </span>
+                      )}
                       <span style={{ fontSize: 11, color: '#9CA3AF' }}>{timeAgo(row.transaction_date)}</span>
                       <Flag code={row.country_code} />
                     </div>
