@@ -275,20 +275,18 @@ function parsePdfText(text) {
       const c = objM[1].trim();
       if (c.length > 2 && !looksLikeCorp(c)) insiderName = c;
     }
-    // "Closely associated with: PERSON"
+    // ESMA Section 2a: "Nome: FIRST   Cognome: LAST" (wide-spaced layout)
     if (!insiderName) {
-      const caM = text.match(/closely\s+associated\s+with\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
+      const ncM = text.match(/Nome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]*?)\s{2,}Cognome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s*\n|$)/m);
+      if (ncM) {
+        const n = `${ncM[1].trim()} ${ncM[2].trim()}`;
+        if (!looksLikeCorp(n)) insiderName = n;
+      }
+    }
+    // "Closely associated with: PERSON" / "Strettamente legato/a a: PERSON"
+    if (!insiderName) {
+      const caM = text.match(/(?:closely\s+associated\s+with|strettamente\s+leg(?:ato|ata)\s+a)\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
       if (caM) { const c = caM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
-    }
-    // "Strettamente legato/a a: PERSON"
-    if (!insiderName) {
-      const slM = text.match(/strettamente\s+leg(?:ato|ata)\s+a\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
-      if (slM) { const c = slM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
-    }
-    // "Per conto di PERSON"
-    if (!insiderName) {
-      const pcM = text.match(/per\s+conto\s+(?:di|del(?:la)?)\s+([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\n|[,;(])/i);
-      if (pcM) { const c = pcM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
     }
   }
 

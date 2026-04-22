@@ -162,28 +162,42 @@ function parseFrPdfForPerson(text) {
 
 // ── Italy helpers ─────────────────────────────────────────────────────────────
 
-/** Parse Italian eMarket Storage PDF for the natural PDMR when entity filed */
+/** Parse Italian eMarket Storage PDF for the natural PDMR when entity filed.
+ *
+ * The ESMA bilingual form Section 2a has explicit fields:
+ *   Nome: [FIRST_NAME]   Cognome: [LAST_NAME]
+ *   First Name:          Last Name:
+ * when the filer is a Closely Associated Person (legal entity).
+ */
 function parseItPdfForPdmr(text) {
   if (!text) return null;
 
-  // Oggetto line: "Internal dealing PERSON per conto di ENTITY" or just "Internal dealing PERSON"
-  const objM = text.match(/Oggetto\s*:\s*Internal\s+dealing\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s+(?:per\s+conto\s+(?:di|del(?:la)?)|tramite|via)\b|\s*[-–]\s*|\s*\n)/i);
+  // Primary: ESMA form Section 2a "Nome: X  Cognome: Y" (wide-spaced layout)
+  const ncM = text.match(/Nome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]*?)\s{2,}Cognome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s*\n|$)/m);
+  if (ncM) {
+    const first = ncM[1].trim();
+    const last  = ncM[2].trim();
+    if (first && last && !looksLikeCorp(`${first} ${last}`)) return `${first} ${last}`;
+  }
+
+  // Secondary: "Nome: X\nFirst Name:\nCognome: Y" (line-per-field layout)
+  const ncSplitM = text.match(/Nome:\s*\n?\s*([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)\s*\n[\s\S]{0,80}Cognome:\s*\n?\s*([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)\s*\n/m);
+  if (ncSplitM) {
+    const first = ncSplitM[1].trim();
+    const last  = ncSplitM[2].trim();
+    if (first && last && !looksLikeCorp(`${first} ${last}`)) return `${first} ${last}`;
+  }
+
+  // Fallback: Oggetto line "notifica internal dealing PERSON" (some forms)
+  const objM = text.match(/[Oo]ggetto\s*:\s*(?:notifica\s+)?[Ii]nternal\s+[Dd]ealing\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s*\n|\s{3,})/);
   if (objM) {
     const c = objM[1].trim();
     if (c.length > 2 && !looksLikeCorp(c)) return c;
   }
 
-  // "Closely associated with: PERSON"
-  const caM = text.match(/closely\s+associated\s+with\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
+  // "Closely associated with: PERSON" / "Strettamente legato/a a: PERSON"
+  const caM = text.match(/(?:closely\s+associated\s+with|strettamente\s+leg(?:ato|ata)\s+a)\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
   if (caM) { const c = caM[1].trim(); if (!looksLikeCorp(c)) return c; }
-
-  // "Strettamente legato/a a: PERSON"
-  const slM = text.match(/strettamente\s+leg(?:ato|ata)\s+a\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
-  if (slM) { const c = slM[1].trim(); if (!looksLikeCorp(c)) return c; }
-
-  // "Per conto di PERSON"
-  const pcM = text.match(/per\s+conto\s+(?:di|del(?:la)?)\s+([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\n|[,;(])/i);
-  if (pcM) { const c = pcM[1].trim(); if (!looksLikeCorp(c)) return c; }
 
   return null;
 }
