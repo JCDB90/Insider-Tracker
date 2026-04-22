@@ -23,31 +23,37 @@ if (!SUPABASE_KEY) {
 
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── 1. Delete NL price=0 rows ────────────────────────────────────────────────
+// ─── 1. Delete all price=0 or NULL rows (all countries) ──────────────────────
+// These are RSU vestings, option exercises, and bonus share awards — not real
+// market buy/sell decisions. Strategy: delete, not enrich.
 
-async function deleteNlZeroPriceRows() {
-  console.log('\n── Step 1: Delete NL rows with price=0 or NULL ──────────────────');
+async function deleteZeroPriceRows() {
+  console.log('\n── Step 1: Delete all rows with price=0 or NULL (all countries) ─');
 
-  // Count first
   const { count, error: ce } = await db
     .from('insider_transactions')
     .select('*', { count: 'exact', head: true })
-    .eq('country_code', 'NL')
     .or('price_per_share.is.null,price_per_share.eq.0');
 
   if (ce) { console.error('  Count error:', ce.message); return; }
-  console.log(`  Found ${count} NL rows with price=0 or NULL`);
+  console.log(`  Found ${count} rows with price=0 or NULL`);
 
   if (count === 0) { console.log('  Nothing to delete.'); return; }
 
-  const { error } = await db
+  // Delete in two passes (Supabase filter syntax)
+  const { error: e1 } = await db
     .from('insider_transactions')
     .delete()
-    .eq('country_code', 'NL')
-    .or('price_per_share.is.null,price_per_share.eq.0');
+    .is('price_per_share', null);
+  if (e1) { console.error('  ❌ Delete (null) error:', e1.message); }
 
-  if (error) { console.error('  ❌ Delete error:', error.message); return; }
-  console.log(`  ✅ Deleted ${count} rows`);
+  const { error: e2 } = await db
+    .from('insider_transactions')
+    .delete()
+    .eq('price_per_share', 0);
+  if (e2) { console.error('  ❌ Delete (0) error:', e2.message); }
+
+  if (!e1 && !e2) console.log(`  ✅ Deleted ~${count} rows`);
 }
 
 // ─── 2. Fix Germany OTHER transaction types ───────────────────────────────────
@@ -147,7 +153,7 @@ async function deleteUnknownTypeRows() {
 async function main() {
   console.log('🔧 Data quality cleanup — insider_transactions');
 
-  await deleteNlZeroPriceRows();
+  await deleteZeroPriceRows();
   await fixGermanyOtherTypes();
   await fixFranceRoleInName();
   await deleteUnknownTypeRows();
