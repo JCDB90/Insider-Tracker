@@ -28,6 +28,7 @@ const path    = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { splitFrPersonLiee }       = require('./lib/entityUtils');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'FR';
 const SOURCE         = 'AMF France / BDIF';
@@ -352,8 +353,9 @@ async function scrapeFR() {
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
     const price  = parsed.price  || null;
 
-    // Ticker: exchange ticker from PDF > ISIN from PDF > first word of company name
+    // Ticker: exchange ticker from PDF > ISIN lookup > ISIN > first word of company name
     const ticker = parsed.ticker
+      || (parsed.isin ? await isinToTicker(parsed.isin, COUNTRY_CODE) : null)
       || parsed.isin
       || (company ? company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 8) : null);
 

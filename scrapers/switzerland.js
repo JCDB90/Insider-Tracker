@@ -22,6 +22,7 @@
 
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'CH';
 const SOURCE         = 'SIX Exchange Regulation';
@@ -140,10 +141,12 @@ async function scrapeCH() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
+    const ticker = r.ISIN ? (await isinToTicker(r.ISIN, COUNTRY_CODE) || r.ISIN) : '';
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           r.ISIN || '',
+      ticker,
       company:          r.notificationSubmitter || null,
       insider_name:     'Not disclosed',  // SER-AG public API does not disclose individual names
       insider_role:     'Not disclosed',

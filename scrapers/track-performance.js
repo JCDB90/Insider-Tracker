@@ -129,7 +129,10 @@ async function main() {
 
   let upserted = 0, errors = 0;
 
+  const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);
+
   for (const row of toProcess) {
+    if (!row.ticker || isISIN(row.ticker)) { errors++; continue; } // can't look up ISIN on Yahoo
     try {
       const txPrice = Number(row.price_per_share);
       const txDate  = row.transaction_date;

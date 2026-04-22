@@ -17,6 +17,7 @@ const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { looksLikeCorp }           = require('./lib/entityUtils');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
@@ -487,6 +488,14 @@ async function scrapeUK() {
   console.log(`  Processing ${pdmrHits.length} PDMR-type documents (CONCURRENCY=${CONCURRENCY})…`);
 
   rows = await runBatch(pdmrHits, CONCURRENCY, processHit);
+
+  // Resolve ISIN-format tickers to real exchange symbols
+  const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);
+  for (const row of rows) {
+    if (row.ticker && isISIN(row.ticker)) {
+      row.ticker = await isinToTicker(row.ticker, COUNTRY_CODE) || row.ticker;
+    }
+  }
 
   console.log(`  Fetched: ${fetched} | Parsed: ${parsed} | Failed: ${failed}`);
   console.log(`  Rows extracted: ${rows.length}`);

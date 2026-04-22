@@ -39,6 +39,7 @@ const https   = require('https');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'BE';
 const SOURCE         = 'FSMA Belgium';
@@ -264,10 +265,12 @@ async function scrapeBE() {
       continue;
     }
 
+    const ticker = d.isin ? (await isinToTicker(d.isin, COUNTRY_CODE) || d.isin) : '';
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           d.isin || '',
+      ticker,
       company:          d.company || null,
       insider_name:     d.insiderName || null,
       insider_role:     d.role || null,

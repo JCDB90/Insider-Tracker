@@ -14,6 +14,7 @@
 const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
+const { isinToTicker }           = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'FI';
 const SOURCE         = 'Nasdaq Helsinki / MAR';
@@ -294,10 +295,13 @@ async function scrapeFI() {
     const fid        = `FI-${r.disclosureId || r.id || i}`;
     if (seen.has(fid)) continue; seen.add(fid);
 
+    const isin = (det && det.isin) || null;
+    const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || isin) : '';
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           (det && det.isin) || '',
+      ticker,
       company:          r.company || null,
       insider_name:     det && det.insiderName ? det.insiderName : null,
       insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
