@@ -35,6 +35,7 @@
 const https   = require('https');
 const { PDFParse } = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'eMarket STORAGE Italy';
@@ -261,6 +262,36 @@ function parsePdfText(text) {
     if (subjMatch) insiderName = subjMatch[1].replace(/^-?\s*errata\s+corrige.*/i, '').trim() || null;
   }
 
+  // ── If Section 1 name is a legal entity, find the PDMR behind it ─────────
+  // MAR forms filed by closely-associated entities still reference the PDMR.
+  let viaEntity = null;
+  if (insiderName && looksLikeCorp(insiderName)) {
+    viaEntity = insiderName;
+    insiderName = null;
+
+    // "Oggetto: Internal dealing PERSON per conto di / tramite ENTITY"
+    const objM = text.match(/Oggetto\s*:\s*Internal\s+dealing\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s+(?:per\s+conto\s+di|tramite|via)\b|\s*-|\s*\n)/i);
+    if (objM) {
+      const c = objM[1].trim();
+      if (c.length > 2 && !looksLikeCorp(c)) insiderName = c;
+    }
+    // "Closely associated with: PERSON"
+    if (!insiderName) {
+      const caM = text.match(/closely\s+associated\s+with\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
+      if (caM) { const c = caM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
+    }
+    // "Strettamente legato/a a: PERSON"
+    if (!insiderName) {
+      const slM = text.match(/strettamente\s+leg(?:ato|ata)\s+a\s*:?\s*([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]{2,50}?)(?:\n|[,;(])/i);
+      if (slM) { const c = slM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
+    }
+    // "Per conto di PERSON"
+    if (!insiderName) {
+      const pcM = text.match(/per\s+conto\s+(?:di|del(?:la)?)\s+([A-ZÀ-Ö][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\n|[,;(])/i);
+      if (pcM) { const c = pcM[1].trim(); if (!looksLikeCorp(c)) insiderName = c; }
+    }
+  }
+
   // ── Role (section 2.a) ────────────────────────────────────────────────────
   let role = 'Not disclosed';
   const roleMatch = text.match(/Posizione\s*\/\s*Qualifica\s*\n[^\n]*\n([^\n]+)/i);
@@ -382,7 +413,7 @@ function parsePdfText(text) {
     if (anyDate) txDate = anyDate[1];
   }
 
-  return { insiderName, role, company, isin, txType, shares, price, currency, txDate };
+  return { insiderName, viaEntity, role, company, isin, txType, shares, price, currency, txDate };
 }
 
 async function parsePdfFromUrl(pdfUrl) {
@@ -440,6 +471,7 @@ async function scrapeIT() {
         ticker:           getTicker(company),
         company,
         insider_name:     pdf.insiderName || null,
+        via_entity:       pdf.viaEntity   || null,
         insider_role:     pdf.role || 'Not disclosed',
         transaction_type: pdf.txType,
         transaction_date: txDate,

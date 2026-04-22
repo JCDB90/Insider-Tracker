@@ -21,14 +21,23 @@ function looksLikeCorp(name) {
 }
 
 /**
- * Split "NAME personne liée à ENTITY" (French AMF form for closely associated persons).
+ * Split AMF "closely associated" name strings. Two form layouts:
+ *   1. "PERSON personne liée à ENTITY"   → person is on the left
+ *   2. "ENTITY personne morale liée à PERSON" → entity on left, person on right
  * Returns { person, entity } or null if no match.
  */
 function splitFrPersonLiee(text) {
   if (!text) return null;
-  const m = text.match(/^(.+?)\s+personne\s+li[eé]e?\s+[àa]\s+(.+)$/i);
+  // Handle optional "morale" / "physique" between "personne" and "liée"
+  const m = text.match(/^(.+?)\s+personne(?:\s+(?:morale|physique))?\s+li[eé]e?\s+[àa]\s+(.+)$/i);
   if (!m) return null;
-  return { person: m[1].trim(), entity: m[2].trim() };
+  const left  = m[1].trim();
+  const right = m[2].trim();
+  // If the left side is a corporate entity and right is not, swap
+  if (looksLikeCorp(left) && !looksLikeCorp(right)) {
+    return { person: right, entity: left };
+  }
+  return { person: left, entity: right };
 }
 
 module.exports = { looksLikeCorp, splitFrPersonLiee };
