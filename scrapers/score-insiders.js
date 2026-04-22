@@ -12,13 +12,13 @@
  * When Yahoo Finance price is unavailable, factors 1+2+4 are renormalized
  * across 0.75 total weight.
  *
- * Processes up to MAX_PER_RUN rows. Run daily via GitHub Actions.
+ * Scores all unscored rows per run. Runs daily via GitHub Actions.
  */
 
 const { createClient }       = require('@supabase/supabase-js');
 const { getClosePriceAtOffset } = require('./lib/yahooFinance');
 
-const MAX_PER_RUN = 500;  // Stay within ~10 min GitHub Actions budget
+const MAX_PER_RUN = 10000;  // Score all unscored rows per run
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',

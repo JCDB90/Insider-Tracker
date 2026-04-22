@@ -68,6 +68,12 @@ cd "$APP_DIR"
 set +e
 "$NODE_BIN" run-all.js
 EXIT_CODE=$?
+
+echo ""
+echo "── Scoring & Performance ──────────────────────────────"
+"$NODE_BIN" scrapers/score-insiders.js
+"$NODE_BIN" scrapers/track-performance.js
+
 set -e
 
 # ── Post-run ─────────────────────────────────────────────────────────────────
