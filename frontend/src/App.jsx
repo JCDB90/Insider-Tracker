@@ -148,6 +148,38 @@ function Flag({ code }) {
   );
 }
 
+// ─── InsiderRatingBadge ───────────────────────────────────────────────────────
+
+function InsiderRatingBadge({ rating, large = false }) {
+  if (rating == null) return <span style={{ fontSize: 12, color: '#9CA3AF' }}>—</span>;
+  const [label, bg, text, border] =
+    rating >= 80 ? ['Elite',   '#FEF3C7', '#92400E', '#FDE68A'] :
+    rating >= 60 ? ['Strong',  '#D1FAE5', '#065F46', '#A7F3D0'] :
+    rating >= 40 ? ['Average', '#DBEAFE', '#1E40AF', '#BFDBFE'] :
+    rating >= 20 ? ['Weak',    '#FEF9C3', '#854D0E', '#FDE68A'] :
+                   ['Poor',    '#FEE2E2', '#991B1B', '#FECACA'];
+  const star = rating >= 80 ? '⭐ ' : '';
+  if (large) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+        <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: text, lineHeight: 1 }}>{rating}</div>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', padding: '2px 8px',
+          borderRadius: 20, fontSize: 11, fontWeight: 700, background: bg, color: text,
+          border: '1px solid ' + border,
+        }}>{star}{label}</span>
+      </div>
+    );
+  }
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+      borderRadius: 20, fontSize: 11, fontWeight: 700, background: bg, color: text,
+      border: '1px solid ' + border, whiteSpace: 'nowrap',
+    }}>{star}{label} · {rating}</span>
+  );
+}
+
 // ─── ConvictionBadge ──────────────────────────────────────────────────────────
 
 function ConvictionBadge({ label, score, compact = false }) {
@@ -204,6 +236,30 @@ function ReturnCell({ value, daysSince, horizon, style: extraStyle = {} }) {
     return <td style={{ ...base, color: '#9CA3AF', fontStyle: 'italic', fontSize: 11 }}>pending</td>;
   }
   return <td style={{ ...base, color: '#D1D5DB' }}>—</td>;
+}
+
+// ─── computeInsiderRating ─────────────────────────────────────────────────────
+
+function computeInsiderRating(stats) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // Map avg return: -20% → 0, 0% → 0.5, +20% → 1
+  const normalizeReturn = r => clamp((r / 100 + 0.20) / 0.40, 0, 1);
+
+  let score = 0, totalWeight = 0;
+
+  function addPeriod(stat, winW, retW) {
+    if (!stat || stat.count < 1) return;
+    if (stat.successRate != null) { score += (stat.successRate / 100) * winW; totalWeight += winW; }
+    if (stat.avgReturn != null)   { score += normalizeReturn(stat.avgReturn) * retW; totalWeight += retW; }
+  }
+
+  addPeriod(stats.find(s => s.key === '30d'),  0.25, 0.20);
+  addPeriod(stats.find(s => s.key === '90d'),  0.35, 0.20);
+  addPeriod(stats.find(s => s.key === '180d'), 0.10, 0.05);
+  addPeriod(stats.find(s => s.key === '365d'), 0.10, 0.05);
+
+  if (totalWeight === 0) return null;
+  return Math.round((score / totalWeight) * 100);
 }
 
 // ─── computeInsiderScorecard ──────────────────────────────────────────────────
@@ -267,7 +323,8 @@ function computeInsiderScorecard(trades, performance) {
     const stats  = computePeriodStats(myPerf);
     const s90    = stats.find(s => s.key === '90d');
     const avgScore = ins.scoredTrades > 0 ? Math.round(ins.totalScore / ins.scoredTrades * 100) / 100 : null;
-    return { ...ins, buys: ins.trades.length, stats, myPerf, avgScore,
+    const rating   = computeInsiderRating(stats);
+    return { ...ins, buys: ins.trades.length, stats, myPerf, avgScore, rating,
       successRate90d: s90?.successRate ?? null, avgReturn90d: s90?.avgReturn ?? null };
   })
   .sort((a, b) => {
@@ -1149,21 +1206,68 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
   }, [performance]);
 
   const myPerf = useMemo(() => myBuys.map(t => perfByTxId[t.id]).filter(Boolean), [myBuys, perfByTxId]);
-  const stats = useMemo(() => computePeriodStats(myPerf), [myPerf]);
+  const stats  = useMemo(() => computePeriodStats(myPerf), [myPerf]);
+  const rating = useMemo(() => computeInsiderRating(stats), [stats]);
 
-  const role = myTrades[0]?.insider_role;
+  const role      = myTrades[0]?.insider_role;
   const companies = [...new Set(myTrades.map(t => t.company))];
-  const totalValue = myBuys.reduce((s, t) => s + (Number(t.total_value) || 0), 0);
-  const avgScore = (() => {
-    const scored = myBuys.filter(t => t.conviction_score != null);
-    if (!scored.length) return null;
-    return Math.round(scored.reduce((s, t) => s + Number(t.conviction_score), 0) / scored.length * 100) / 100;
-  })();
-  const initials = insiderName.split(' ').map(n => n[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+  const initials  = insiderName.split(' ').map(n => n[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+
+  // ── Aggregate KPIs ──────────────────────────────────────────────────────────
+  const totalInvested = useMemo(() =>
+    myBuys.reduce((s, t) => s + (Number(t.total_value) || 0), 0),
+    [myBuys]
+  );
+
+  const avgBuyPrice = useMemo(() => {
+    const buysWithData = myBuys.filter(t => t.shares && t.total_value);
+    const totalShares = buysWithData.reduce((s, t) => s + Number(t.shares), 0);
+    const totalVal    = buysWithData.reduce((s, t) => s + Number(t.total_value), 0);
+    return totalShares > 0 ? totalVal / totalShares : null;
+  }, [myBuys]);
+
+  const weighted30d = useMemo(() => {
+    const eligible = myBuys.filter(t => perfByTxId[t.id]?.return_30d != null && t.total_value);
+    if (!eligible.length) return null;
+    const wSum = eligible.reduce((s, t) => s + perfByTxId[t.id].return_30d * Number(t.total_value), 0);
+    const vSum = eligible.reduce((s, t) => s + Number(t.total_value), 0);
+    return vSum > 0 ? wSum / vSum : null;
+  }, [myBuys, perfByTxId]);
+
+  const weighted90d = useMemo(() => {
+    const eligible = myBuys.filter(t => perfByTxId[t.id]?.return_90d != null && t.total_value);
+    if (!eligible.length) return null;
+    const wSum = eligible.reduce((s, t) => s + perfByTxId[t.id].return_90d * Number(t.total_value), 0);
+    const vSum = eligible.reduce((s, t) => s + Number(t.total_value), 0);
+    return vSum > 0 ? wSum / vSum : null;
+  }, [myBuys, perfByTxId]);
+
+  const currency = myBuys[0]?.currency || 'EUR';
+
+  function ReturnKpi({ value, label }) {
+    if (value == null) return (
+      <div>
+        <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{label}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#D1D5DB', fontFamily: "'DM Mono', monospace" }}>—</div>
+        <div style={{ fontSize: 10, color: '#D1D5DB', marginTop: 2 }}>pending</div>
+      </div>
+    );
+    const pct = (value * 100).toFixed(1);
+    const pos = value > 0;
+    return (
+      <div>
+        <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{label}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", lineHeight: 1, color: pos ? '#15803D' : '#B91C1C' }}>
+          {pos ? '+' : ''}{pct}%
+        </div>
+        <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>weighted avg</div>
+      </div>
+    );
+  }
 
   return (
     <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
         {/* Back */}
         <button onClick={onBack} style={{
           display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none',
@@ -1179,7 +1283,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
         {/* Profile header */}
         <div style={{
           background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
-          padding: '24px 28px', marginBottom: 24, display: 'flex', gap: 20, alignItems: 'flex-start',
+          padding: '24px 28px', marginBottom: 16, display: 'flex', gap: 20, alignItems: 'flex-start',
         }}>
           <div style={{
             width: 56, height: 56, borderRadius: '50%', background: ACCENT + '18',
@@ -1187,39 +1291,59 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
             fontSize: 20, fontWeight: 700, color: ACCENT, flexShrink: 0,
           }}>{initials}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>{insiderName}</h1>
-              {avgScore != null && (
-                <ConvictionBadge
-                  label={avgScore >= 0.70 ? 'High Conviction' : avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
-                  score={avgScore}
-                />
-              )}
-            </div>
-            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', marginBottom: 4 }}>{insiderName}</h1>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 14 }}>
               {role ? role + ' · ' : ''}{companies.slice(0, 3).join(', ')}
             </div>
-            <div style={{ display: 'flex', gap: 24 }}>
-              {[
-                { label: 'Total Buys',     value: myBuys.length,               color: '#111318' },
-                { label: 'Total Value',    value: formatValue(totalValue),      color: '#16A34A' },
-                { label: 'Tracked Returns', value: myPerf.length,              color: '#111318' },
-              ].map(item => (
-                <div key={item.label}>
-                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>{item.label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: item.color, fontFamily: "'DM Mono', monospace" }}>{item.value}</div>
+            <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Total Buys</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{myBuys.length}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Total Invested</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#16A34A', fontFamily: "'DM Mono', monospace" }}>{formatValue(totalInvested, currency)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Avg Buy Price</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>
+                  {avgBuyPrice != null ? formatPrice(avgBuyPrice, currency) : '—'}
                 </div>
-              ))}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Tracked</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{myPerf.length}</div>
+              </div>
             </div>
+          </div>
+          {/* Rating — primary KPI, top-right */}
+          <div style={{ flexShrink: 0, textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Insider Rating</div>
+            <InsiderRatingBadge rating={rating} large />
           </div>
         </div>
 
-        {/* Track Record grid */}
+        {/* Aggregate return KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+          {[
+            { label: 'Total Invested',   content: <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: '#16A34A', lineHeight: 1 }}>{formatValue(totalInvested, currency)}</div> },
+            { label: 'Avg Buy Price',    content: <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: '#111318', lineHeight: 1 }}>{avgBuyPrice != null ? formatPrice(avgBuyPrice, currency) : '—'}</div> },
+            { label: '30d Return (wtd)', content: <ReturnKpi value={weighted30d} label="" /> },
+            { label: '90d Return (wtd)', content: <ReturnKpi value={weighted90d} label="" /> },
+          ].map(card => (
+            <div key={card.label} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>{card.label}</div>
+              {card.content}
+            </div>
+          ))}
+        </div>
+
+        {/* Period win-rate cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
           {stats.map(s => (
             <div key={s.key} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
-                {s.label}
+                {s.label} win rate
               </div>
               {s.count > 0 ? (
                 <>
@@ -1228,7 +1352,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
                     fontFamily: "'DM Mono', monospace", lineHeight: 1, marginBottom: 4,
                     color: s.successRate >= 60 ? '#16A34A' : s.successRate >= 40 ? '#D97706' : '#DC2626',
                   }}>{s.successRate}%</div>
-                  <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>win rate · {s.count} trades</div>
+                  <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>{s.count} trades resolved</div>
                   <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: s.avgReturn > 0 ? '#16A34A' : '#DC2626' }}>
                     {s.avgReturn > 0 ? '+' : ''}{s.avgReturn}% avg
                   </div>
@@ -1248,40 +1372,31 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
             <span style={{ fontWeight: 600, fontSize: 14 }}>Transaction History</span>
             <span style={{ fontSize: 12, color: '#9CA3AF' }}>{myTrades.length} transactions</span>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: 100 }} />{/* Date */}
-              <col style={{ width: 180 }} />{/* Company */}
-              <col style={{ width: 80 }} /> {/* Type */}
-              <col style={{ width: 100 }} />{/* Value */}
-              <col style={{ width: 80 }} /> {/* 30d */}
-              <col style={{ width: 80 }} /> {/* 90d */}
-              <col style={{ width: 80 }} /> {/* 6m */}
-              <col style={{ width: 80 }} /> {/* 1y */}
-            </colgroup>
+          <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
                 {[
-                  { label: 'Date',  align: 'left' },
-                  { label: 'Company', align: 'left' },
-                  { label: 'Type', align: 'left' },
-                  { label: 'Value', align: 'right' },
-                  { label: '30d',  align: 'right' },
-                  { label: '90d',  align: 'right' },
-                  { label: '6m',   align: 'right' },
-                  { label: '1y',   align: 'right' },
+                  { label: 'Date',       align: 'left'  },
+                  { label: 'Shares',     align: 'right' },
+                  { label: 'Buy Price',  align: 'right' },
+                  { label: 'Value',      align: 'right' },
+                  { label: '30d',        align: 'right' },
+                  { label: '90d',        align: 'right' },
+                  { label: 'Conviction', align: 'left'  },
                 ].map(col => (
                   <th key={col.label} style={{
                     padding: '10px 12px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
                     letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: col.align,
+                    whiteSpace: 'nowrap',
                   }}>{col.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {myTrades.map((t, i) => {
-                const perf = perfByTxId[t.id];
-                const isBuy = ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase());
+                const perf    = perfByTxId[t.id];
+                const isBuy   = ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase());
                 const daysSince = t.transaction_date
                   ? Math.floor((Date.now() - new Date(t.transaction_date)) / 86400000) : 0;
                 return (
@@ -1290,34 +1405,48 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
                     onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>
-                      {formatDateShort(t.transaction_date)}
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{formatDateShort(t.transaction_date)}</div>
+                      {t.company && companies.length > 1 && (
+                        <div style={{ fontSize: 10, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }} title={t.company}>{t.ticker || t.company}</div>
+                      )}
                     </td>
-                    <td style={{ padding: '10px 12px', overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 500, fontSize: 12, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.company}>{t.company}</div>
-                      {t.ticker && <div style={{ fontSize: 10, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{t.ticker}</div>}
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right' }}>
+                      {t.shares != null ? formatShares(t.shares) : '—'}
                     </td>
-                    <td style={{ padding: '10px 12px' }}><TypeChip type={t.transaction_type} /></td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {t.price_per_share != null ? formatPrice(t.price_per_share, t.currency) : '—'}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {formatValue(t.total_value, t.currency)}
                     </td>
                     {isBuy && perf ? (
                       <>
-                        <ReturnCell value={perf.return_30d}  daysSince={daysSince} horizon={30}  />
-                        <ReturnCell value={perf.return_90d}  daysSince={daysSince} horizon={90}  />
-                        <ReturnCell value={perf.return_180d} daysSince={daysSince} horizon={180} />
-                        <ReturnCell value={perf.return_365d} daysSince={daysSince} horizon={365} />
+                        <ReturnCell value={perf.return_30d} daysSince={daysSince} horizon={30} />
+                        <ReturnCell value={perf.return_90d} daysSince={daysSince} horizon={90} />
                       </>
                     ) : (
-                      [0,1,2,3].map(j => (
+                      [0, 1].map(j => (
                         <td key={j} style={{ padding: '10px 12px', color: '#E5E7EB', textAlign: 'right', fontSize: 12 }}>—</td>
                       ))
                     )}
+                    <td style={{ padding: '10px 12px' }}>
+                      {isBuy && t.conviction_score != null ? (
+                        <ConvictionBadge
+                          label={t.conviction_score >= 0.70 ? 'High Conviction' : t.conviction_score >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
+                          score={t.conviction_score}
+                          compact
+                        />
+                      ) : (
+                        <TypeChip type={t.transaction_type} />
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </main>
@@ -1384,7 +1513,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                       { label: '6 months',   align: 'center' },
                       { label: '1 year',     align: 'center' },
                       { label: 'Last Trade', align: 'left'   },
-                      { label: 'Conviction', align: 'left'   },
+                      { label: 'Rating',     align: 'left'   },
                     ].map(col => (
                       <th key={col.label} style={{
                         padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
@@ -1453,12 +1582,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                           {formatDateShort(ins.latestDate)}
                         </td>
                         <td style={{ padding: '12px 14px' }}>
-                          {ins.avgScore != null ? (
-                            <ConvictionBadge
-                              label={ins.avgScore >= 0.70 ? 'High Conviction' : ins.avgScore >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
-                              score={ins.avgScore}
-                            />
-                          ) : <span style={{ fontSize: 12, color: '#D1D5DB' }}>—</span>}
+                          <InsiderRatingBadge rating={ins.rating} />
                         </td>
                       </tr>
                     );
