@@ -50,13 +50,14 @@ async function saveInsiderTransactions(rows) {
   }
   if (filtered.length === 0) return { inserted: 0 };
 
-  // Auto-detect corporate entities: if insider_name looks like a company name and via_entity
-  // isn't already set, move the name to via_entity and set insider_name = 'Not disclosed'.
-  const withEntityResolved = filtered.map(r => {
+  // Skip corporate entity rows where no individual is identified (via_entity not set).
+  // Only real-person transactions belong in insider_transactions.
+  const withEntityResolved = filtered.filter(r => {
     if (r.insider_name && !r.via_entity && looksLikeCorp(r.insider_name)) {
-      return { ...r, via_entity: r.insider_name, insider_name: 'Not disclosed' };
+      console.log(`  ℹ  Skipping corporate entity: ${r.insider_name} — ${r.company || '?'}`);
+      return false;
     }
-    return r;
+    return true;
   });
 
   // Require insider_name, shares > 0, and a positive price_per_share.
