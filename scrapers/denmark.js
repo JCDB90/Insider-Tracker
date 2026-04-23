@@ -51,6 +51,7 @@ function parseNum(raw) {
   const s = raw.trim().replace(/\s/g, '');
   if (/\d\.\d{3},/.test(s)) return parseFloat(s.replace(/\./g, '').replace(',', '.'));   // 1.234,56
   if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));          // 22.345 (thousands)
+  if (/^\d{1,3}(?:,\d{3})+$/.test(s)) return parseFloat(s.replace(/,/g, ''));             // 50,000 (English thousands)
   if (/,/.test(s) && !/\./.test(s)) return parseFloat(s.replace(',', '.'));               // 61,7088 (decimal)
   return parseFloat(s.replace(/,/g, ''));
 }
@@ -309,7 +310,13 @@ function parseNotificationText(text) {
   // If insiderName looks like a corporate entity, check ESMA section 2b for the associated person
   let viaEntity = null;
   if (insiderName && looksLikeCorp(insiderName)) {
-    const assocM = text.match(/closely\s+associated\s+(?:with\s+)?(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member)|\s*$)/im);
+    // English: "closely associated with [person]"
+    // Danish: "[Corp]s CEO og bestyrelsesmedlem, Johanne C F Riegels, også er bestyrelsesmedlem"
+    const assocM =
+      text.match(/closely\s+associated\s+(?:with|to)\s+(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member|Vice)|\s*$)/im) ||
+      text.match(/\brelated\s+party\s+to\s+(?:[A-Z][a-z]+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:\s+in\b|\s+at\b|$)/im) ||
+      text.match(/\bbestyrelsesmedlem[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50?}?)(?:,\s+ogs)/i) ||
+      text.match(/\b(?:CEO|CFO|direktør|bestyrelsesmedlem)\s+(?:og\s+\w+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:,\s+ogs|$)/im);
     if (assocM) {
       viaEntity   = insiderName;
       insiderName = assocM[1].trim();

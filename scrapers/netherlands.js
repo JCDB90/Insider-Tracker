@@ -226,7 +226,7 @@ function parseXml(xml, cutoffDate) {
       ticker:           getTicker(company),
       company:          company || null,
       insider_name:     insiderName || null,
-      insider_role:     'Not disclosed',
+      insider_role:     'Director / Commissioner',
       transaction_date: txDate,
       filing_url:       `https://www.afm.nl/nl-nl/sector/registers/meldingenregisters/bestuurders-commissarissen/details?id=${id}`,
     };
