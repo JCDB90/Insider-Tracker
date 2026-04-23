@@ -229,6 +229,38 @@ function ConvictionBadge({ label, score, compact = false }) {
   );
 }
 
+// ─── ClusterBadge ─────────────────────────────────────────────────────────────
+
+function ClusterBadge({ clusterSize, clusterValue, clusterStart, clusterEnd, currency, insiderName }) {
+  if (!clusterSize || clusterSize < 2) return null;
+  if (!isRealPerson(insiderName)) return null;
+  const parts = [`insider made ${clusterSize} purchases`];
+  if (clusterStart && clusterEnd && clusterStart !== clusterEnd) {
+    parts.push(`between ${formatDateShort(clusterStart)} and ${formatDateShort(clusterEnd)}`);
+  } else if (clusterStart) {
+    parts.push(`around ${formatDateShort(clusterStart)}`);
+  }
+  if (clusterValue) parts.push(`totalling ${formatValue(clusterValue, currency || 'EUR')}`);
+  parts.push('— a strong signal of conviction');
+  return (
+    <span
+      title={parts.join(' ')}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        background: '#F0FDF4', border: '1px solid #BBF7D0',
+        borderRadius: 4, padding: '2px 7px',
+        fontSize: 11, fontWeight: 600, color: '#15803D',
+        cursor: 'default', whiteSpace: 'nowrap',
+      }}
+    >
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="#15803D">
+        <circle cx="3" cy="5" r="2"/><circle cx="7" cy="3" r="1.5"/><circle cx="7" cy="7" r="1.5"/>
+      </svg>
+      Cluster
+    </span>
+  );
+}
+
 // ─── ReturnCell — table cell for a post-trade return value ───────────────────
 
 function ReturnCell({ value, daysSince, horizon, style: extraStyle = {} }) {
@@ -748,12 +780,22 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick })
                       <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
                     )}
                   </td>
-                  {/* Type + conviction */}
+                  {/* Type + conviction + cluster */}
                   <td style={{ padding: rowPad }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <TypeChip type={row.transaction_type} />
                       {row.conviction_label && (
                         <ConvictionBadge label={row.conviction_label} score={row.conviction_score} compact />
+                      )}
+                      {row.cluster_size >= 2 && (
+                        <ClusterBadge
+                          clusterSize={row.cluster_size}
+                          clusterValue={row.cluster_value}
+                          clusterStart={row.cluster_start}
+                          clusterEnd={row.cluster_end}
+                          currency={row.currency}
+                          insiderName={row.insider_name}
+                        />
                       )}
                     </div>
                   </td>
@@ -1308,6 +1350,22 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
     return vSum > 0 ? wSum / vSum : null;
   }, [myBuys, perfByTxId]);
 
+  const weighted180d = useMemo(() => {
+    const eligible = myBuys.filter(t => perfByTxId[t.id]?.return_180d != null && t.total_value);
+    if (!eligible.length) return null;
+    const wSum = eligible.reduce((s, t) => s + perfByTxId[t.id].return_180d * Number(t.total_value), 0);
+    const vSum = eligible.reduce((s, t) => s + Number(t.total_value), 0);
+    return vSum > 0 ? wSum / vSum : null;
+  }, [myBuys, perfByTxId]);
+
+  const weighted365d = useMemo(() => {
+    const eligible = myBuys.filter(t => perfByTxId[t.id]?.return_365d != null && t.total_value);
+    if (!eligible.length) return null;
+    const wSum = eligible.reduce((s, t) => s + perfByTxId[t.id].return_365d * Number(t.total_value), 0);
+    const vSum = eligible.reduce((s, t) => s + Number(t.total_value), 0);
+    return vSum > 0 ? wSum / vSum : null;
+  }, [myBuys, perfByTxId]);
+
   const currency = myBuys[0]?.currency || 'EUR';
 
   function ReturnKpi({ value, label }) {
@@ -1389,17 +1447,17 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
           </div>
         </div>
 
-        {/* Aggregate return KPIs */}
+        {/* Aggregate return KPIs — weighted by trade value */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
           {[
-            { label: 'Total Invested',   content: <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: '#16A34A', lineHeight: 1 }}>{formatValue(totalInvested, currency)}</div> },
-            { label: 'Avg Buy Price',    content: <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: '#111318', lineHeight: 1 }}>{avgBuyPrice != null ? formatPrice(avgBuyPrice, currency) : '—'}</div> },
-            { label: '30d Return (wtd)', content: <ReturnKpi value={weighted30d} label="" /> },
-            { label: '90d Return (wtd)', content: <ReturnKpi value={weighted90d} label="" /> },
+            { label: '30d Return (wtd)',  value: weighted30d  },
+            { label: '90d Return (wtd)',  value: weighted90d  },
+            { label: '6m Return (wtd)',   value: weighted180d },
+            { label: '1y Return (wtd)',   value: weighted365d },
           ].map(card => (
             <div key={card.label} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>{card.label}</div>
-              {card.content}
+              <ReturnKpi value={card.value} label="" />
             </div>
           ))}
         </div>
@@ -1449,6 +1507,8 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
                   { label: 'Value',      align: 'right' },
                   { label: '30d',        align: 'right' },
                   { label: '90d',        align: 'right' },
+                  { label: '6m',         align: 'right' },
+                  { label: '1y',         align: 'right' },
                   { label: 'Conviction', align: 'left'  },
                 ].map(col => (
                   <th key={col.label} style={{
@@ -1488,24 +1548,38 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
                     </td>
                     {isBuy && perf ? (
                       <>
-                        <ReturnCell value={perf.return_30d} daysSince={daysSince} horizon={30} />
-                        <ReturnCell value={perf.return_90d} daysSince={daysSince} horizon={90} />
+                        <ReturnCell value={perf.return_30d}  daysSince={daysSince} horizon={30}  />
+                        <ReturnCell value={perf.return_90d}  daysSince={daysSince} horizon={90}  />
+                        <ReturnCell value={perf.return_180d} daysSince={daysSince} horizon={180} />
+                        <ReturnCell value={perf.return_365d} daysSince={daysSince} horizon={365} />
                       </>
                     ) : (
-                      [0, 1].map(j => (
+                      [0, 1, 2, 3].map(j => (
                         <td key={j} style={{ padding: '10px 12px', color: '#E5E7EB', textAlign: 'right', fontSize: 12 }}>—</td>
                       ))
                     )}
                     <td style={{ padding: '10px 12px' }}>
-                      {isBuy && t.conviction_score != null ? (
-                        <ConvictionBadge
-                          label={t.conviction_score >= 0.70 ? 'High Conviction' : t.conviction_score >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
-                          score={t.conviction_score}
-                          compact
-                        />
-                      ) : (
-                        <TypeChip type={t.transaction_type} />
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                        {isBuy && t.conviction_score != null ? (
+                          <ConvictionBadge
+                            label={t.conviction_score >= 0.70 ? 'High Conviction' : t.conviction_score >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
+                            score={t.conviction_score}
+                            compact
+                          />
+                        ) : (
+                          <TypeChip type={t.transaction_type} />
+                        )}
+                        {t.cluster_size >= 2 && (
+                          <ClusterBadge
+                            clusterSize={t.cluster_size}
+                            clusterValue={t.cluster_value}
+                            clusterStart={t.cluster_start}
+                            clusterEnd={t.cluster_end}
+                            currency={t.currency}
+                            insiderName={t.insider_name}
+                          />
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

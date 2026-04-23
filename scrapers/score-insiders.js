@@ -1,182 +1,349 @@
 'use strict';
 
 /**
- * Conviction Scoring V2
+ * Conviction Scoring V3 — Cluster Buying
  *
- * Scores all unscored BUY transactions using 4 factors:
- *   1. size_vs_salary    (0.35) — trade value relative to estimated role salary
- *   2. role_weight       (0.25) — seniority of the insider
- *   3. price_drop_before (0.25) — stock price drop in 30d before the buy
- *   4. transaction_size  (0.15) — absolute transaction value tier
+ * Three factors:
+ *   1. Size score    (0.40) — log(1 + tradeValue / salaryProxy)
+ *   2. Cluster score (0.30) — 30-day window of same insider+company buys, with multiplier
+ *   3. Price drop    (0.30) — drawdown from 90d high before the buy date
  *
- * When Yahoo Finance price is unavailable, factors 1+2+4 are renormalized
- * across 0.75 total weight.
+ * rawScore = size×0.4 + cluster×0.3 + priceScore×0.3
+ * convictionNormalized = Math.min(100, rawScore × 25)
  *
- * Scores all unscored rows per run. Runs daily via GitHub Actions.
+ * When Yahoo price is unavailable: renormalize size+cluster across 0.70.
+ *
+ * New DB columns required (run migrations/003_cluster_scoring.sql first):
+ *   cluster_value DECIMAL, cluster_size INTEGER,
+ *   price_drawdown DECIMAL, conviction_normalized INTEGER,
+ *   cluster_start DATE, cluster_end DATE
  */
 
-const { createClient }       = require('@supabase/supabase-js');
-const { getClosePriceAtOffset } = require('./lib/yahooFinance');
-
-const MAX_PER_RUN = 10000;  // Score all unscored rows per run
+const { createClient }           = require('@supabase/supabase-js');
+const { fetchYahooRange }        = require('./lib/yahooFinance');
+const { getSuffixesForCountry }  = require('./lib/tickerMap');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
   process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
 );
 
-// ─── Role mappings ────────────────────────────────────────────────────────────
+const BATCH_SIZE  = 50;
+const BATCH_DELAY = 200; // ms between batches
+
+// ─── Salary proxies & role weights ───────────────────────────────────────────
+
+const ROLE_SALARY = {
+  'CEO':                    500_000,
+  'CFO':                    500_000,
+  'Managing Director':      500_000,
+  'Chairman':               300_000,
+  'Chief Operating Officer':400_000,
+  'Executive Director':     200_000,
+  'Non-Executive Director': 100_000,
+  'Board Member':           100_000,
+  'Director':               150_000,
+  'Other':                  100_000,
+};
+
+const ROLE_WEIGHT = {
+  'CEO':                    1.00,
+  'CFO':                    1.00,
+  'Managing Director':      1.00,
+  'Chairman':               0.90,
+  'Chief Operating Officer':0.85,
+  'Executive Director':     0.75,
+  'Director':               0.60,
+  'Board Member':           0.50,
+  'Non-Executive Director': 0.40,
+  'Other':                  0.30,
+};
 
 const ROLE_RULES = [
-  // [match_pattern, weight, estimated_annual_salary_EUR]
-  [/\b(chief\s+exec|ceo|managing\s+dir|directeur\s+g[eé]n)/i, 1.00, 500_000],
-  [/\b(chief\s+fin|cfo|director\s+fin)/i,                     0.90, 300_000],
-  [/\b(chair(man|woman|person)?|voorzitter|pr[eé]sident\b)/i, 0.85, 400_000],
-  [/\b(chief\s+oper|coo)/i,                                   0.80, 280_000],
-  [/\b(chief\s+(tech|info|invest)|cto|cio|ciso)/i,            0.75, 250_000],
-  [/\b(exec(utive)?\s+dir|executive\s+vice|evp)/i,            0.70, 200_000],
-  [/\b(senior\s+vice|svp|senior\s+director)/i,                0.65, 180_000],
-  [/\b(vice\s+president|vp\b)/i,                              0.60, 160_000],
-  [/\b(direct(or|eur|rice)|administrateur|board\s+member)/i,  0.55, 150_000],
-  [/\b(non.?exec|independent\s+dir|supervisory|commissar)/i,  0.40, 100_000],
-  [/\b(secretary|controller|treasurer|comptroller)/i,         0.40, 120_000],
+  [/\b(chief\s+exec|ceo)\b/i,                              'CEO'],
+  [/\b(chief\s+fin|cfo|chief\s+financial)\b/i,             'CFO'],
+  [/\b(managing\s+dir|directeur\s+g[eé]n|gérant)\b/i,     'Managing Director'],
+  [/\b(chair(man|woman|person)?|voorzitter|pr[eé]sident)\b/i, 'Chairman'],
+  [/\b(chief\s+oper|coo)\b/i,                              'Chief Operating Officer'],
+  [/\b(exec(utive)?\s+dir|executive\s+vice|evp)\b/i,       'Executive Director'],
+  [/\b(non.?exec|independent\s+dir|supervisory|commissar)\b/i, 'Non-Executive Director'],
+  [/\b(board\s+member|member\s+of\s+(the\s+)?board)\b/i,   'Board Member'],
+  [/\b(direct(or|eur|rice)|administrateur)\b/i,            'Director'],
 ];
 
-function getRoleWeightAndSalary(role) {
-  if (!role) return { weight: 0.40, salary: 100_000 };
-  for (const [re, weight, salary] of ROLE_RULES) {
-    if (re.test(role)) return { weight, salary };
+function normalizeRole(raw) {
+  if (!raw) return 'Other';
+  for (const [re, normalized] of ROLE_RULES) {
+    if (re.test(raw)) return normalized;
   }
-  return { weight: 0.40, salary: 100_000 };
+  return 'Other';
 }
 
-// ─── Factor calculators ───────────────────────────────────────────────────────
-
-function calcSizeVsSalary(totalValue, salary) {
-  if (!totalValue || !salary) return 0;
-  const ratio = Number(totalValue) / salary;
-  return Math.min(ratio, 5) / 5; // cap at 5x salary, normalize 0-1
+function getRoleSalary(raw) {
+  const role = normalizeRole(raw);
+  return ROLE_SALARY[role] || 100_000;
 }
 
-function calcTransactionSizeTier(totalValue) {
-  const v = Number(totalValue) || 0;
-  if (v >= 1_000_000) return 1.00;
-  if (v >= 500_000)   return 0.90;
-  if (v >= 100_000)   return 0.70;
-  if (v >= 50_000)    return 0.50;
-  if (v >= 10_000)    return 0.30;
-  return 0.10;
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
-function calcPriceDropFactor(priceNow, price30dAgo) {
-  if (!priceNow || !price30dAgo || price30dAgo <= 0) return null;
-  const dropPct = (price30dAgo - priceNow) / price30dAgo; // positive = stock fell
-  const clamped = Math.max(-1, Math.min(1, dropPct));
-  return (clamped + 1) / 2; // map [-1,+1] → [0,1]
+function daysBetween(a, b) {
+  return Math.abs(new Date(a) - new Date(b)) / 86400000;
 }
 
-function finalScore(f1, f2, f3, f4) {
-  if (f3 !== null) {
-    return f1 * 0.35 + f2 * 0.25 + f3 * 0.25 + f4 * 0.15;
+// ─── Cluster detection ────────────────────────────────────────────────────────
+
+// Build a map of insider+company → sorted array of all their BUY transactions
+function buildClusterGroups(allBuys) {
+  const groups = {};
+  for (const t of allBuys) {
+    if (!t.insider_name || !t.company) continue;
+    const key = `${t.insider_name}|${t.company}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
   }
-  // Renormalize without price factor: 0.35+0.25+0.15 = 0.75
-  return (f1 * 0.35 + f2 * 0.25 + f4 * 0.15) / 0.75;
+  // Sort each group by date ascending
+  for (const key of Object.keys(groups)) {
+    groups[key].sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
+  }
+  return groups;
 }
 
-function scoreLabel(score) {
-  if (score >= 0.70) return 'High Conviction';
-  if (score >= 0.40) return 'Medium Conviction';
+function getClusterInfo(tx, groups) {
+  const key = `${tx.insider_name}|${tx.company}`;
+  const group = groups[key];
+  if (!group || group.length === 0) return { clusterSize: 1, clusterValue: Number(tx.total_value) || 0, clusterStart: tx.transaction_date, clusterEnd: tx.transaction_date };
+
+  // All buys by same insider+company within 30 days of this transaction
+  const nearby = group.filter(t => daysBetween(t.transaction_date, tx.transaction_date) <= 30);
+  if (nearby.length === 0) return { clusterSize: 1, clusterValue: Number(tx.total_value) || 0, clusterStart: tx.transaction_date, clusterEnd: tx.transaction_date };
+
+  const clusterSize  = nearby.length;
+  const clusterValue = nearby.reduce((s, t) => s + (Number(t.total_value) || 0), 0);
+  const dates = nearby.map(t => t.transaction_date).sort();
+  return { clusterSize, clusterValue, clusterStart: dates[0], clusterEnd: dates[dates.length - 1] };
+}
+
+// ─── Yahoo price helpers (cached) ────────────────────────────────────────────
+
+const priceRangeCache = new Map();
+
+async function fetchHighBefore(ticker, countryCode, txDate) {
+  if (!ticker || !txDate) return null;
+
+  const from = addDays(txDate, -90);
+  const to   = addDays(txDate, -1);
+  const suffixes = getSuffixesForCountry(countryCode);
+
+  for (const suffix of suffixes) {
+    const symbol = ticker + suffix;
+    const cacheKey = `${symbol}|${from}|${to}`;
+
+    let data;
+    if (priceRangeCache.has(cacheKey)) {
+      data = priceRangeCache.get(cacheKey);
+    } else {
+      data = await fetchYahooRange(symbol, from, to);
+      await new Promise(r => setTimeout(r, 150));
+      priceRangeCache.set(cacheKey, data);
+    }
+
+    if (data && data.length > 0) {
+      return Math.max(...data.map(d => d.price));
+    }
+  }
+  return null;
+}
+
+// ─── Scoring factors ──────────────────────────────────────────────────────────
+
+function calcSizeScore(tradeValue, salary) {
+  if (!tradeValue || !salary) return 0;
+  return Math.log(1 + Number(tradeValue) / salary);
+}
+
+function calcClusterScore(clusterValue, salary, clusterSize) {
+  const base       = Math.log(1 + (Number(clusterValue) || 0) / salary);
+  const multiplier = clusterSize >= 3 ? 1.5 : clusterSize >= 2 ? 1.2 : 1.0;
+  return base * multiplier;
+}
+
+function calcPriceDropScore(recentHigh, buyPrice) {
+  if (!recentHigh || !buyPrice || recentHigh <= 0) return null;
+  const drawdown = (recentHigh - Number(buyPrice)) / recentHigh;
+  if (drawdown <= 0) return { score: 0, drawdown: 0 };
+  return {
+    score:    Math.min(1, drawdown / 0.3),
+    drawdown: Math.round(drawdown * 10000) / 10000,
+  };
+}
+
+function calcFinalScore(sizeScore, clusterScore, priceResult) {
+  if (priceResult !== null) {
+    const raw = sizeScore * 0.4 + clusterScore * 0.3 + priceResult.score * 0.3;
+    return Math.min(100, Math.round(raw * 25 * 10) / 10);
+  }
+  // Renormalize without price factor: weights 0.4 + 0.3 = 0.70
+  const raw = (sizeScore * 0.4 + clusterScore * 0.3) / 0.70;
+  return Math.min(100, Math.round(raw * 25 * 10) / 10);
+}
+
+function scoreLabel(normalized) {
+  if (normalized >= 70) return 'High Conviction';
+  if (normalized >= 40) return 'Medium Conviction';
   return 'Low Conviction';
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('🎯  Insider Conviction Scoring V2');
+  console.log('🎯  Insider Conviction Scoring V3 — Cluster Buying');
   const t0 = Date.now();
 
-  // Verify column exists
+  // Verify new columns exist
   const { error: colCheck } = await supabase
     .from('insider_transactions')
-    .select('conviction_score')
+    .select('conviction_score, cluster_size, cluster_value, price_drawdown, conviction_normalized')
     .limit(1);
   if (colCheck) {
-    console.error('❌  conviction_score column missing — run migrations/001_scoring.sql first');
+    console.error('❌  Missing columns — run migrations/003_cluster_scoring.sql first');
+    console.error('    SQL:\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS cluster_value DECIMAL;\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS cluster_size INTEGER;\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS price_drawdown DECIMAL;\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS conviction_normalized INTEGER;\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS cluster_start DATE;\n' +
+      '    ALTER TABLE insider_transactions ADD COLUMN IF NOT EXISTS cluster_end DATE;'
+    );
     process.exit(1);
   }
 
-  // Fetch all unscored BUY transactions (paginated — PostgREST max_rows = 1000)
-  const rows = [];
+  // ── Phase 1: Load all BUY transactions for cluster context ──────────────────
+  console.log('  Loading all BUY transactions for cluster context…');
+  const allBuys = [];
   let from = 0;
-  while (rows.length < MAX_PER_RUN) {
+  while (true) {
     const { data, error } = await supabase
       .from('insider_transactions')
-      .select('id, ticker, company, country_code, insider_role, transaction_date, price_per_share, total_value')
+      .select('id, insider_name, company, ticker, country_code, insider_role, transaction_date, price_per_share, total_value')
       .in('transaction_type', ['BUY', 'PURCHASE'])
-      .is('conviction_score', null)
+      .not('insider_name', 'is', null)
       .not('ticker', 'is', null)
       .order('transaction_date', { ascending: false })
       .range(from, from + 999);
-    if (error) { console.error('❌ Query:', error.message); process.exit(1); }
-    if (!data || data.length === 0) break;
-    rows.push(...data);
+    if (error || !data || data.length === 0) break;
+    allBuys.push(...data);
     if (data.length < 1000) break;
     from += 1000;
   }
+  console.log(`  Loaded ${allBuys.length} BUY transactions for cluster context`);
 
-  if (rows.length === 0) { console.log('  Nothing to score.'); return; }
+  const clusterGroups = buildClusterGroups(allBuys);
 
-  console.log(`  Scoring ${rows.length} BUY transactions…`);
+  // ── Phase 2: Find unscored rows ──────────────────────────────────────────────
+  const unscoredRows = allBuys.filter(r => {
+    // Re-fetch will include conviction_score = null check; here just use what we have
+    return true; // Will score all (allow re-scoring)
+  });
+
+  // Actually fetch only rows where conviction_normalized IS NULL (new column)
+  const toScore = [];
+  let from2 = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('insider_transactions')
+      .select('id, insider_name, company, ticker, country_code, insider_role, transaction_date, price_per_share, total_value')
+      .in('transaction_type', ['BUY', 'PURCHASE'])
+      .is('conviction_normalized', null)
+      .not('ticker', 'is', null)
+      .not('insider_name', 'is', null)
+      .order('transaction_date', { ascending: false })
+      .range(from2, from2 + 999);
+    if (error || !data || data.length === 0) break;
+    toScore.push(...data);
+    if (data.length < 1000) break;
+    from2 += 1000;
+  }
+
+  if (toScore.length === 0) { console.log('  Nothing to score.'); return; }
+  console.log(`  Scoring ${toScore.length} unscored transactions…`);
+
+  const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
 
   let scored = 0, withPrice = 0, errors = 0;
 
-  for (const row of rows) {
-    try {
-      const { weight: roleWeight, salary } = getRoleWeightAndSalary(row.insider_role);
+  // Process in batches of BATCH_SIZE
+  for (let batchStart = 0; batchStart < toScore.length; batchStart += BATCH_SIZE) {
+    const batch = toScore.slice(batchStart, batchStart + BATCH_SIZE);
 
-      const f1 = calcSizeVsSalary(row.total_value, salary);
-      const f2 = roleWeight;
-      const f4 = calcTransactionSizeTier(row.total_value);
+    for (const row of batch) {
+      try {
+        if (!row.total_value || Number(row.total_value) <= 0) { errors++; continue; }
+        if (ISIN_RE.test(row.ticker)) { errors++; continue; } // can't fetch price for ISIN
 
-      // Factor 3: try to get price 30d before the buy
-      let f3 = null;
-      let price30dBefore = null;
-      if (row.ticker && row.transaction_date && row.price_per_share) {
-        price30dBefore = await getClosePriceAtOffset(
-          row.ticker, row.transaction_date, -30, row.country_code
-        );
-        if (price30dBefore) {
-          f3 = calcPriceDropFactor(Number(row.price_per_share), price30dBefore);
-          withPrice++;
+        const salary = getRoleSalary(row.insider_role);
+
+        // Cluster info
+        const { clusterSize, clusterValue, clusterStart, clusterEnd } = getClusterInfo(row, clusterGroups);
+
+        // Factor 1: Size score
+        const sizeScore    = calcSizeScore(row.total_value, salary);
+
+        // Factor 2: Cluster score
+        const clusterScore = calcClusterScore(clusterValue, salary, clusterSize);
+
+        // Factor 3: Price drop (90d high before buy)
+        let priceResult = null;
+        if (row.ticker && row.transaction_date && row.price_per_share) {
+          const recentHigh = await fetchHighBefore(row.ticker, row.country_code, row.transaction_date);
+          if (recentHigh) {
+            priceResult = calcPriceDropScore(recentHigh, row.price_per_share);
+            withPrice++;
+          }
         }
-        await new Promise(r => setTimeout(r, 100));
+
+        const convictionNormalized = calcFinalScore(sizeScore, clusterScore, priceResult);
+        const convictionScore      = Math.round(convictionNormalized) / 100; // keep 0-1 float for compat
+        const label                = scoreLabel(convictionNormalized);
+
+        const { error: upErr } = await supabase
+          .from('insider_transactions')
+          .update({
+            conviction_score:      convictionScore,
+            conviction_label:      label,
+            conviction_normalized: Math.round(convictionNormalized),
+            cluster_size:          clusterSize,
+            cluster_value:         clusterValue,
+            cluster_start:         clusterStart,
+            cluster_end:           clusterEnd,
+            price_drawdown:        priceResult?.drawdown ?? null,
+          })
+          .eq('id', row.id);
+
+        if (upErr) { errors++; }
+        else { scored++; }
+
+      } catch {
+        errors++;
       }
+    }
 
-      const score = Math.round(finalScore(f1, f2, f3, f4) * 1000) / 1000;
-      const label = scoreLabel(score);
+    if (scored % 100 === 0 && scored > 0) {
+      console.log(`  Progress: ${scored}/${toScore.length} scored…`);
+    }
 
-      const { error: upErr } = await supabase
-        .from('insider_transactions')
-        .update({
-          conviction_score: score,
-          conviction_label: label,
-          price_30d_before: price30dBefore,
-        })
-        .eq('id', row.id);
-
-      if (upErr) { errors++; }
-      else { scored++; }
-
-      if (scored % 50 === 0 && scored > 0) {
-        console.log(`  Progress: ${scored}/${rows.length} scored…`);
-      }
-    } catch (e) {
-      errors++;
+    if (batchStart + BATCH_SIZE < toScore.length) {
+      await new Promise(r => setTimeout(r, BATCH_DELAY));
     }
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ✅ ${elapsed}s — ${scored} scored (${withPrice} with Yahoo price, ${errors} errors)`);
+  console.log(`  ✅ ${elapsed}s — ${scored} scored (${withPrice} with Yahoo price, ${errors} skipped/errors)`);
 }
 
 main().catch(err => {
