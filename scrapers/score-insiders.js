@@ -245,25 +245,23 @@ async function main() {
 
   const clusterGroups = buildClusterGroups(allBuys);
 
-  // ── Phase 2: Find unscored rows ──────────────────────────────────────────────
-  const unscoredRows = allBuys.filter(r => {
-    // Re-fetch will include conviction_score = null check; here just use what we have
-    return true; // Will score all (allow re-scoring)
-  });
+  // ── Phase 2: Find rows to score (unscored, or all if --force) ───────────────
+  const force = process.argv.includes('--force');
+  if (force) console.log('  ⚡ --force mode: rescoring ALL transactions');
 
-  // Actually fetch only rows where conviction_normalized IS NULL (new column)
   const toScore = [];
   let from2 = 0;
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('insider_transactions')
       .select('id, insider_name, company, ticker, country_code, insider_role, transaction_date, price_per_share, total_value')
       .in('transaction_type', ['BUY', 'PURCHASE'])
-      .is('conviction_normalized', null)
       .not('ticker', 'is', null)
       .not('insider_name', 'is', null)
       .order('transaction_date', { ascending: false })
       .range(from2, from2 + 999);
+    if (!force) q = q.is('conviction_normalized', null);
+    const { data, error } = await q;
     if (error || !data || data.length === 0) break;
     toScore.push(...data);
     if (data.length < 1000) break;
@@ -271,11 +269,13 @@ async function main() {
   }
 
   if (toScore.length === 0) { console.log('  Nothing to score.'); return; }
-  console.log(`  Scoring ${toScore.length} unscored transactions…`);
+  console.log(`  Scoring ${toScore.length} transactions…`);
 
   const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
 
-  let scored = 0, withPrice = 0, errors = 0;
+  let scored = 0, withPrice = 0, skipped = 0;
+  const skipReasons = {};
+  function skip(reason) { skipped++; skipReasons[reason] = (skipReasons[reason] || 0) + 1; }
 
   // Process in batches of BATCH_SIZE
   for (let batchStart = 0; batchStart < toScore.length; batchStart += BATCH_SIZE) {
@@ -283,8 +283,8 @@ async function main() {
 
     for (const row of batch) {
       try {
-        if (!row.total_value || Number(row.total_value) <= 0) { errors++; continue; }
-        if (ISIN_RE.test(row.ticker)) { errors++; continue; } // can't fetch price for ISIN
+        if (!row.total_value || Number(row.total_value) <= 0) { skip('missing total_value'); continue; }
+        // ISIN tickers: score without Yahoo price (priceResult stays null → renormalize size+cluster)
 
         const salary = getRoleSalary(row.insider_role);
 
@@ -325,11 +325,11 @@ async function main() {
           })
           .eq('id', row.id);
 
-        if (upErr) { errors++; }
+        if (upErr) { skip(`db error: ${upErr.message}`); }
         else { scored++; }
 
-      } catch {
-        errors++;
+      } catch (err) {
+        skip(`exception: ${err.message?.slice(0, 60)}`);
       }
     }
 
@@ -343,7 +343,10 @@ async function main() {
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ✅ ${elapsed}s — ${scored} scored (${withPrice} with Yahoo price, ${errors} skipped/errors)`);
+  console.log(`  ✅ ${elapsed}s — ${scored} scored, ${withPrice} with Yahoo price, ${skipped} skipped`);
+  if (skipped > 0) {
+    console.log('  Skip reasons:', JSON.stringify(skipReasons));
+  }
 }
 
 main().catch(err => {
