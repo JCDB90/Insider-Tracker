@@ -12,7 +12,7 @@
 const ROLE_RULES = [
   // ── CEO / Managing Director ──────────────────────────────────────────────────
   [/président.directeur\s+général/i,            'CEO'],   // FR: PDG
-  [/\bPDG\b/,                                   'CEO'],   // FR
+  [/\bPDG\b/i,                                  'CEO'],   // FR (pdg lowercase too)
   [/chief\s+executive\s+officer/i,              'CEO'],
   [/\bCEO\b/,                                   'CEO'],
   [/vorstandsvorsitzende?r?\b/i,                'CEO'],   // DE: Head of Management Board
@@ -22,7 +22,7 @@ const ROLE_RULES = [
   [/verkställande\s+direktör/i,                 'CEO'],   // SE
   [/\bVD\b/,                                    'CEO'],   // SE: VD = CEO
   [/toimitusjohtaja/i,                          'CEO'],   // FI
-  [/directeur\s+général/i,                      'CEO'],   // FR
+  [/direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?/i,   'CEO'],   // FR male/female (DG, DGA context)
   [/amministratore\s+delegato/i,                'CEO'],   // IT
   [/consejero\s+delegado/i,                     'CEO'],   // ES
   [/director\s+general/i,                       'CEO'],   // ES
@@ -38,12 +38,15 @@ const ROLE_RULES = [
   [/acting\s+(?:chief\s+executive|CEO)/i,                  'Acting CEO'],
   [/vd.vikarie/i,                                          'Acting CEO'],  // SE
   [/toimitusjohtajan\s+sijainen/i,                         'Deputy CEO'],  // FI
+  [/\bDGA\b/,                                              'Deputy CEO'],  // FR: Directeur Général Adjoint
+  [/\bDGD\b/,                                              'Deputy CEO'],  // FR: Directeur Général Délégué
+  [/\bDG\b/,                                               'CEO'],         // FR: Directeur Général
 
   // ── CFO ──────────────────────────────────────────────────────────────────────
   [/chief\s+financial\s+officer/i,              'CFO'],
   [/\bCFO\b/,                                   'CFO'],
   [/finanzvorstand/i,                           'CFO'],   // DE
-  [/directeur\s+financ/i,                       'CFO'],   // FR
+  [/direct(?:eur|rice)\s+financ/i,              'CFO'],   // FR male/female
   [/director\s+financiero/i,                    'CFO'],   // ES
   [/direttore\s+finanziario/i,                  'CFO'],   // IT
   [/diretor\s+financeiro/i,                     'CFO'],   // PT
@@ -73,16 +76,24 @@ const ROLE_RULES = [
   [/chief\s+legal\s+officer/i,                  'CLO'],
   [/general\s+counsel/i,                        'General Counsel'],
   [/chief\s+commercial\s+officer/i,             'CCO'],
+  [/\bCCO\b/,                                   'CCO'],
   [/chief\s+marketing\s+officer/i,              'CMO'],
+  [/\bCMO\b/,                                   'CMO'],
   [/chief\s+risk\s+officer/i,                   'CRO'],
   [/chief\s+human\s+resources\s+officer/i,      'CHRO'],
   [/chief\s+strategy\s+officer/i,               'CSO'],
+  [/executive\s+vice\s+president/i,             'EVP'],
+  [/\bEVP\b/,                                   'EVP'],
+  [/financial\s+controller/i,                   'CFO'],
+  [/\bCFO\b/,                                   'CFO'],
+  [/general\s+manager/i,                        'CEO'],
 
   // ── Vice Chairman ─────────────────────────────────────────────────────────────
   [/vice[\s-]?pr[eé]sident/i,                  'Vice Chairman'],  // FR/ES/IT
   [/vicepresidente/i,                           'Vice Chairman'],  // ES/IT
   [/vice[\s-]?chairman/i,                       'Vice Chairman'],
   [/vicepr[eé]sident/i,                         'Vice Chairman'],  // FR compact
+  [/næstformand/i,                              'Vice Chairman'],  // DK
 
   // ── Chairman ──────────────────────────────────────────────────────────────────
   [/aufsichtsratsvorsitzende?r?\b/i,            'Chairman'],  // DE
@@ -102,10 +113,28 @@ const ROLE_RULES = [
   [/\bchairwoman\b/i,                           'Chairman'],
 
   // ── Board Member ─────────────────────────────────────────────────────────────
+  [/non.executive\s+chair(?:man)?/i,             'Non-Executive Chairman'],
   [/non.executive\s+director/i,                 'Non-Executive Director'],
+  [/independent\s+director/i,                   'Independent Director'],
+  [/administrateur?\s+ind[eé]pendant/i,         'Independent Director'],   // FR: administrateur indépendant
+  [/administratrice?\s+ind[eé]pendant/i,        'Independent Director'],   // FR: female form
+  [/ind[eé]pendant[e]?\s+(?:director|member|administrateur?)/i, 'Independent Director'],
+  [/\bchair\b/i,                                'Chairman'],
   [/member\s+of\s+(?:the\s+)?(?:administrative|management|supervisory)/i, 'Board Member'],  // FSMA BE
+  [/other\s+member.*(?:administrative|management|supervisory)/i, 'Board Member'],  // ESMA
   [/board\s+(?:of\s+directors\s+)?member/i,     'Board Member'],
   [/member\s+of\s+the\s+board/i,                'Board Member'],
+  [/administratrice?\b/i,                       'Board Member'],  // FR: female/male admin
+  [/\badminstr?ateur\b/i,                       'Board Member'],  // FR: typo variant
+  [/membre\s+du\s+conseil\s+de\s+surveillance/i, 'Supervisory Board Member'],  // FR (BEFORE conseil d'admin)
+  [/membre\s+du\s+conseil(?:\s+d['']?administration)?/i, 'Board Member'],  // FR
+  [/membre\s+du\s+comit[eé]?\s+d['']?audit/i,  'Audit Committee Member'],  // FR
+  [/\bexco\s+member\b/i,                        'Executive Committee Member'],
+  [/censeur/i,                                  'Observer'],       // FR: non-voting board observer
+  [/employee.(?:elected|representative)/i,      'Employee Representative'],  // NO/SE
+  [/\bhead\b/,                                  'Senior Executive'],
+  [/\bmanager\b/i,                              'Executive'],
+  [/\bchief\b/i,                                'Senior Executive'],  // generic Chief title
   [/aufsichtsratsmitglied/i,                    'Board Member'],  // DE
   [/\baufsichtsrat\b/i,                         'Board Member'],  // DE (Supervisory Board)
   [/styrelseledamot/i,                          'Board Member'],  // SE
@@ -155,6 +184,10 @@ const ROLE_RULES = [
   // ── Senior Executive ──────────────────────────────────────────────────────────
   [/\bsenior\s+executive\b/i,                   'Senior Executive'],  // FSMA BE
   [/\bsenior\s+manager\b/i,                     'Senior Executive'],
+  [/sonstige\s+f[uü]hrungsperson/i,             'Senior Executive'],   // DE: other person with managerial responsibilities
+  [/persona\s+con\s+responsabilidad/i,          'Senior Executive'],   // ES
+  [/member\s+of\s+(?:the\s+)?executive\s+(?:leadership|committee|team|management)/i, 'Senior Executive'],
+  [/membre\s+du\s+comit[eé]\s+(?:ex[eé]cutif|de\s+direction)/i, 'Executive Committee Member'],  // FR
 
   // ── Korean (KR) ──────────────────────────────────────────────────────────────
   [/대표이사/,                                   'CEO'],              // KR: representative director = CEO
@@ -240,8 +273,12 @@ const ROLE_RULES = [
   // ── Related Party ────────────────────────────────────────────────────────────
   [/closely\s+associated/i,                     'Related Party'],
   [/nahe\s+stehende\s+person/i,                 'Related Party'],  // DE
+  [/in\s+enger\s+beziehung/i,                   'Closely Related Person'],  // DE
+  [/persona\s+estrechamente\s+vinculada/i,       'Closely Associated Person'],  // ES
   [/person\s+in\s+close/i,                      'Related Party'],
   [/\bPMA\b/,                                   'Related Party'],  // Person Discharging Managerial Responsibilities — related
+  [/co[\s-]?founder/i,                          'Co-Founder'],
+  [/co\s+fondateur/i,                           'Co-Founder'],     // FR
 ];
 
 /**
