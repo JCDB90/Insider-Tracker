@@ -246,7 +246,7 @@ function parseFrPdf(text) {
   const tickerM  = codeLine.match(/\/\s*([A-Z][A-Z0-9]{1,7})\b/);  // exchange ticker after /
   if (isinM) {
     isin   = isinM[1];
-    ticker = tickerM ? tickerM[1] : isinM[1]; // prefer ticker, fall back to ISIN
+    ticker = tickerM ? tickerM[1] : null; // only set if explicit exchange ticker present in PDF
   }
 
   return {

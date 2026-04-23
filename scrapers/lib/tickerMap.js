@@ -14,6 +14,7 @@ const COUNTRY_SUFFIX = {
 };
 
 // ticker overrides keyed as "TICKER|COUNTRY" → Yahoo symbol
+// Used for companies registered in one country but listed on another exchange.
 const SPECIFIC_OVERRIDES = {
   'BARC|GB':   'BARC.L',
   'BP|GB':     'BP.L',
@@ -27,6 +28,15 @@ const SPECIFIC_OVERRIDES = {
   'ASML|NL':   'ASML.AS',
   'INGA|NL':   'INGA.AS',
   'RDSA|NL':   'SHELL.AS',
+  // NL-registered companies listed on non-Amsterdam exchanges
+  'CPR|NL':    'CPR.MI',     // Davide Campari (Milan)
+  'CEM|NL':    'CEM.MI',     // Cementir Holding (Milan)
+  'RACE|NL':   'RACE.MI',    // Ferrari (Milan)
+  'ADP|NL':    'ADP.DE',     // Ad Pepper Media (Frankfurt)
+  'ARGX|NL':   'ARGX.BR',   // argenx SE (Brussels)
+  'ONWD|NL':   'ONWD.BR',   // Onward Medical (Brussels)
+  'PEN|NL':    'PEN.PR',     // Photon Energy (Prague)
+  'QGEN|NL':   'QGEN',       // Qiagen (NYSE)
   'VID|ES':    'VID.MC',
   'REP|ES':    'REP.MC',
   'IBE|ES':    'IBE.MC',
@@ -68,4 +78,4 @@ function getSuffixesForCountry(countryCode) {
   return extras[countryCode] || [primary];
 }
 
-module.exports = { toYahooTicker, getSuffixesForCountry, COUNTRY_SUFFIX };
+module.exports = { toYahooTicker, getSuffixesForCountry, COUNTRY_SUFFIX, SPECIFIC_OVERRIDES };

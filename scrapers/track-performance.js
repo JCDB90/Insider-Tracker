@@ -15,7 +15,7 @@
 
 const { createClient }                     = require('@supabase/supabase-js');
 const { fetchYahooRange, findClosestPrice } = require('./lib/yahooFinance');
-const { getSuffixesForCountry }             = require('./lib/tickerMap');
+const { getSuffixesForCountry, SPECIFIC_OVERRIDES } = require('./lib/tickerMap');
 const { PriceCache }                        = require('./lib/priceCache');
 
 const supabase = createClient(
@@ -37,9 +37,13 @@ function calcReturn(buyPrice, laterPrice) {
 }
 
 async function fetchRangeForTicker(ticker, countryCode, fromStr, toStr, cache) {
-  const suffixes = getSuffixesForCountry(countryCode);
-  for (const suffix of suffixes) {
-    const symbol = ticker + suffix;
+  // Check specific exchange override first (e.g. CPR|NL → CPR.MI)
+  const overrideSymbol = SPECIFIC_OVERRIDES[`${ticker}|${countryCode}`];
+  const symbols = overrideSymbol
+    ? [overrideSymbol]
+    : getSuffixesForCountry(countryCode).map(sfx => ticker + sfx);
+
+  for (const symbol of symbols) {
     const data = await cache.fetchRange(ticker, symbol, fromStr, toStr,
       (sym, f, t) => fetchYahooRange(sym, f, t));
     if (data.length > 0) return data;

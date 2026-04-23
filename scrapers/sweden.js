@@ -13,6 +13,7 @@ const fetch   = require('node-fetch');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
+const { isinToTicker }           = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
@@ -118,7 +119,8 @@ async function scrapeSE() {
     seen.add(fid);
     dbRows.push({
       filing_id: fid, country_code: COUNTRY_CODE,
-      ticker: getTicker(r.company), company: r.company || null,
+      ticker: getTicker(r.company), _isin: r.isin || null,
+      company: r.company || null,
       insider_name: r.insider || null, insider_role: translateRole(r.position) || null,
       transaction_type: mapType(r.nature), transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
@@ -131,14 +133,28 @@ async function scrapeSE() {
   console.log(`  ${dbRows.length} unique rows`);
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
-  const { error } = await saveInsiderTransactions(dbRows);
+  // ISIN fallback: resolve ticker via Yahoo for rows where company-name lookup failed
+  let isinResolved = 0;
+  for (const r of dbRows) {
+    if (!r.ticker && r._isin) {
+      const t = await isinToTicker(r._isin, COUNTRY_CODE);
+      if (t) { r.ticker = t; isinResolved++; }
+      await new Promise(res => setTimeout(res, 120));
+    }
+  }
+  if (isinResolved) console.log(`  Resolved ${isinResolved} tickers via ISIN lookup`);
+
+  // Strip temporary _isin field before DB save
+  const saveRows = dbRows.map(({ _isin, ...rest }) => rest);
+
+  const { error } = await saveInsiderTransactions(saveRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  const buys = dbRows.filter(r => r.transaction_type === 'BUY').length;
-  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL)`);
-  console.log(`  Sample: ${dbRows.slice(0,3).map(r=>`${r.company}/${r.transaction_type}`).join(', ')}`);
-  return { saved: dbRows.length };
+  const buys = saveRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells = saveRows.filter(r => r.transaction_type === 'SELL').length;
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${saveRows.length} saved (${buys} BUY, ${sells} SELL)`);
+  console.log(`  Sample: ${saveRows.slice(0,3).map(r=>`${r.company}/${r.transaction_type}`).join(', ')}`);
+  return { saved: saveRows.length };
 }
 
 scrapeSE().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

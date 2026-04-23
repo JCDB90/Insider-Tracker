@@ -36,6 +36,7 @@ const https   = require('https');
 const { PDFParse } = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
 const { looksLikeCorp }           = require('./lib/entityUtils');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'eMarket STORAGE Italy';
@@ -481,6 +482,7 @@ async function scrapeIT() {
         country_code:     COUNTRY_CODE,
         source:           SOURCE,
         ticker:           getTicker(company) || '',
+        _isin:            pdf.isin || null,
         company,
         insider_name:     pdf.insiderName || null,
         via_entity:       pdf.viaEntity   || null,
@@ -513,21 +515,35 @@ async function scrapeIT() {
     return { saved: 0 };
   }
 
-  for (const r of rows.slice(0, 3)) {
+  // ISIN fallback: resolve ticker via Yahoo for rows where company-name lookup failed
+  let isinResolved = 0;
+  for (const r of rows) {
+    if (!r.ticker && r._isin) {
+      const t = await isinToTicker(r._isin, COUNTRY_CODE);
+      if (t) { r.ticker = t; isinResolved++; }
+      await new Promise(res => setTimeout(res, 120));
+    }
+  }
+  if (isinResolved) console.log(`  Resolved ${isinResolved} tickers via ISIN lookup`);
+
+  // Strip temporary _isin field before DB save
+  const dbRows = rows.map(({ _isin, ...rest }) => rest);
+
+  for (const r of dbRows.slice(0, 3)) {
     console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? '?'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
-  const { error } = await saveInsiderTransactions(rows);
+  const { error } = await saveInsiderTransactions(dbRows);
   if (error) {
     console.error('  ❌ Supabase:', error.message);
     process.exit(1);
   }
 
-  const buys    = rows.filter(r => r.transaction_type === 'BUY').length;
-  const sells   = rows.filter(r => r.transaction_type === 'SELL').length;
+  const buys    = dbRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells   = dbRows.filter(r => r.transaction_type === 'SELL').length;
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ✅ ${elapsed}s — ${rows.length} rows saved (${buys} BUY, ${sells} SELL)`);
-  return { saved: rows.length };
+  console.log(`  ✅ ${elapsed}s — ${dbRows.length} rows saved (${buys} BUY, ${sells} SELL)`);
+  return { saved: dbRows.length };
 }
 
 scrapeIT().catch(err => {
