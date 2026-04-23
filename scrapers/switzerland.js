@@ -141,7 +141,7 @@ async function scrapeCH() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    const ticker = r.ISIN ? (await isinToTicker(r.ISIN, COUNTRY_CODE) || null) : null;
+    const ticker = r.ISIN ? (await isinToTicker(r.ISIN, COUNTRY_CODE) || '') : '';
 
     dbRows.push({
       filing_id:        fid,

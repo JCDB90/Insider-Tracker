@@ -297,7 +297,7 @@ async function scrapeFI() {
     if (seen.has(fid)) continue; seen.add(fid);
 
     const isin = (det && det.isin) || null;
-    const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || null) : null;
+    const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || '') : '';
 
     dbRows.push({
       filing_id:        fid,

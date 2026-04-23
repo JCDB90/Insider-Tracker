@@ -582,7 +582,7 @@ async function scrapeDK() {
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           (det && det.isin) ? (await isinToTicker(det.isin, COUNTRY_CODE) || null) : null,
+      ticker:           (det && det.isin) ? (await isinToTicker(det.isin, COUNTRY_CODE) || '') : '',
       company:          r.company || null,
       insider_name:     det && det.insiderName ? det.insiderName : null,
       via_entity:       det && det.viaEntity   ? det.viaEntity  : null,

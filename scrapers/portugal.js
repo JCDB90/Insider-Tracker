@@ -496,7 +496,7 @@ async function scrapePT() {
       dbRows.push({
         filing_id:        `PT-${pdfNum}`,
         country_code:     COUNTRY_CODE,
-        ticker:           fields.isin ? (await isinToTicker(fields.isin, COUNTRY_CODE) || null) : null,
+        ticker:           fields.isin ? (await isinToTicker(fields.isin, COUNTRY_CODE) || '') : '',
         company,
         insider_name:     fields.insiderName || null,
         insider_role:     role || null,
