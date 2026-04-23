@@ -497,6 +497,27 @@ async function scrapeUK() {
     }
   }
 
+  // Deduplicate cross-document: FCA sometimes has 2 filings for the same transaction
+  // (company filing + individual filing). Keep the first occurrence per unique tuple.
+  const seen = new Set();
+  rows = rows.filter(r => {
+    const key = `${r.insider_name}|${r.company}|${r.transaction_date}|${r.shares}|${r.price_per_share}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Secondary dedup: multiple PDMRs filing for the same underlying block of shares
+  // (e.g. a rights issue where several directors notify the same transaction).
+  // When company + date + shares + price all match exactly, keep only the first person.
+  const seenTx = new Set();
+  rows = rows.filter(r => {
+    const txKey = `${r.company}|${r.transaction_date}|${r.shares}|${r.price_per_share}`;
+    if (seenTx.has(txKey)) return false;
+    seenTx.add(txKey);
+    return true;
+  });
+
   console.log(`  Fetched: ${fetched} | Parsed: ${parsed} | Failed: ${failed}`);
   console.log(`  Rows extracted: ${rows.length}`);
 
