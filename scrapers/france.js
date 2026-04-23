@@ -357,7 +357,6 @@ async function scrapeFR() {
     // Ticker: exchange ticker from PDF > ISIN lookup > ISIN > first word of company name
     const ticker = parsed.ticker
       || (parsed.isin ? await isinToTicker(parsed.isin, COUNTRY_CODE) : null)
-      || parsed.isin
       || (company ? company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 8) : null);
 
     dbRows.push({

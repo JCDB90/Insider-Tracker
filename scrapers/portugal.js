@@ -36,6 +36,7 @@ const fs                     = require('fs');
 const path                   = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'PT';
 const SOURCE         = 'CMVM Portugal';
@@ -495,7 +496,7 @@ async function scrapePT() {
       dbRows.push({
         filing_id:        `PT-${pdfNum}`,
         country_code:     COUNTRY_CODE,
-        ticker:           fields.isin || '',
+        ticker:           fields.isin ? (await isinToTicker(fields.isin, COUNTRY_CODE) || null) : null,
         company,
         insider_name:     fields.insiderName || null,
         insider_role:     role || null,

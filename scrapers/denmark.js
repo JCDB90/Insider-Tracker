@@ -19,6 +19,7 @@ const path       = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { looksLikeCorp }          = require('./lib/entityUtils');
+const { isinToTicker }           = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
@@ -581,7 +582,7 @@ async function scrapeDK() {
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           (det && det.isin) || '',
+      ticker:           (det && det.isin) ? (await isinToTicker(det.isin, COUNTRY_CODE) || null) : null,
       company:          r.company || null,
       insider_name:     det && det.insiderName ? det.insiderName : null,
       via_entity:       det && det.viaEntity   ? det.viaEntity  : null,

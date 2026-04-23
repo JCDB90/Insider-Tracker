@@ -127,16 +127,17 @@ async function main() {
   const toProcess = [...newRows, ...updateRows];
   if (toProcess.length === 0) { console.log('  Nothing to process.'); return; }
 
-  let upserted = 0, errors = 0;
+  let upserted = 0;
+  const skip = { ch: 0, noInsider: 0, isin: 0, yahooEmpty: 0, fetchError: 0, dbError: 0 };
 
   const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);
 
   for (const row of toProcess) {
     // CH has no individual names (all "Not disclosed") → skip to avoid skewing averages
-    if (row.country_code === 'CH') continue;
+    if (row.country_code === 'CH') { skip.ch++; continue; }
     // Skip rows with no identified insider — pollutes leaderboard
-    if (!row.insider_name || row.insider_name === 'Not disclosed') continue;
-    if (!row.ticker || isISIN(row.ticker)) { errors++; continue; } // can't look up ISIN on Yahoo
+    if (!row.insider_name || row.insider_name === 'Not disclosed') { skip.noInsider++; continue; }
+    if (!row.ticker || isISIN(row.ticker)) { skip.isin++; continue; } // can't look up ISIN on Yahoo
     try {
       const txPrice = Number(row.price_per_share);
       const txDate  = row.transaction_date;
@@ -150,6 +151,8 @@ async function main() {
 
       const priceData = await fetchRangeForTicker(row.ticker, row.country_code, rangeFrom, actualEnd);
       await new Promise(r => setTimeout(r, 120));
+
+      if (priceData.length === 0) { skip.yahooEmpty++; continue; }
 
       const p7   = addDays(txDate, 7)   <= TODAY ? findClosestPrice(priceData, addDays(txDate, 7))   : null;
       const p30  = addDays(txDate, 30)  <= TODAY ? findClosestPrice(priceData, addDays(txDate, 30))  : null;
@@ -192,7 +195,7 @@ async function main() {
         .from('insider_performance')
         .upsert(perfRow, { onConflict: 'transaction_id' });
 
-      if (upErr) { errors++; continue; }
+      if (upErr) { skip.dbError++; continue; }
       upserted++;
 
       // Backfill price_return_30d on the transaction row
@@ -206,13 +209,15 @@ async function main() {
       if (upserted % 50 === 0 && upserted > 0) {
         console.log(`  Progress: ${upserted}/${toProcess.length}…`);
       }
-    } catch {
-      errors++;
+    } catch (err) {
+      skip.fetchError++;
     }
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ✅ ${elapsed}s — ${upserted} upserted, ${errors} errors`);
+  const skipSummary = Object.entries(skip).filter(([,v])=>v>0).map(([k,v])=>`${k}=${v}`).join(', ');
+  console.log(`  ✅ ${elapsed}s — ${upserted} upserted`);
+  console.log(`  Skipped: ${skipSummary || 'none'}`);
 }
 
 main().catch(err => {
