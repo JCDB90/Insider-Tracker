@@ -43,7 +43,7 @@ const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'BE';
 const SOURCE         = 'FSMA Belgium';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 const CONCURRENCY    = 5;   // parallel detail page fetches
 

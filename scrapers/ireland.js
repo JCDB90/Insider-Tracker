@@ -26,7 +26,7 @@ const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'IE';
 const SOURCE         = 'CBI Ireland / Euronext Dublin';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 
 function isoDate(d) {

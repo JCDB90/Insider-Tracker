@@ -21,7 +21,7 @@ const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
-const RETENTION_DAYS  = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CONCURRENCY     = 3;
 const REQUEST_DELAY_MS = 150;  // Avoid rate-limiting the FCA NSM API
 

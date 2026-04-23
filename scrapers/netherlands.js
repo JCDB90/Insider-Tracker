@@ -38,7 +38,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 
 // AFM bestuurders-commissarissen register type ID (found in the export URL on the AFM register page)
 const REGISTER_TYPE = '1b934036-12ad-4950-9773-31361d5adbd9';

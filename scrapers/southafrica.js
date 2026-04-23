@@ -27,7 +27,7 @@ const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ZA';
 const SOURCE         = 'JSE South Africa / SENS';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'ZAR';
 
 function isoDate(d) {

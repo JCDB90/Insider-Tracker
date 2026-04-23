@@ -29,7 +29,7 @@ const { translateRole }          = require('./lib/translate');
 const COUNTRY_CODE   = 'DE';
 const SOURCE         = 'BaFin Germany';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CONCURRENCY    = 4;   // simultaneous letter-fetches
 
 const BASE_URL  = 'portal.mvp.bafin.de';

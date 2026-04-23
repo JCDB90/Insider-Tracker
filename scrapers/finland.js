@@ -18,7 +18,7 @@ const { isinToTicker }           = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'FI';
 const SOURCE         = 'Nasdaq Helsinki / MAR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 const MARKET         = 'Main Market, Helsinki';
 const CONCURRENCY    = 8;

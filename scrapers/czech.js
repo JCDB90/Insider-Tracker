@@ -23,7 +23,7 @@ const { translateRole }          = require('./lib/translate');
 
 const COUNTRY_CODE   = 'CZ';
 const SOURCE         = 'CNB Czech Republic / PSE';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'CZK';
 
 function isoDate(d) {

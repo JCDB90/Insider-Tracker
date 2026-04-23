@@ -1,33 +1,24 @@
 /**
- * Deletes records older than 90 days from both tables.
- * Run once daily, after all scrapers complete.
- * Keeps the Supabase free tier database well under 500 MB.
+ * Post-scrape maintenance.
+ *
+ * insider_transactions: kept FOREVER — enables long-term insider rating accuracy.
+ *   (DB is ~6 MB today, steady-state ~14 MB — well under 500 MB free tier.)
+ *
+ * buyback_programs: pruned after 2 years (programs are stale after that).
  */
 
 const { supabase } = require('./lib/db');
 
-const RETENTION_DAYS = 90;
+const BUYBACK_RETENTION_DAYS = 730;  // 2 years
 
 async function cleanup() {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
-  const cutoffDate = cutoff.toISOString().split('T')[0]; // YYYY-MM-DD
-
-  console.log(`🧹 Cleanup: deleting records older than ${RETENTION_DAYS} days (before ${cutoffDate})`);
-
-  // ── insider_transactions ──────────────────────────────────────────────────
-  const { error: txError, count: txCount } = await supabase
-    .from('insider_transactions')
-    .delete({ count: 'exact' })
-    .lt('transaction_date', cutoffDate);
-
-  if (txError) {
-    console.error('  ❌ Error cleaning insider_transactions:', txError.message);
-  } else {
-    console.log(`  ✅ Deleted ${txCount ?? '?'} insider transactions`);
-  }
+  console.log('🧹 Cleanup: insider_transactions kept forever — skipping deletion');
 
   // ── buyback_programs ──────────────────────────────────────────────────────
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - BUYBACK_RETENTION_DAYS);
+  const cutoffDate = cutoff.toISOString().split('T')[0];
+
   const { error: bbError, count: bbCount } = await supabase
     .from('buyback_programs')
     .delete({ count: 'exact' })
@@ -36,7 +27,7 @@ async function cleanup() {
   if (bbError) {
     console.error('  ❌ Error cleaning buyback_programs:', bbError.message);
   } else {
-    console.log(`  ✅ Deleted ${bbCount ?? '?'} buyback programs`);
+    console.log(`  ✅ Buyback programs older than 2 years: deleted ${bbCount ?? 0}`);
   }
 
   console.log('🧹 Cleanup complete');

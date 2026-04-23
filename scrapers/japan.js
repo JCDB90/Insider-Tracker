@@ -30,7 +30,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'JP';
 const SOURCE         = 'EDINET Japan FSA';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'JPY';
 const DELAY_MS       = 500;
 const API_BASE       = 'https://disclosure.edinet-api.go.jp/api/v2';

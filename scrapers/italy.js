@@ -39,7 +39,7 @@ const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'eMarket STORAGE Italy';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 const HOST           = 'www.emarketstorage.it';
 

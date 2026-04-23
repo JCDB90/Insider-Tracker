@@ -34,7 +34,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 
 // Concurrent PDF fetches and delay between batches (be polite to CNMV)

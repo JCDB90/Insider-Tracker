@@ -34,7 +34,7 @@ const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors / Euronext Oslo';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'NOK';
 const NEWSWEB_BASE   = 'https://newsweb.oslobors.no';
 const API_FALLBACK   = 'https://api3.oslo.oslobors.no';

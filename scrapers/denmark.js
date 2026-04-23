@@ -22,7 +22,7 @@ const { looksLikeCorp }          = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'DKK';
 const MARKET         = 'Main Market, Copenhagen';
 const CONCURRENCY    = 4;  // reduced: each notification may also fetch a PDF attachment

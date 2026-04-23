@@ -32,7 +32,7 @@ const { isinToTicker }            = require('./lib/isinToTicker');
 
 const COUNTRY_CODE   = 'FR';
 const SOURCE         = 'AMF France / BDIF';
-const RETENTION_DAYS = 90;
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 const PAGE_SIZE      = 100;
 
