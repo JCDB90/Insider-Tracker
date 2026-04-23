@@ -67,8 +67,16 @@ async function isinToTicker(isin, countryCode) {
     // Strip exchange suffix to get base ticker
     const symbol = match.symbol;
     let base = symbol;
-    for (const sfx of Object.values(COUNTRY_SUFFIX)) {
+    // Try all known suffixes + common extras not in COUNTRY_SUFFIX
+    const allSuffixes = [...Object.values(COUNTRY_SUFFIX), '.SG', '.NZ', '.AX', '.BK', '.JK', '.NS', '.BO', '.SR'];
+    for (const sfx of allSuffixes) {
       if (symbol.endsWith(sfx)) { base = symbol.slice(0, -sfx.length); break; }
+    }
+
+    // Reject if base still contains a dot (unstripped suffix) or looks like an ISIN
+    if (base.includes('.') || /^[A-Z]{2}[A-Z0-9]{10}$/.test(base)) {
+      cache.set(key, null);
+      return null;
     }
 
     cache.set(key, base);

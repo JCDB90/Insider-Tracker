@@ -258,7 +258,7 @@ function parseCsv(csvText, letter) {
     entries.push({
       filing_id:        makeFilingId(bafinId, txDateIso, insider, notifDateShort),
       country_code:     COUNTRY_CODE,
-      ticker:           getTicker(company) || company.split(/[\s,]/)[0].toUpperCase().slice(0, 6),
+      ticker:           getTicker(company) || '',
       company,
       isin:             isin || null,
       insider_name:     insider || null,

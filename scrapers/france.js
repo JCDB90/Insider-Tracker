@@ -354,10 +354,11 @@ async function scrapeFR() {
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
     const price  = parsed.price  || null;
 
-    // Ticker: exchange ticker from PDF > ISIN lookup > ISIN > first word of company name
+    // Ticker: exchange ticker from PDF > ISIN lookup; company-name fallback omitted
+    // (European tickers rarely match company name — empty string is cleaner than a bad guess)
     const ticker = parsed.ticker
       || (parsed.isin ? await isinToTicker(parsed.isin, COUNTRY_CODE) : null)
-      || (company ? company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 8) : null);
+      || '';
 
     dbRows.push({
       filing_id:        fid,
