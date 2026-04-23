@@ -44,6 +44,12 @@ const WATCHLIST = [
 
 const WATCHLIST_TICKERS = new Set(WATCHLIST.map(w => w.ticker));
 
+// Match a transaction to a watchlist entry — requires both ticker AND country to match,
+// preventing ticker collisions (e.g. VID = Vidrala ES and Videndum GB)
+function matchesWatchlist(t) {
+  return WATCHLIST.some(w => w.ticker === t.ticker && w.country === t.country_code);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const CURRENCY_SYMBOLS = {
@@ -318,34 +324,57 @@ function computeInsiderScorecard(trades, performance) {
     if (t.transaction_date > map[name].latestDate) map[name].latestDate = t.transaction_date;
   }
 
-  return Object.values(map).map(ins => {
+  const allInsiders = Object.values(map).map(ins => {
     const myPerf = ins.trades.map(t => perfByTxId[t.id]).filter(Boolean);
     const stats  = computePeriodStats(myPerf);
-    const s90    = stats.find(s => s.key === '90d');
     const avgScore = ins.scoredTrades > 0 ? Math.round(ins.totalScore / ins.scoredTrades * 100) / 100 : null;
     const rating   = computeInsiderRating(stats);
-    return { ...ins, buys: ins.trades.length, stats, myPerf, avgScore, rating,
-      successRate90d: s90?.successRate ?? null, avgReturn90d: s90?.avgReturn ?? null };
-  })
-  .sort((a, b) => {
-    const aHas = a.successRate90d !== null ? 1 : 0;
-    const bHas = b.successRate90d !== null ? 1 : 0;
-    if (bHas !== aHas) return bHas - aHas;
-    if (b.successRate90d !== a.successRate90d) return (b.successRate90d || 0) - (a.successRate90d || 0);
-    return b.totalValue - a.totalValue;
-  })
-  .slice(0, 30)
-  .map((ins, i) => ({ ...ins, rank: i + 1 }));
+
+    // Combined win rate: weighted avg across periods (90d highest weight)
+    const periodWeights = [
+      { key: '30d', w: 0.20 }, { key: '90d', w: 0.45 },
+      { key: '180d', w: 0.20 }, { key: '365d', w: 0.15 },
+    ];
+    let winSum = 0, winW = 0, retSum = 0, retW = 0;
+    for (const { key, w } of periodWeights) {
+      const s = stats.find(x => x.key === key);
+      if (s && s.successRate != null) { winSum += s.successRate * w; winW += w; }
+      if (s && s.avgReturn != null)   { retSum += s.avgReturn * w;   retW += w; }
+    }
+    const combinedWinRate = winW > 0 ? winSum / winW : null;
+    const combinedAvgReturn = retW > 0 ? retSum / retW : null;
+
+    return { ...ins, buys: ins.trades.length, stats, myPerf, avgScore, rating, combinedWinRate, combinedAvgReturn };
+  });
+
+  const maxTrades = Math.max(...allInsiders.map(i => i.buys), 1);
+  const TODAY_MS = Date.now();
+
+  return allInsiders
+    .map(ins => {
+      const winScore    = ins.combinedWinRate != null ? ins.combinedWinRate / 100 : 0;
+      const volScore    = Math.log(ins.buys + 1) / Math.log(maxTrades + 1);
+      const retScore    = ins.combinedAvgReturn != null ? Math.min(Math.max(ins.combinedAvgReturn / 50, -1), 1) * 0.5 + 0.5 : 0.5;
+      const daysSinceLast = (TODAY_MS - new Date(ins.latestDate).getTime()) / 86400000;
+      const recScore    = Math.max(0, 1 - daysSinceLast / 180);
+      const hasPerfData = ins.combinedWinRate != null ? 1 : 0;
+      const rankingScore = hasPerfData * (winScore * 0.40 + volScore * 0.25 + retScore * 0.25 + recScore * 0.10);
+      return { ...ins, rankingScore };
+    })
+    .sort((a, b) => b.rankingScore - a.rankingScore)
+    .slice(0, 30)
+    .map((ins, i) => ({ ...ins, rank: i + 1 }));
 }
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
 function TopBar({ page, setPage, search, setSearch }) {
   const navItems = [
-    { label: 'Dashboard', key: 'dashboard' },
-    { label: 'Top Insiders', key: 'insiders' },
-    { label: 'Alerts', key: 'alerts' },
-    { label: 'Pricing', key: 'pricing' },
+    { label: 'Dashboard',    key: 'dashboard' },
+    { label: 'Watchlist',    key: 'watchlist'  },
+    { label: 'Top Insiders', key: 'insiders'   },
+    { label: 'Alerts',       key: 'alerts'     },
+    { label: 'Pricing',      key: 'pricing'    },
   ];
 
   return (
@@ -851,15 +880,15 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
   );
 }
 
-// ─── WatchlistSection ─────────────────────────────────────────────────────────
+// ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistSection({ trades }) {
+function WatchlistPage({ trades, tradesLoading, onInsiderClick }) {
   const watchlistTrades = useMemo(() => {
     const result = {};
     for (const w of WATCHLIST) result[w.ticker] = { ...w, buys: [], sells: [] };
 
     for (const t of trades) {
-      if (!WATCHLIST_TICKERS.has(t.ticker)) continue;
+      if (!matchesWatchlist(t)) continue;
       const entry = result[t.ticker];
       if (!entry) continue;
       const type = (t.transaction_type || '').toUpperCase();
@@ -869,26 +898,27 @@ function WatchlistSection({ trades }) {
     return Object.values(result);
   }, [trades]);
 
+  const allWatchlistTrades = useMemo(() => {
+    return trades
+      .filter(t => matchesWatchlist(t))
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+  }, [trades]);
+
   return (
-    <div style={{ marginBottom: 32 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: ACCENT }}>★</span> My Watchlist
-          </h2>
-          <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>Recent insider activity in your tracked stocks</p>
-        </div>
+    <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ color: ACCENT }}>★</span> My Watchlist
+        </h1>
+        <p style={{ fontSize: 13, color: '#9CA3AF' }}>Insider activity in your personally tracked stocks</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+      {/* Stock summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 32 }}>
         {watchlistTrades.map(w => {
           const latestBuy = w.buys[0];
-          const latestSell = w.sells[0];
           const hasHighConviction = w.buys.some(b => b.conviction_label === 'High Conviction');
-          const recentBuys90 = w.buys.filter(b => {
-            const d = new Date(b.transaction_date);
-            return (Date.now() - d) / 86400000 <= 90;
-          });
+          const recentBuys90 = w.buys.filter(b => (Date.now() - new Date(b.transaction_date)) / 86400000 <= 90);
 
           return (
             <div key={w.ticker} style={{
@@ -896,11 +926,8 @@ function WatchlistSection({ trades }) {
               border: '1px solid ' + (hasHighConviction ? '#FDE68A' : '#E8E9EE'),
               borderTop: '3px solid ' + (hasHighConviction ? '#F59E0B' : ACCENT + '40'),
               borderRadius: 10, padding: 16,
-              boxShadow: hasHighConviction
-                ? '0 4px 16px rgba(245,158,11,0.10)'
-                : '0 1px 3px rgba(0,0,0,0.04)',
+              boxShadow: hasHighConviction ? '0 4px 16px rgba(245,158,11,0.10)' : '0 1px 3px rgba(0,0,0,0.04)',
             }}>
-              {/* Stock header */}
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14, color: '#111318' }}>{w.company}</div>
@@ -910,13 +937,10 @@ function WatchlistSection({ trades }) {
                   </div>
                 </div>
                 {hasHighConviction && (
-                  <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
-                    HIGH ★
-                  </span>
+                  <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>HIGH ★</span>
                 )}
               </div>
 
-              {/* Stats row */}
               <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
                 <div>
                   <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Buys (90d)</div>
@@ -927,41 +951,124 @@ function WatchlistSection({ trades }) {
                 {latestBuy && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Last Buy</div>
-                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace" }}>
-                      {formatValue(latestBuy.total_value, latestBuy.currency)}
-                    </div>
+                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace" }}>{formatValue(latestBuy.total_value, latestBuy.currency)}</div>
                   </div>
                 )}
               </div>
 
-              {/* Latest buy detail */}
               {latestBuy ? (
-                <div style={{
-                  background: '#F9FAFB', borderRadius: 6, padding: '8px 10px',
-                  borderLeft: '3px solid #16A34A',
-                }}>
+                <div style={{ background: '#F9FAFB', borderRadius: 6, padding: '8px 10px', borderLeft: '3px solid #16A34A' }}>
                   <div style={{ fontSize: 11, color: '#374151', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {latestBuy.insider_name && latestBuy.insider_name !== 'Not disclosed'
-                      ? latestBuy.insider_name
-                      : (latestBuy.via_entity || 'Insider')}
+                      ? latestBuy.insider_name : (latestBuy.via_entity || 'Insider')}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
                     <span style={{ fontSize: 11, color: '#9CA3AF' }}>{formatDateShort(latestBuy.transaction_date)}</span>
-                    {latestBuy.conviction_label && (
-                      <ConvictionBadge label={latestBuy.conviction_label} score={latestBuy.conviction_score} compact />
-                    )}
+                    {latestBuy.conviction_label && <ConvictionBadge label={latestBuy.conviction_label} score={latestBuy.conviction_score} compact />}
                   </div>
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: '#D1D5DB', textAlign: 'center', padding: '8px 0' }}>
-                  No recent insider buys
-                </div>
+                <div style={{ fontSize: 12, color: '#D1D5DB', textAlign: 'center', padding: '8px 0' }}>No recent insider buys</div>
               )}
             </div>
           );
         })}
       </div>
-    </div>
+
+      {/* All watchlist transactions table */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em' }}>Recent Transactions</h2>
+            <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>All insider trades in your watchlist stocks</p>
+          </div>
+          {!tradesLoading && (
+            <span style={{ fontSize: 12, color: '#9CA3AF', background: '#F7F8FA', border: '1px solid #E8E9EE', borderRadius: 6, padding: '4px 10px' }}>
+              {allWatchlistTrades.length} transactions
+            </span>
+          )}
+        </div>
+
+        {tradesLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
+        ) : allWatchlistTrades.length === 0 ? (
+          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '48px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: '#9CA3AF' }}>No insider transactions found for watchlist stocks</div>
+            <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Transactions will appear here as they are filed</div>
+          </div>
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: 100 }} />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 160 }} />
+                <col style={{ width: 88 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 110 }} />
+              </colgroup>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+                  {['Date', 'Stock', 'Insider', 'Type', 'Price', 'Value'].map((label, i) => (
+                    <th key={label} style={{
+                      padding: '10px 16px', textAlign: i >= 4 ? 'right' : 'left',
+                      fontSize: 11, fontWeight: 600, color: '#9CA3AF',
+                      letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                    }}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allWatchlistTrades.map((t, i) => {
+                  const name = t.insider_name && t.insider_name !== 'Not disclosed' ? t.insider_name : null;
+                  return (
+                    <tr key={t.id ?? i}
+                      style={{ borderBottom: i < allWatchlistTrades.length - 1 ? '1px solid #F9FAFB' : 'none' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}
+                    >
+                      <td style={{ padding: '10px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                        {formatDateShort(t.transaction_date)}
+                      </td>
+                      <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.company}</div>
+                        <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{t.ticker}</div>
+                      </td>
+                      <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
+                        {name ? (
+                          onInsiderClick ? (
+                            <button onClick={() => onInsiderClick(name)} style={{
+                              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                              fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
+                              fontFamily: "'DM Sans', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap', maxWidth: '100%', display: 'block',
+                            }}>{name}</button>
+                          ) : (
+                            <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                          )
+                        ) : (
+                          <div style={{ fontSize: 13, color: '#9CA3AF' }}>{t.via_entity || 'Not disclosed'}</div>
+                        )}
+                        {t.insider_role && (
+                          <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.insider_role}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 16px' }}><TypeChip type={t.transaction_type} /></td>
+                      <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {formatPrice(t.price_per_share, t.currency)}
+                      </td>
+                      <td style={{ padding: '10px 16px', fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {formatValue(t.total_value, t.currency)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
 
@@ -978,17 +1085,6 @@ function DashboardPage({
   countryCounts, onInsiderClick,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
-
-  const topBuys = useMemo(() => {
-    return trades
-      .filter(t => {
-        const type = (t.transaction_type || '').toUpperCase();
-        return type === 'BUY' || type === 'PURCHASE';
-      })
-      .filter(t => t.total_value)
-      .sort((a, b) => Number(b.total_value) - Number(a.total_value))
-      .slice(0, 6);
-  }, [trades]);
 
   function handleTradeSort(col) {
     setTradeSort(s => ({ by: col, dir: s.by === col ? (s.dir === 'asc' ? 'desc' : 'asc') : 'desc' }));
@@ -1061,36 +1157,6 @@ function DashboardPage({
             </div>
           ))}
         </div>
-
-        {/* Watchlist section */}
-        {!tradesLoading && <WatchlistSection trades={trades} />}
-
-        {/* Top Buys section */}
-        {!tradesLoading && topBuys.length > 0 && (
-          <div style={{ marginBottom: 32 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em' }}>
-                  Top Insider Buys
-                </h2>
-                <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>
-                  Highest-value purchase transactions
-                </p>
-              </div>
-              <span style={{
-                fontSize: 12, color: '#9CA3AF', background: '#F7F8FA',
-                border: '1px solid #E8E9EE', borderRadius: 6, padding: '4px 10px',
-              }}>
-                {topBuys.length} signals
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-              {topBuys.map(row => (
-                <InsiderCard key={row.id} row={row} />
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Recent Trades section */}
         <div>
@@ -1485,7 +1551,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
             Top Insiders
           </h1>
           <p style={{ fontSize: 14, color: '#6B7280' }}>
-            Ranked by 90-day post-trade win rate. Click an insider name to view their full track record.
+            Ranked by overall performance score. Click an insider name to view their full track record.
           </p>
         </div>
 
@@ -1497,23 +1563,21 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
           <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>Leaderboard</span>
-              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Top {leaderboard.length} insiders · sorted by 90d win rate</span>
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Top {leaderboard.length} insiders · ranked by performance score</span>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
                     {[
-                      { label: '#',          align: 'center' },
-                      { label: 'Insider',    align: 'left'   },
-                      { label: 'Company',    align: 'left'   },
-                      { label: 'Buys',       align: 'center' },
-                      { label: '30d',        align: 'center' },
-                      { label: '90d',        align: 'center' },
-                      { label: '6 months',   align: 'center' },
-                      { label: '1 year',     align: 'center' },
-                      { label: 'Last Trade', align: 'left'   },
-                      { label: 'Rating',     align: 'left'   },
+                      { label: '#',           align: 'center' },
+                      { label: 'Insider',     align: 'left'   },
+                      { label: 'Company',     align: 'left'   },
+                      { label: 'Buys',        align: 'center' },
+                      { label: 'Avg Win Rate',align: 'center' },
+                      { label: 'Avg Return',  align: 'center' },
+                      { label: 'Last Trade',  align: 'left'   },
+                      { label: 'Rating',      align: 'left'   },
                     ].map(col => (
                       <th key={col.label} style={{
                         padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
@@ -1525,10 +1589,9 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                 </thead>
                 <tbody>
                   {leaderboard.map((ins, i) => {
-                    const s30  = ins.stats.find(s => s.key === '30d');
-                    const s90  = ins.stats.find(s => s.key === '90d');
-                    const s180 = ins.stats.find(s => s.key === '180d');
-                    const s365 = ins.stats.find(s => s.key === '365d');
+                    const totalTrades = ins.stats.reduce((s, p) => s + p.count, 0);
+                    const winRate = ins.combinedWinRate;
+                    const avgReturn = ins.combinedAvgReturn;
                     return (
                       <tr key={ins.name}
                         style={{ borderBottom: i < leaderboard.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
@@ -1574,10 +1637,29 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                           </div>
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{ins.buys}</td>
-                        <SuccessCell value={s30?.successRate  ?? null} count={s30?.count  ?? 0} />
-                        <SuccessCell value={s90?.successRate  ?? null} count={s90?.count  ?? 0} />
-                        <SuccessCell value={s180?.successRate ?? null} count={s180?.count ?? 0} />
-                        <SuccessCell value={s365?.successRate ?? null} count={s365?.count ?? 0} />
+                        {/* Avg Win Rate */}
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          {winRate != null ? (
+                            <>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: winRate >= 60 ? '#16A34A' : winRate >= 40 ? '#D97706' : '#DC2626', fontFamily: "'DM Mono', monospace" }}>
+                                {Math.round(winRate)}%
+                              </div>
+                              {totalTrades > 0 && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>{totalTrades} tracked</div>}
+                            </>
+                          ) : (
+                            <span style={{ color: '#D1D5DB', fontSize: 12 }}>—</span>
+                          )}
+                        </td>
+                        {/* Avg Return */}
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          {avgReturn != null ? (
+                            <div style={{ fontSize: 13, fontWeight: 700, color: avgReturn > 0 ? '#16A34A' : '#DC2626', fontFamily: "'DM Mono', monospace" }}>
+                              {avgReturn > 0 ? '+' : ''}{avgReturn.toFixed(1)}%
+                            </div>
+                          ) : (
+                            <span style={{ color: '#D1D5DB', fontSize: 12 }}>—</span>
+                          )}
+                        </td>
                         <td style={{ padding: '12px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
                           {formatDateShort(ins.latestDate)}
                         </td>
@@ -2142,6 +2224,13 @@ export default function App() {
             toggleCountry={toggleCountry}
             clearCountries={clearCountries}
             countryCounts={countryCounts}
+            onInsiderClick={handleInsiderClick}
+          />
+        )}
+        {page === 'watchlist' && (
+          <WatchlistPage
+            trades={trades}
+            tradesLoading={tradesLoading}
             onInsiderClick={handleInsiderClick}
           />
         )}
