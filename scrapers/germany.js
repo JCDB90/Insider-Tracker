@@ -23,6 +23,7 @@ const https    = require('https');
 const cheerio  = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
+const { isinToTicker }           = require('./lib/isinToTicker');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ function parseCsv(csvText, letter) {
     entries.push({
       filing_id:        makeFilingId(bafinId, txDateIso, insider, notifDateShort),
       country_code:     COUNTRY_CODE,
-      ticker:           getTicker(company) || (isin ? isin.slice(2, 6) : null) || company.split(/[\s,]/)[0].toUpperCase().slice(0, 6),
+      ticker:           getTicker(company) || company.split(/[\s,]/)[0].toUpperCase().slice(0, 6),
       company,
       isin:             isin || null,
       insider_name:     insider || null,
@@ -340,7 +341,20 @@ async function scrapeDE() {
     return { saved: 0 };
   }
 
-  // Remove isin field (not in DB schema — only used for ticker fallback above)
+  // Resolve ISIN → ticker for entries whose company-name fallback is ambiguous.
+  // The company name slice can produce collisions (different companies → same prefix).
+  // isinToTicker uses Yahoo Finance search to find the canonical exchange ticker.
+  let resolved = 0;
+  for (const e of allEntries) {
+    if (e.isin && e.ticker && !/^[A-Z]{2,6}(-[A-Z0-9]{1,2})?$/.test(e.ticker)) {
+      const t = await isinToTicker(e.isin, COUNTRY_CODE);
+      if (t) { e.ticker = t; resolved++; }
+      await new Promise(r => setTimeout(r, 120));
+    }
+  }
+  if (resolved) console.log(`  Resolved ${resolved} tickers via ISIN lookup`);
+
+  // Remove isin field (not in DB schema)
   const rows = allEntries.map(({ isin, ...rest }) => rest);
 
   console.log(`  Upserting ${rows.length} rows into Supabase…`);
