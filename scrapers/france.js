@@ -209,10 +209,11 @@ function parseFrPdf(text) {
   let txType = 'UNKNOWN';
   if (txTypeRaw) {
     const lo = txTypeRaw.toLowerCase();
-    if (lo.includes('acquisit') || lo.includes('achat') ||
-        lo.includes('souscri')  || lo.includes('exercice')) txType = 'BUY';
-    else if (lo.includes('cession') || lo.includes('vente') ||
-             lo.includes('dispos')  || lo.includes('transfert')) txType = 'SELL';
+    // SELL first: "rachat d'actions" contains "achat" — check cession/vente before achat/acquisit
+    if (lo.includes('cession') || lo.includes('vente') ||
+        lo.includes('dispos')  || lo.includes('transfert') || lo.includes('rachat')) txType = 'SELL';
+    else if (lo.includes('acquisit') || lo.includes('achat') ||
+             lo.includes('souscri')  || lo.includes('exercice')) txType = 'BUY';
   }
 
   // ── Price ─────────────────────────────────────────────────────────────────

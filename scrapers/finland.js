@@ -31,9 +31,10 @@ function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
-  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
-      l.includes('subscribe') || l.includes('exercise') || l.includes('buy')) return 'BUY';
+  // SELL first: prevents "buyback" matching "buy" before "sale" check runs
   if (l.includes('dispos') || l.includes('sale') || l.includes('sell')) return 'SELL';
+  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
+      l.includes('subscribe') || l.includes('exercise') || /\bbuy\b/.test(l)) return 'BUY';
   return 'OTHER';
 }
 

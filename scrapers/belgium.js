@@ -166,11 +166,11 @@ function parseDetailPage(html, slug) {
   // Derive shares from total/price when the quantity field is missing but both values are present and non-zero
   const shares    = sharesRaw ?? ((price && price > 0 && totalVal && totalVal > 0) ? Math.round(totalVal / price) : null);
 
-  // Map transaction type to BUY / SELL
+  // Map transaction type to BUY / SELL — SELL checked first to avoid "buyback"/"repurchase" false positives
   const txType = (() => {
     const t = txTypeRaw.toLowerCase();
-    if (t.includes('acqui') || t.includes('subscription') || t.includes('purchase') || t.includes('buy')) return 'BUY';
     if (t.includes('sale') || t.includes('disposal') || t.includes('sell')) return 'SELL';
+    if (t.includes('acqui') || t.includes('subscription') || /\bpurchase\b/.test(t) || /\bbuy\b/.test(t)) return 'BUY';
     return 'OTHER';
   })();
 

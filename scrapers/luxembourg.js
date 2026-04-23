@@ -114,9 +114,10 @@ function parseInsiderName(description) {
 function mapType(description) {
   if (!description) return 'UNKNOWN';
   const l = description.toLowerCase();
-  if (l.includes('purchas') || l.includes('acqui') || l.includes('buy') ||
-      l.includes('subscription') || l.includes('exercise')) return 'BUY';
+  // SELL first: "repurchase" contains "purchase"; "buyback" contains "buy"
   if (l.includes('sale') || l.includes('disposal') || l.includes('sell')) return 'SELL';
+  if (l.includes('acqui') || l.includes('subscription') || l.includes('exercise') ||
+      /\bpurchas/.test(l) || /\bbuy\b/.test(l)) return 'BUY';
   return 'UNKNOWN';
 }
 

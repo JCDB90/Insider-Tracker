@@ -186,8 +186,9 @@ function parsePdfMarBlock(text) {
   if (/\b(grant|award|vest|RSU|PSU|incentive\s+plan|warrant|options?\s+plan)\b/i.test(txTypeRaw)
       && !/\b(purchase|acquisition|sale|sell)\b/i.test(txTypeRaw)) return null;
 
-  const txType = /purchase|acqui|buy/i.test(txTypeRaw) ? 'BUY'
-               : /sale|sell|dispos/i.test(txTypeRaw)   ? 'SELL'
+  // SELL first: "repurchase" contains "purchase"; use word boundary for buy
+  const txType = /sale|sell|dispos|tilbakekjøp/i.test(txTypeRaw)   ? 'SELL'
+               : /\bpurchase\b|\bpurchased\b|acqui|\bbuy\b/i.test(txTypeRaw) ? 'BUY'
                : null;
   if (!txType) return null;
 

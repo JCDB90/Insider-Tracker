@@ -35,11 +35,13 @@ function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
-  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
-      l.includes('subscribe') || l.includes('exercise') || l.includes('buy') ||
-      l.includes('køb') || l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
+  // SELL first: "tilbagekøb" (buyback) contains "køb" (buy) — check disposal/salg before køb/buy
   if (l.includes('dispos') || l.includes('sale') || l.includes('sell') ||
-      l.includes('salg') || l.includes('afstå')) return 'SELL';
+      l.includes('salg') || l.includes('afstå') || l.includes('tilbagekøb')) return 'SELL';
+  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
+      l.includes('subscribe') || l.includes('exercise') ||
+      /\bbuy\b/.test(l) || /\bkøb\b/.test(l) ||
+      l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
   return 'OTHER';
 }
 
