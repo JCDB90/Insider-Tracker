@@ -309,16 +309,20 @@ const PERF_PERIODS = [
   { key: '365d', label: '1 year',   rKey: 'return_365d', hKey: 'hit_rate_365d', days: 365 },
 ];
 
-function computePeriodStats(perfRows) {
+// capReturn: if set, individual trade returns are clamped to this value before
+// averaging (used in leaderboard to prevent outliers skewing avg_return).
+// Profile pages pass no cap so real returns are always shown there.
+function computePeriodStats(perfRows, capReturn = null) {
   return PERF_PERIODS.map(p => {
-    const mature = perfRows.filter(r => r[p.rKey] != null);
-    const hits   = mature.filter(r => r[p.hKey] === true);
+    const mature  = perfRows.filter(r => r[p.rKey] != null);
+    const hits    = mature.filter(r => r[p.hKey] === true);
+    const returns = mature.map(r => capReturn != null ? Math.min(r[p.rKey], capReturn) : r[p.rKey]);
     return {
       ...p,
       count:       mature.length,
       pending:     perfRows.length - mature.length,
       successRate: mature.length > 0 ? Math.round(hits.length / mature.length * 100) : null,
-      avgReturn:   mature.length > 0 ? +(mature.reduce((s, r) => s + r[p.rKey], 0) / mature.length * 100).toFixed(1) : null,
+      avgReturn:   returns.length > 0 ? +(returns.reduce((s, v) => s + v, 0) / returns.length * 100).toFixed(1) : null,
     };
   });
 }
@@ -337,7 +341,7 @@ function meetsLeaderboardThreshold(trade) {
 }
 
 // Corporate entity suffixes / patterns — these are via_entity, not real persons
-const CORP_RE = /\b(S\.?A\.?R?\.?L?\.?|N\.?V\.?|B\.?V\.?|Ltd\.?|LLC|Inc\.?|Corp\.?|plc|GmbH|Soci[eé]t[eé]|Holding|Participations?|Invest(?:ment)?|Capital|Fund|Trust|Compagnie|Groupe|Fondation|Foundation|A\.?S\.?A?\.?|A\.?B\.?|O\.?y\.?)\b/i;
+const CORP_RE = /\b(S\.?A\.?R?\.?L?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|N\.?V\.?|B\.?V\.?|Ltd\.?|LLC|Inc\.?|Corp\.?|plc|GmbH|Soci[eé]t[eé]|Holding|Participations?|Invest(?:ment)?|Capital|Fund|Trust|Compagnie|Groupe|Fondation|Foundation|A\.?S\.?A?\.?|A\.?B\.?|O\.?y\.?)\b/i;
 
 function isRealPerson(name) {
   if (!name) return false;
@@ -372,7 +376,7 @@ function computeInsiderScorecard(trades, performance) {
 
   const allInsiders = Object.values(map).filter(ins => ins.trades.length >= 3).map(ins => {
     const myPerf = ins.trades.map(t => perfByTxId[t.id]).filter(Boolean);
-    const stats  = computePeriodStats(myPerf);
+    const stats  = computePeriodStats(myPerf, 2.0); // cap at +200% to suppress outlier penny-stock runs
     const avgScore = ins.scoredTrades > 0 ? Math.round(ins.totalScore / ins.scoredTrades * 100) / 100 : null;
     const rating   = computeInsiderRating(stats);
 
