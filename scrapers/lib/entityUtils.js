@@ -18,6 +18,8 @@ function looksLikeCorp(name) {
   const normalized = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (CORP_SUFFIX_RE.test(normalized)) return true;
   if (CORP_KEYWORD_RE.test(normalized)) return true;
+  // Prefix form: "A/S Motortramp", "N.V. SomeCorp" — legal suffix at start of name
+  if (/^(?:A\/S|A\.S\.|N\.V\.|B\.V\.|S\.A\.|GmbH|AG|Oy|AB)\b/i.test(n)) return true;
   // Org number pattern: "Name (987654321)" or "Name (org.nr. 987654321)"
   if (/\(\s*(?:org\.?\s*nr\.?\s*)?[\d\s]{6,11}\s*\)/.test(n)) return true;
   return false;
