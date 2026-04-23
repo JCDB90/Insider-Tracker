@@ -92,7 +92,7 @@ const TICKER_MAP = {
   'ströer':                   'SAX',
   'amadeus fire':             'AAD',
   'all for one':              'A1OS',
-  'schaeffler':               'SHA',
+  'schaeffler':               'SHA0',
   'stock3':                   'ST3',
 };
 

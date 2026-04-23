@@ -16,6 +16,7 @@
 const { createClient }                     = require('@supabase/supabase-js');
 const { fetchYahooRange, findClosestPrice } = require('./lib/yahooFinance');
 const { getSuffixesForCountry }             = require('./lib/tickerMap');
+const { PriceCache }                        = require('./lib/priceCache');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
@@ -35,11 +36,12 @@ function calcReturn(buyPrice, laterPrice) {
   return Math.round(((laterPrice - buyPrice) / buyPrice) * 10000) / 10000;
 }
 
-async function fetchRangeForTicker(ticker, countryCode, fromStr, toStr) {
+async function fetchRangeForTicker(ticker, countryCode, fromStr, toStr, cache) {
   const suffixes = getSuffixesForCountry(countryCode);
   for (const suffix of suffixes) {
     const symbol = ticker + suffix;
-    const data = await fetchYahooRange(symbol, fromStr, toStr);
+    const data = await cache.fetchRange(ticker, symbol, fromStr, toStr,
+      (sym, f, t) => fetchYahooRange(sym, f, t));
     if (data.length > 0) return data;
     await new Promise(r => setTimeout(r, 150));
   }
@@ -67,6 +69,9 @@ function needsUpdate(row, txDate) {
 async function main() {
   console.log('📈  Insider Performance Tracker (30d / 90d / 180d / 365d)');
   const t0 = Date.now();
+
+  const cache = new PriceCache(supabase);
+  await cache.load();
 
   // Verify columns exist (migration 002 required)
   const { data: colCheck, error: colErr } = await supabase
@@ -149,7 +154,7 @@ async function main() {
 
       if (rangeFrom > TODAY) continue;
 
-      const priceData = await fetchRangeForTicker(row.ticker, row.country_code, rangeFrom, actualEnd);
+      const priceData = await fetchRangeForTicker(row.ticker, row.country_code, rangeFrom, actualEnd, cache);
       await new Promise(r => setTimeout(r, 120));
 
       if (priceData.length === 0) { skip.yahooEmpty++; continue; }
@@ -213,6 +218,8 @@ async function main() {
       skip.fetchError++;
     }
   }
+
+  await cache.flush();
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   const skipSummary = Object.entries(skip).filter(([,v])=>v>0).map(([k,v])=>`${k}=${v}`).join(', ');

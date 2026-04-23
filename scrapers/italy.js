@@ -120,7 +120,12 @@ const TICKER_MAP = {
   'italiaonline':       'IOL',
   'immobiliare grande distribuzione': 'IGD',
   'igd':                'IGD',
+  'sesa':               'SES',
+  'equita':             'EQU',
+  'piaggio':            'PIA',
+  'sabaf':              'SAB',
 };
+
 
 function getTicker(company) {
   if (!company) return null;
