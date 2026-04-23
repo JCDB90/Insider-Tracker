@@ -6,6 +6,9 @@ const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\
 // Corporate keywords appearing anywhere in the name
 const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA))\b/i;
 
+// Full-form French/Italian/Spanish corporate entity names written out in the filing
+const CORP_FULLFORM_RE = /\b(?:soci[eé]t[eé]\s+(?:civile|anonyme|par\s+actions|en\s+commandite|d.investissement|de\s+gestion)|soci[eé]t[eé]\s+[àa]\s+responsabilit[eé]|s\.?a\.?s\.?\b|s\.?c\.?i\.?\b|soci[eé]dad\s+(?:an[oó]nima|limitada|de\s+inversi[oó]n)|societ[àa]\s+(?:per\s+azioni|semplice|a\s+responsabilit[àa])|gmbh\s*&\s*co|kommanditgesellschaft|stiftung|genossenschaft)\b/i;
+
 /**
  * Returns true if the name looks like a corporate entity rather than a person.
  */
@@ -18,6 +21,7 @@ function looksLikeCorp(name) {
   const normalized = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (CORP_SUFFIX_RE.test(normalized)) return true;
   if (CORP_KEYWORD_RE.test(normalized)) return true;
+  if (CORP_FULLFORM_RE.test(n)) return true;
   // Prefix form: "A/S Motortramp", "N.V. SomeCorp" — legal suffix at start of name
   if (/^(?:A\/S|A\.S\.|N\.V\.|B\.V\.|S\.A\.|GmbH|AG|Oy|AB)\b/i.test(n)) return true;
   // Org number pattern: "Name (987654321)" or "Name (org.nr. 987654321)"

@@ -247,13 +247,13 @@ function ClusterBadge({ clusterSize, clusterValue, clusterStart, clusterEnd, cur
       title={parts.join(' ')}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
-        background: '#F0FDF4', border: '1px solid #BBF7D0',
+        background: '#EEF2FF', border: '1px solid #C7D2FE',
         borderRadius: 4, padding: '2px 7px',
-        fontSize: 11, fontWeight: 600, color: '#15803D',
+        fontSize: 11, fontWeight: 600, color: '#4338CA',
         cursor: 'default', whiteSpace: 'nowrap',
       }}
     >
-      <svg width="9" height="9" viewBox="0 0 10 10" fill="#15803D">
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="#4338CA">
         <circle cx="3" cy="5" r="2"/><circle cx="7" cy="3" r="1.5"/><circle cx="7" cy="7" r="1.5"/>
       </svg>
       Cluster
@@ -323,6 +323,19 @@ function computePeriodStats(perfRows) {
   });
 }
 
+// Minimum trade size per currency — filters grants/awards; ~€1,500 equivalent
+const LEADERBOARD_THRESH = {
+  EUR: 1500, GBP: 1300, USD: 1650, SEK: 17000, DKK: 11000,
+  CHF: 1500, NOK: 17000, PLN:  6500, KRW: 2200000,
+  CAD: 2200, HKD: 13000, SGD:  2200, ZAR: 30000,
+};
+
+function meetsLeaderboardThreshold(trade) {
+  if (!trade.total_value || Number(trade.total_value) <= 0) return false;
+  const thresh = LEADERBOARD_THRESH[trade.currency] ?? LEADERBOARD_THRESH.EUR;
+  return Number(trade.total_value) >= thresh;
+}
+
 // Corporate entity suffixes / patterns — these are via_entity, not real persons
 const CORP_RE = /\b(S\.?A\.?R?\.?L?\.?|N\.?V\.?|B\.?V\.?|Ltd\.?|LLC|Inc\.?|Corp\.?|plc|GmbH|Soci[eé]t[eé]|Holding|Participations?|Invest(?:ment)?|Capital|Fund|Trust|Compagnie|Groupe|Fondation|Foundation|A\.?S\.?A?\.?|A\.?B\.?|O\.?y\.?)\b/i;
 
@@ -345,6 +358,7 @@ function computeInsiderScorecard(trades, performance) {
     if (!name) continue;
     const type = (t.transaction_type || '').toUpperCase();
     if (type !== 'BUY' && type !== 'PURCHASE') continue;
+    if (!meetsLeaderboardThreshold(t)) continue;
     if (!map[name]) map[name] = {
       name, role: t.insider_role, company: t.company,
       country_code: t.country_code, trades: [], totalValue: 0,
@@ -356,7 +370,7 @@ function computeInsiderScorecard(trades, performance) {
     if (t.transaction_date > map[name].latestDate) map[name].latestDate = t.transaction_date;
   }
 
-  const allInsiders = Object.values(map).map(ins => {
+  const allInsiders = Object.values(map).filter(ins => ins.trades.length >= 3).map(ins => {
     const myPerf = ins.trades.map(t => perfByTxId[t.id]).filter(Boolean);
     const stats  = computePeriodStats(myPerf);
     const avgScore = ins.scoredTrades > 0 ? Math.round(ins.totalScore / ins.scoredTrades * 100) / 100 : null;

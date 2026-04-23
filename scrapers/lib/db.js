@@ -62,7 +62,13 @@ async function saveInsiderTransactions(rows) {
 
   // Require insider_name, shares > 0, and a positive price_per_share.
   // price=null or price=0 means no real market transaction (vesting, award, or missing data) → skip.
+  // Also reject parse artifacts: "them.", single words ending in period under 6 chars.
+  const GARBAGE_NAME_RE = /^them\.$|^[a-z]{1,5}\.$|^-+$|^\?+$/i;
   const complete = withEntityResolved.filter(r => {
+    if (r.insider_name && GARBAGE_NAME_RE.test(r.insider_name.trim())) {
+      console.log(`  ℹ  Rejecting garbage name: "${r.insider_name}" — ${r.company || '?'}`);
+      return false;
+    }
     const hasName   = r.insider_name && r.insider_name.trim() !== '';
     const hasShares = r.shares != null && r.shares > 0;
     const hasPrice  = r.price_per_share != null && r.price_per_share > 0;

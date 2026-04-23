@@ -271,7 +271,12 @@ async function main() {
   if (toScore.length === 0) { console.log('  Nothing to score.'); return; }
   console.log(`  Scoring ${toScore.length} transactions…`);
 
-  const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
+  // Minimum trade size thresholds — ~€1,500 equivalent per currency
+  const MIN_THRESH = {
+    EUR: 1500, GBP: 1300, USD: 1650, SEK: 17000, DKK: 11000,
+    CHF: 1500, NOK: 17000, PLN:  6500, KRW: 2200000,
+    CAD: 2200, HKD: 13000, SGD:  2200, ZAR: 30000,
+  };
 
   let scored = 0, withPrice = 0, skipped = 0;
   const skipReasons = {};
@@ -284,6 +289,8 @@ async function main() {
     for (const row of batch) {
       try {
         if (!row.total_value || Number(row.total_value) <= 0) { skip('missing total_value'); continue; }
+        const minThresh = MIN_THRESH[row.currency];
+        if (minThresh && Number(row.total_value) < minThresh) { skip('below min threshold'); continue; }
         // ISIN tickers: score without Yahoo price (priceResult stays null → renormalize size+cluster)
 
         const salary = getRoleSalary(row.insider_role);

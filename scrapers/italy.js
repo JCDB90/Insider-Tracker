@@ -275,7 +275,16 @@ function parsePdfText(text) {
       const c = objM[1].trim();
       if (c.length > 2 && !looksLikeCorp(c)) insiderName = c;
     }
-    // ESMA Section 2a: "Nome: FIRST   Cognome: LAST" (wide-spaced layout)
+    // ESMA Section 2a bilingual form: "Nome:\nFirst Name:\nFIRST Cognome:\nLast Name:\nLAST"
+    // (First name and "Cognome:" label appear on the same line due to column layout)
+    if (!insiderName) {
+      const ncM = text.match(/Nome:\s*\n(?:First Name:\s*\n)?([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)\s+Cognome:\s*\n(?:Last Name:\s*\n)?([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s*\n|$)/m);
+      if (ncM) {
+        const n = `${ncM[1].trim()} ${ncM[2].trim()}`;
+        if (!looksLikeCorp(n)) insiderName = n;
+      }
+    }
+    // ESMA Section 2a: wide-spaced layout "Nome: FIRST   Cognome: LAST"
     if (!insiderName) {
       const ncM = text.match(/Nome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]*?)\s{2,}Cognome:\s+([A-ZÀ-Öa-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ\s\-\.]+?)(?:\s*\n|$)/m);
       if (ncM) {

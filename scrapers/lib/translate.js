@@ -32,7 +32,8 @@ const ROLE_RULES = [
   [/managing\s+director/i,                      'CEO'],
   [/chief\s+exec/i,                             'CEO'],
 
-  // ── Deputy / Acting CEO ──────────────────────────────────────────────────────
+  // ── Deputy CEO / DG Délégué ──────────────────────────────────────────────────
+  [/directeur\s+g[eé]n[eé]ral\s+d[eé]l[eé]gu[eé]/i,       'Deputy CEO'],   // FR: DGD
   [/deputy\s+(?:managing\s+)?(?:chief\s+executive|CEO)/i,  'Deputy CEO'],
   [/acting\s+(?:chief\s+executive|CEO)/i,                  'Acting CEO'],
   [/vd.vikarie/i,                                          'Acting CEO'],  // SE
@@ -76,6 +77,12 @@ const ROLE_RULES = [
   [/chief\s+risk\s+officer/i,                   'CRO'],
   [/chief\s+human\s+resources\s+officer/i,      'CHRO'],
   [/chief\s+strategy\s+officer/i,               'CSO'],
+
+  // ── Vice Chairman ─────────────────────────────────────────────────────────────
+  [/vice[\s-]?pr[eé]sident/i,                  'Vice Chairman'],  // FR/ES/IT
+  [/vicepresidente/i,                           'Vice Chairman'],  // ES/IT
+  [/vice[\s-]?chairman/i,                       'Vice Chairman'],
+  [/vicepr[eé]sident/i,                         'Vice Chairman'],  // FR compact
 
   // ── Chairman ──────────────────────────────────────────────────────────────────
   [/aufsichtsratsvorsitzende?r?\b/i,            'Chairman'],  // DE
@@ -195,6 +202,40 @@ const ROLE_RULES = [
   [/czł?onk[a]?\s+rady\s+nadzor/i,           'Board Member'],      // PL: Członek Rady Nadzorczej
   [/rady\s+nadzorcz/i,                        'Board Member'],      // PL: catch-all Rada Nadzorcza
   [/zarz[aą]d\b/i,                            'Board Member'],      // PL: catch-all Zarząd
+
+  // ── General Secretary / Secretary General ────────────────────────────────────
+  [/secretar(?:y|io)\s+general/i,               'General Secretary'],
+  [/secr[eé]taire\s+g[eé]n[eé]ral/i,           'General Secretary'],  // FR
+
+  // ── Norwegian roles ──────────────────────────────────────────────────────────
+  [/styreleder/i,                               'Chairman'],           // NO
+  [/styremedlem/i,                              'Board Member'],       // NO
+  [/daglig\s+leder/i,                           'CEO'],                // NO
+  [/\bfinanssjef\b/i,                           'CFO'],                // NO
+
+  // ── Italian roles (supplemental) ─────────────────────────────────────────────
+  [/consigliere\s+(?:di\s+)?amministrazione/i,  'Board Member'],       // IT
+  [/direttore\s+generale/i,                     'CEO'],                // IT
+  [/consigliere\s+indipendente/i,               'Independent Director'], // IT
+  [/\bsindaco\b/i,                              'Auditor'],            // IT statutory auditor
+  [/\bdirigente\b/i,                            'Executive'],          // IT
+  [/\bprocuratore\b/i,                          'Attorney'],           // IT
+  [/persona\s+rilevante/i,                      'Related Party'],      // IT closely associated
+  [/\bpresidente\b/i,                           'Chairman'],           // IT/ES/PT standalone
+
+  // ── Spanish roles (supplemental) ─────────────────────────────────────────────
+  [/alta\s+direcci[oó]n/i,                      'Senior Management'],  // ES
+  [/\bdirectivo\b/i,                            'Executive'],          // ES
+  [/\bsecretario\b/i,                           'Secretary'],          // ES
+
+  // ── French roles (supplemental) ──────────────────────────────────────────────
+  [/g[eé]rant(?:e)?\b/i,                        'Managing Director'],  // FR
+  [/\bpr[eé]sident(?:e)?\b/i,                   'Chairman'],           // FR standalone
+  [/personne\s+morale\s+li[eé]e/i,              'Closely Associated Entity'],   // FR
+  [/personne\s+(?:physique\s+)?li[eé]e/i,       'Closely Associated Person'],   // FR
+
+  // ── Dutch roles (supplemental) ────────────────────────────────────────────────
+  [/\bbestuurder\b/i,                           'Executive Director'],  // NL
 
   // ── Related Party ────────────────────────────────────────────────────────────
   [/closely\s+associated/i,                     'Related Party'],
