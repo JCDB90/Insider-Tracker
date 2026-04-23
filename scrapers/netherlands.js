@@ -104,8 +104,7 @@ function getTicker(companyName) {
   for (const [fragment, ticker] of Object.entries(TICKER_MAP)) {
     if (lower.includes(fragment)) return ticker;
   }
-  // Fallback: first word uppercased, max 6 chars
-  return companyName.split(/[\s,.]/)[0].toUpperCase().slice(0, 6) || null;
+  return null;
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -223,7 +222,7 @@ function parseXml(xml, cutoffDate) {
     const base = {
       country_code:     COUNTRY_CODE,
       source:           SOURCE,
-      ticker:           getTicker(company),
+      ticker:           getTicker(company) || '',
       company:          company || null,
       insider_name:     insiderName || null,
       insider_role:     'Director / Commissioner',

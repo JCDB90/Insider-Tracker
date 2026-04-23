@@ -113,7 +113,7 @@ function getTicker(company) {
     const normFrag = frag.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (lower.includes(normFrag)) return ticker;
   }
-  return company.split(/[\s,.(]/)[0].toUpperCase().slice(0, 6) || null;
+  return null;
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -366,7 +366,7 @@ async function scrapeES() {
         filing_id:        `ES-${f.regNum}`,
         country_code:     COUNTRY_CODE,
         source:           SOURCE,
-        ticker:           getTicker(f.company),
+        ticker:           getTicker(f.company) || '',
         company:          f.company,
         insider_name:     f.insiderName,
         insider_role:     f.role || 'Not disclosed',

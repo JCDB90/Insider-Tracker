@@ -346,7 +346,7 @@ async function scrapeDE() {
   // isinToTicker uses Yahoo Finance search to find the canonical exchange ticker.
   let resolved = 0;
   for (const e of allEntries) {
-    if (e.isin && e.ticker && !/^[A-Z]{2,6}(-[A-Z0-9]{1,2})?$/.test(e.ticker)) {
+    if (e.isin && !e.ticker) {
       const t = await isinToTicker(e.isin, COUNTRY_CODE);
       if (t) { e.ticker = t; resolved++; }
       await new Promise(r => setTimeout(r, 120));
