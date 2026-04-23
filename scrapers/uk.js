@@ -154,11 +154,12 @@ function parseDate(dateStr) {
 function mapType(natureText) {
   if (!natureText) return 'OTHER';
   const l = natureText.toLowerCase();
+  // Check SELL first — "Sale of shares...Share Buyback Programme" contains "buy" via "buyback"
+  if (l.includes('sale') || l.includes('sell') || l.includes('dispos')) return 'SELL';
+  // \bbuy\b avoids matching "buyback" — but buyback itself is a company repurchase, not insider buy
   if (l.includes('purchase') || l.includes('acqui') || l.includes('subscri') ||
       l.includes('vest') || l.includes('exercise') || l.includes('receipt') ||
-      l.includes('buy')) return 'BUY';
-  if (l.includes('sale') || l.includes('sell') || l.includes('dispos')) return 'SELL';
-  // Options/award grants: track as OTHER (not a share purchase)
+      /\bbuy\b/.test(l)) return 'BUY';
   return 'OTHER';
 }
 
