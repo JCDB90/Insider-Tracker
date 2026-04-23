@@ -28,8 +28,10 @@ const MARKETS = [
   // ── Europe (HTTP) ────────────────────────────────────────────────────────
   { code: 'DE', name: 'Germany',        file: 'germany',     mode: 'http' },
   { code: 'FR', name: 'France',         file: 'france',      mode: 'http' },
+  { code: 'GB', name: 'UK',             file: 'uk',          mode: 'http' },
   { code: 'ES', name: 'Spain',          file: 'spain',       mode: 'http' },
   { code: 'IT', name: 'Italy',          file: 'italy',       mode: 'http' },
+  { code: 'BE', name: 'Belgium',        file: 'belgium',     mode: 'http' },
   { code: 'SE', name: 'Sweden',         file: 'sweden',      mode: 'http' },
   { code: 'DK', name: 'Denmark',        file: 'denmark',     mode: 'http' },
   { code: 'NO', name: 'Norway',         file: 'norway',      mode: 'http' },
@@ -43,7 +45,7 @@ const MARKETS = [
   { code: 'LU', name: 'Luxembourg',     file: 'luxembourg',  mode: 'http' },
 
   // ── Europe (Puppeteer) ───────────────────────────────────────────────────
-  { code: 'NL', name: 'Netherlands',    file: 'netherlands', mode: 'http' },   // XML export works; upgrade to puppeteer for BUY/SELL detail pages
+  { code: 'NL', name: 'Netherlands',    file: 'netherlands', mode: 'http' },
 
   // ── Asia-Pacific ─────────────────────────────────────────────────────────
   // AU disabled: ASX Appendix 3Y metadata has no price/shares/name data (all null)
