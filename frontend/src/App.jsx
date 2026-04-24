@@ -80,14 +80,17 @@ function formatValue(value, currency = 'EUR') {
   const sym = currencySymbol(currency);
   if (num >= 1e9) return `${sym}${(num / 1e9).toFixed(1)}B`;
   if (num >= 1e6) return `${sym}${(num / 1e6).toFixed(1)}M`;
-  if (num >= 1e3) return `${sym}${(num / 1e3).toFixed(0)}K`;
-  return `${sym}${num.toFixed(0)}`;
+  // Under 1M: show full amount with thousands separator (e.g. SEK 648,750)
+  return `${sym}${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function formatPrice(value, currency = 'EUR') {
   if (value == null || isNaN(value)) return '—';
   const sym = currencySymbol(currency);
-  return `${sym}${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const num = Number(value);
+  // Always show at least 2 decimal places; show up to 4 for sub-cent prices
+  const decimals = num < 1 ? 4 : 2;
+  return `${sym}${num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
 }
 
 function formatShares(n) {

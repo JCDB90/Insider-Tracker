@@ -38,8 +38,17 @@ function parseSEDate(s) {
 function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 function parseNum(s) {
   if (!s || s.trim() === '-') return null;
-  const v = parseFloat(s.replace(/\s/g, '').replace(',', '.'));
-  return isNaN(v) ? null : v;
+  const str = s.trim().replace(/\s/g, '');
+  if (!str) return null;
+  // European decimal with thousands: "1.234,56" → 1234.56
+  if (/\d\.\d{3},/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  // Period-only thousands: "5.000" or "1.234.567" → 5000 / 1234567
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
+  // Comma-only thousands: "50,000" → 50000
+  if (/^\d{1,3}(?:,\d{3})+$/.test(str)) return parseFloat(str.replace(/,/g, ''));
+  // Comma as decimal: "129,75" → 129.75
+  if (/,/.test(str) && !/\./.test(str)) return parseFloat(str.replace(',', '.'));
+  return parseFloat(str.replace(/,/g, ''));
 }
 function mapType(s) {
   if (!s) return 'UNKNOWN';
