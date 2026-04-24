@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
-import CompanyPage from './CompanyPage.jsx';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
+
+// Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
+const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -2324,7 +2326,11 @@ function PricingPage() {
 
 export default function App() {
   const [page, setPage] = useState(() => {
-    try { return localStorage.getItem('ia_page') || 'dashboard'; } catch { return 'dashboard'; }
+    try {
+      const saved = localStorage.getItem('ia_page') || 'dashboard';
+      // 'company' cannot be restored on reload (selectedCompany is transient state)
+      return saved === 'company' ? 'dashboard' : saved;
+    } catch { return 'dashboard'; }
   });
   const [search, setSearch] = useState('');
   const [selectedCountries, setSelectedCountries] = useState(new Set());
@@ -2513,16 +2519,22 @@ export default function App() {
         )}
         {page === 'pricing' && <PricingPage />}
         {page === 'company' && selectedCompany && (
-          <CompanyPage
-            ticker={selectedCompany.ticker}
-            company={selectedCompany.company}
-            countryCode={selectedCompany.countryCode}
-            yahooTicker={selectedCompany.yahooTicker}
-            trades={trades}
-            watchlist={watchlist}
-            onBack={() => setPage('dashboard')}
-            onInsiderClick={handleInsiderClick}
-          />
+          <Suspense fallback={
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: 13 }}>
+              Loading…
+            </div>
+          }>
+            <CompanyPage
+              ticker={selectedCompany.ticker}
+              company={selectedCompany.company}
+              countryCode={selectedCompany.countryCode}
+              yahooTicker={selectedCompany.yahooTicker}
+              trades={trades}
+              watchlist={watchlist}
+              onBack={() => setPage('dashboard')}
+              onInsiderClick={handleInsiderClick}
+            />
+          </Suspense>
         )}
       </div>
     </div>

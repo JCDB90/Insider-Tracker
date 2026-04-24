@@ -72,12 +72,13 @@ function buildYahooSymbol(ticker, countryCode, yahooTicker) {
  */
 function checkEarningsBlackout(txDate, earningsDates) {
   if (!earningsDates || earningsDates.length === 0) return { isNear: false };
-  const txMs = new Date(txDate).getTime();
+  const txMs    = new Date(txDate).getTime();
+  const todayMs = Date.now();
   let best = null;
   for (const ed of earningsDates) {
-    const edMs      = new Date(ed).getTime();
-    const daysBefore = (edMs - txMs) / 86400000;
-    // Within [0, 30] days before the earnings date
+    // Skip past earnings dates — predictions that expired aren't meaningful
+    if (new Date(ed).getTime() < todayMs) continue;
+    const daysBefore = (new Date(ed).getTime() - txMs) / 86400000;
     if (daysBefore >= 0 && daysBefore <= 30) {
       if (!best || daysBefore < best.daysBefore) best = { daysBefore: Math.round(daysBefore), earningsDate: ed };
     }
@@ -287,17 +288,20 @@ export default function CompanyPage({
 
     supabase
       .from('earnings_calendar')
-      .select('earnings_date')
+      .select('earnings_date, source')
       .eq('ticker', ticker)
       .order('earnings_date', { ascending: true })
       .then(({ data, error }) => {
         if (error) {
-          // Table likely doesn't exist yet — treat as no data silently
           setEarningsDates([]);
           setEarningsNoData(true);
           return;
         }
-        const dates = (data || []).map(r => r.earnings_date);
+        const today = new Date().toISOString().slice(0, 10);
+        const dates = (data || [])
+          .map(r => r.earnings_date)
+          // Only include future dates — burst predictions can lag reality
+          .filter(d => d > today);
         setEarningsDates(dates);
         setEarningsNoData(dates.length === 0);
       });
