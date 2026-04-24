@@ -24,8 +24,10 @@ on:
   workflow_dispatch:        # Manual trigger from Actions tab
 
 env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY:      ${{ secrets.SUPABASE_KEY }}
+  FINNHUB_API_KEY:   ${{ secrets.FINNHUB_API_KEY }}
+  FMP_API_KEY:       ${{ secrets.FMP_API_KEY }}
   NODE_ENV: production
 
 jobs:
