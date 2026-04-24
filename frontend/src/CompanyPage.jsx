@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createChart, LineSeries } from 'lightweight-charts';
+import { supabase } from './supabase.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -24,9 +25,6 @@ const COUNTRY_YAHOO_SUFFIX = {
   NL:'.AS', BE:'.BR', PT:'.LS', IT:'.MI', ES:'.MC', AT:'.VI',
   CH:'.SW', GB:'.L',  PL:'.WA', IE:'.IR', LU:'.LU', CZ:'.PR',
 };
-
-// Typical pre-earnings blackout months per quarter
-const BLACKOUT_MONTHS = new Set([1, 4, 7, 10]);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,13 +62,31 @@ function fmtDateShort(s) {
 function buildYahooSymbol(ticker, countryCode, yahooTicker) {
   if (yahooTicker) return yahooTicker;
   if (!ticker) return null;
-  const suffix = COUNTRY_YAHOO_SUFFIX[countryCode] || '';
-  return ticker + suffix;
+  return ticker + (COUNTRY_YAHOO_SUFFIX[countryCode] || '');
 }
 
-function isNearEarningsWindow(dateStr) {
-  const month = new Date(dateStr).getMonth() + 1;
-  return BLACKOUT_MONTHS.has(month);
+/**
+ * Check whether txDate falls in the 30-day blackout window before any known earnings date.
+ * Returns { isNear, daysBefore, earningsDate } — only fires when earningsDates is non-empty
+ * so companies with no data show nothing rather than a wrong badge.
+ */
+function checkEarningsBlackout(txDate, earningsDates) {
+  if (!earningsDates || earningsDates.length === 0) return { isNear: false };
+  const txMs = new Date(txDate).getTime();
+  let best = null;
+  for (const ed of earningsDates) {
+    const edMs      = new Date(ed).getTime();
+    const daysBefore = (edMs - txMs) / 86400000;
+    // Within [0, 30] days before the earnings date
+    if (daysBefore >= 0 && daysBefore <= 30) {
+      if (!best || daysBefore < best.daysBefore) best = { daysBefore: Math.round(daysBefore), earningsDate: ed };
+    }
+  }
+  return best ? { isNear: true, ...best } : { isNear: false };
+}
+
+function daysUntil(dateStr) {
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
 }
 
 function getPriceRatio(txPrice, marketPrice) {
@@ -80,10 +96,8 @@ function getPriceRatio(txPrice, marketPrice) {
 
 function findChartPrice(chartData, dateStr) {
   if (!chartData.length) return null;
-  // exact match
   const exact = chartData.find(p => p.time === dateStr);
   if (exact) return exact.value;
-  // closest within ±7 days
   const target = new Date(dateStr).getTime();
   let best = null, bestDiff = Infinity;
   for (const p of chartData) {
@@ -95,12 +109,10 @@ function findChartPrice(chartData, dateStr) {
 
 // ─── StockChart ───────────────────────────────────────────────────────────────
 
-function StockChart({ data, trades, currency }) {
+function StockChart({ data, trades, earningsDates }) {
   const containerRef = useRef(null);
   const chartRef     = useRef(null);
-  const seriesRef    = useRef(null);
 
-  // Build + destroy chart imperatively
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
 
@@ -132,10 +144,11 @@ function StockChart({ data, trades, currency }) {
 
     series.setData(data);
 
-    // Insider markers
+    // Build markers: insider buys/sells + earnings dates
     const minTime = data[0]?.time;
     const maxTime = data[data.length - 1]?.time;
-    const markers = trades
+
+    const insiderMarkers = trades
       .filter(t => t.transaction_date >= minTime && t.transaction_date <= maxTime)
       .map(t => {
         const isBuy = t.transaction_type === 'BUY';
@@ -149,28 +162,51 @@ function StockChart({ data, trades, currency }) {
           text:     `${name}${t.shares ? ' · ' + fmtShares(t.shares) + ' sh' : ''}`,
           size:     1.5,
         };
+      });
+
+    // Earnings date markers — amber square on the price line
+    const earningsMarkers = (earningsDates || [])
+      .filter(ed => ed >= minTime && ed <= maxTime)
+      .map(ed => ({
+        time:     ed,
+        position: 'inBar',
+        color:    '#F59E0B',
+        shape:    'square',
+        text:     '📅 Earnings',
+        size:     1.5,
+      }));
+
+    // Blackout window start markers — 30 days before each earnings date
+    const blackoutMarkers = (earningsDates || [])
+      .map(ed => {
+        const d = new Date(ed); d.setDate(d.getDate() - 30);
+        return d.toISOString().slice(0, 10);
       })
+      .filter(d => d >= minTime && d <= maxTime)
+      .map(d => ({
+        time:     d,
+        position: 'aboveBar',
+        color:    '#FCD34D',
+        shape:    'circle',
+        text:     '30d blackout',
+        size:     0.8,
+      }));
+
+    const allMarkers = [...insiderMarkers, ...earningsMarkers, ...blackoutMarkers]
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    if (markers.length) series.setMarkers(markers);
+    if (allMarkers.length) series.setMarkers(allMarkers);
 
     chart.timeScale().fitContent();
-    chartRef.current  = chart;
-    seriesRef.current = series;
+    chartRef.current = chart;
 
-    const onResize = () => {
+    const ro = new ResizeObserver(() => {
       if (el && chartRef.current) chartRef.current.applyOptions({ width: el.offsetWidth });
-    };
-    const ro = new ResizeObserver(onResize);
+    });
     ro.observe(el);
 
-    return () => {
-      ro.disconnect();
-      chart.remove();
-      chartRef.current  = null;
-      seriesRef.current = null;
-    };
-  }, [data, trades]);
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+  }, [data, trades, earningsDates]);
 
   if (data.length === 0) {
     return (
@@ -195,8 +231,15 @@ function KpiCard({ label, value, sub, color }) {
       background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10,
       padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
     }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, fontFamily: "'DM Mono', monospace", letterSpacing: '-0.02em', color: color || '#111318', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 26, fontWeight: 700, fontFamily: "'DM Mono', monospace",
+        letterSpacing: '-0.02em', color: color || '#111318', lineHeight: 1,
+      }}>
+        {value}
+      </div>
       {sub && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -204,16 +247,23 @@ function KpiCard({ label, value, sub, color }) {
 
 // ─── CompanyPage ──────────────────────────────────────────────────────────────
 
-export default function CompanyPage({ ticker, company, countryCode, yahooTicker, trades, watchlist, onBack, onInsiderClick }) {
-  const [chartData, setChartData]     = useState([]);
-  const [chartRange, setChartRange]   = useState('1y');
-  const [priceLoading, setPriceLoading] = useState(true);
-  const [currentPrice, setCurrentPrice] = useState(null);
-  const [priceChange, setPriceChange]   = useState(null);
+export default function CompanyPage({
+  ticker, company, countryCode, yahooTicker,
+  trades, watchlist, onBack, onInsiderClick,
+}) {
+  const [chartData,     setChartData]     = useState([]);
+  const [chartRange,    setChartRange]    = useState('1y');
+  const [priceLoading,  setPriceLoading]  = useState(true);
+  const [currentPrice,  setCurrentPrice]  = useState(null);
+  const [priceChange,   setPriceChange]   = useState(null);
   const [priceCurrency, setPriceCurrency] = useState('EUR');
-  const [chartError, setChartError]   = useState(false);
+  const [chartError,    setChartError]    = useState(false);
 
-  // All transactions for this company (match on ticker OR company name)
+  // earnings_calendar rows from Supabase — null = not yet loaded, [] = loaded but empty
+  const [earningsDates,  setEarningsDates]  = useState(null);
+  const [earningsNoData, setEarningsNoData] = useState(false); // true once fetch complete + empty
+
+  // Filter all transactions for this company
   const companyTrades = useMemo(() =>
     trades
       .filter(t => (t.ticker && t.ticker === ticker) || t.company === company)
@@ -221,7 +271,7 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
     [trades, ticker, company]
   );
 
-  // Resolve yahoo symbol: prefer watchlist entry, then construct
+  // Resolve Yahoo Finance symbol
   const yahooSymbol = useMemo(() => {
     if (yahooTicker) return yahooTicker;
     const wl = watchlist?.find(w => w.ticker === ticker && w.country_code === countryCode);
@@ -229,7 +279,31 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
     return buildYahooSymbol(ticker, countryCode, null);
   }, [ticker, countryCode, yahooTicker, watchlist]);
 
-  // Fetch chart data from Yahoo proxy
+  // ── Fetch earnings dates from Supabase ──────────────────────────────────────
+  useEffect(() => {
+    if (!ticker) return;
+    setEarningsDates(null);
+    setEarningsNoData(false);
+
+    supabase
+      .from('earnings_calendar')
+      .select('earnings_date')
+      .eq('ticker', ticker)
+      .order('earnings_date', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) {
+          // Table likely doesn't exist yet — treat as no data silently
+          setEarningsDates([]);
+          setEarningsNoData(true);
+          return;
+        }
+        const dates = (data || []).map(r => r.earnings_date);
+        setEarningsDates(dates);
+        setEarningsNoData(dates.length === 0);
+      });
+  }, [ticker]);
+
+  // ── Fetch chart data from Yahoo proxy ───────────────────────────────────────
   useEffect(() => {
     if (!yahooSymbol) { setPriceLoading(false); setChartError(true); return; }
 
@@ -245,8 +319,7 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
         const timestamps = result.timestamp || [];
         const closes = result.indicators?.adjclose?.[0]?.adjclose
                     || result.indicators?.quote?.[0]?.close || [];
-        const currency = result.meta?.currency || 'USD';
-        setPriceCurrency(currency);
+        setPriceCurrency(result.meta?.currency || 'USD');
 
         const points = [];
         for (let i = 0; i < timestamps.length; i++) {
@@ -258,7 +331,6 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
             });
           }
         }
-
         setChartData(points);
 
         if (points.length >= 2) {
@@ -275,7 +347,21 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
       .finally(() => setPriceLoading(false));
   }, [yahooSymbol, chartRange]);
 
-  // KPI calculations (last 6 months)
+  // ── Derived earnings values ──────────────────────────────────────────────────
+  const { nextEarnings, prevEarnings } = useMemo(() => {
+    if (!earningsDates?.length) return { nextEarnings: null, prevEarnings: null };
+    const today = new Date().toISOString().slice(0, 10);
+    const future = earningsDates.filter(d => d >= today);
+    const past   = earningsDates.filter(d => d <  today);
+    return {
+      nextEarnings: future.length ? future[0]            : null,
+      prevEarnings: past.length   ? past[past.length - 1] : null,
+    };
+  }, [earningsDates]);
+
+  const daysToEarnings = nextEarnings ? daysUntil(nextEarnings) : null;
+
+  // ── KPI calculations (last 6 months) ────────────────────────────────────────
   const kpis = useMemo(() => {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - 6);
@@ -285,18 +371,21 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
     const largest = [...companyTrades]
       .filter(t => t.total_value)
       .sort((a, b) => Number(b.total_value) - Number(a.total_value))[0];
-    const ratio = sells.length === 0 ? null : buys.length / sells.length;
-    const sentimentLabel = buys.length === 0 && sells.length === 0 ? 'No data'
-      : buys.length > sells.length * 2 ? 'Strong Buy'
-      : buys.length > sells.length ? 'Buy'
-      : sells.length > buys.length * 2 ? 'Strong Sell'
-      : sells.length > buys.length ? 'Sell'
-      : 'Neutral';
-    const sentimentColor = sentimentLabel.includes('Buy') ? '#16A34A'
-      : sentimentLabel.includes('Sell') ? '#DC2626' : '#6B7280';
-    return { buys: buys.length, sells: sells.length, ratio, sentimentLabel, sentimentColor, largest };
+    const sentimentLabel =
+      buys.length === 0 && sells.length === 0 ? 'No data'
+      : buys.length > sells.length * 2         ? 'Strong Buy'
+      : buys.length > sells.length             ? 'Buy'
+      : sells.length > buys.length * 2         ? 'Strong Sell'
+      : sells.length > buys.length             ? 'Sell'
+                                               : 'Neutral';
+    const sentimentColor =
+      sentimentLabel.includes('Buy')  ? '#16A34A'
+      : sentimentLabel.includes('Sell') ? '#DC2626'
+                                        : '#6B7280';
+    return { buys: buys.length, sells: sells.length, sentimentLabel, sentimentColor, largest };
   }, [companyTrades]);
 
+  // ── Render helpers ───────────────────────────────────────────────────────────
   const RANGES = [
     { key: '1mo', label: '1M' },
     { key: '3mo', label: '3M' },
@@ -304,13 +393,25 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
     { key: '1y',  label: '1Y' },
   ];
 
-  const flag   = COUNTRY_FLAGS[countryCode] || '';
+  const flag           = COUNTRY_FLAGS[countryCode] || '';
   const changePositive = priceChange != null && priceChange >= 0;
+  const earningsReady  = earningsDates !== null; // null = loading, [] = loaded
+
+  // Count real pre-earnings buys for the research note
+  const preEarningsBuys = useMemo(() =>
+    earningsDates?.length
+      ? companyTrades.filter(t =>
+          t.transaction_type === 'BUY' &&
+          checkEarningsBlackout(t.transaction_date, earningsDates).isNear
+        )
+      : [],
+    [companyTrades, earningsDates]
+  );
 
   return (
     <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0, background: '#F7F8FA' }}>
 
-      {/* Back button */}
+      {/* Back */}
       <button onClick={onBack} style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 20,
         background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
@@ -322,62 +423,105 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
         Back
       </button>
 
-      {/* Header */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{
         background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
         padding: '20px 24px', marginBottom: 24,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 16,
       }}>
+        {/* Left: company identity */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{
-            width: 48, height: 48, borderRadius: 10,
+            width: 48, height: 48, borderRadius: 10, flexShrink: 0,
             background: ACCENT + '15', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontSize: 20, flexShrink: 0,
+            justifyContent: 'center', fontSize: 20,
           }}>
             {flag}
           </div>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>{company}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>
+              {company}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontFamily: "'DM Mono', monospace", color: '#6B7280' }}>{ticker}</span>
-              <span style={{ fontSize: 11, color: '#9CA3AF' }}>·</span>
+              <span style={{ color: '#D1D5DB' }}>·</span>
               <span style={{ fontSize: 13, color: '#9CA3AF' }}>{countryCode}</span>
+              {/* Next earnings pill */}
+              {earningsReady && nextEarnings && (
+                <>
+                  <span style={{ color: '#D1D5DB' }}>·</span>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                    background: daysToEarnings !== null && daysToEarnings <= 30
+                      ? '#FEF3C7' : '#F3F4F6',
+                    color: daysToEarnings !== null && daysToEarnings <= 30
+                      ? '#92400E' : '#6B7280',
+                    border: daysToEarnings !== null && daysToEarnings <= 30
+                      ? '1px solid #FDE68A' : '1px solid #E5E7EB',
+                  }}>
+                    📅 Earnings{' '}
+                    {daysToEarnings !== null && daysToEarnings >= 0
+                      ? `in ${daysToEarnings}d`
+                      : fmtDateShort(nextEarnings)}
+                  </span>
+                </>
+              )}
+              {earningsReady && earningsNoData && (
+                <>
+                  <span style={{ color: '#D1D5DB' }}>·</span>
+                  <span style={{ fontSize: 12, color: '#D1D5DB' }}>No earnings data</span>
+                </>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Live price */}
+        {/* Right: live price */}
         <div style={{ textAlign: 'right' }}>
           {priceLoading ? (
             <div style={{ fontSize: 13, color: '#9CA3AF' }}>Loading price…</div>
           ) : currentPrice ? (
             <>
-              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'DM Mono', monospace", letterSpacing: '-0.02em', color: '#111318' }}>
+              <div style={{
+                fontSize: 28, fontWeight: 700, fontFamily: "'DM Mono', monospace",
+                letterSpacing: '-0.02em', color: '#111318',
+              }}>
                 {fmtPrice(currentPrice, priceCurrency)}
               </div>
               {priceChange != null && (
-                <div style={{
-                  fontSize: 14, fontWeight: 600,
-                  color: changePositive ? '#16A34A' : '#DC2626',
-                  marginTop: 2,
-                }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2,
+                  color: changePositive ? '#16A34A' : '#DC2626' }}>
                   {changePositive ? '▲' : '▼'} {Math.abs(priceChange).toFixed(2)}% today
+                </div>
+              )}
+              {nextEarnings && daysToEarnings !== null && daysToEarnings >= 0 && (
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
+                  Next earnings: {fmtDateShort(nextEarnings)}
                 </div>
               )}
             </>
           ) : (
-            <div style={{ fontSize: 12, color: '#9CA3AF' }}>{yahooSymbol ? 'Price unavailable' : 'No ticker'}</div>
+            <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+              {yahooSymbol ? 'Price unavailable' : 'No ticker'}
+            </div>
           )}
         </div>
       </div>
 
-      {/* Section 1 — Chart */}
-      <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
+      {/* ── Section 1: Chart ──────────────────────────────────────────────── */}
+      <div style={{
+        background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
+        padding: '20px 24px', marginBottom: 24,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111318', marginBottom: 2 }}>Stock Price</h2>
             <p style={{ fontSize: 12, color: '#9CA3AF' }}>
-              {chartData.length > 0 ? `${chartData.length} trading days · markers show insider transactions` : 'Historical price chart'}
+              {chartData.length > 0
+                ? `${chartData.length} trading days · ▲▼ insider trades${earningsDates?.length ? ' · 📅 earnings dates' : ''}`
+                : 'Historical price chart'}
             </p>
           </div>
           {/* Range toggles */}
@@ -394,6 +538,7 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
             ))}
           </div>
         </div>
+
         {priceLoading ? (
           <div style={{
             height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -402,11 +547,32 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
             <div style={{ fontSize: 13, color: '#9CA3AF' }}>Loading chart…</div>
           </div>
         ) : (
-          <StockChart data={chartData} trades={companyTrades} currency={priceCurrency} />
+          <StockChart
+            data={chartData}
+            trades={companyTrades}
+            earningsDates={earningsDates || []}
+          />
+        )}
+
+        {/* Chart legend */}
+        {earningsDates?.length > 0 && (
+          <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
+            {[
+              { color: '#16A34A', shape: '▲', label: 'Insider buy' },
+              { color: '#DC2626', shape: '▼', label: 'Insider sell' },
+              { color: '#F59E0B', shape: '■', label: 'Earnings date' },
+              { color: '#FCD34D', shape: '●', label: '30-day blackout start' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 12, color: item.color }}>{item.shape}</span>
+                <span style={{ fontSize: 11, color: '#9CA3AF' }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Section 2 — KPI cards */}
+      {/* ── Section 2: KPI Cards ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         <KpiCard
           label="Insider Buys (6m)"
@@ -423,22 +589,38 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
         <KpiCard
           label="Sentiment"
           value={kpis.sentimentLabel}
-          sub={kpis.ratio != null ? `${kpis.buys}B / ${kpis.sells}S ratio` : 'Last 6 months'}
+          sub={`${kpis.buys}B / ${kpis.sells}S · last 6 months`}
           color={kpis.sentimentColor}
         />
         <KpiCard
-          label="Largest Trade"
-          value={kpis.largest ? fmtVal(kpis.largest.total_value, kpis.largest.currency) : '—'}
-          sub={kpis.largest ? fmtDateShort(kpis.largest.transaction_date) : 'No data'}
+          label={nextEarnings ? 'Next Earnings' : 'Last Earnings'}
+          value={
+            nextEarnings
+              ? (daysToEarnings !== null && daysToEarnings >= 0 ? `${daysToEarnings}d` : fmtDateShort(nextEarnings))
+              : (prevEarnings ? fmtDateShort(prevEarnings) : '—')
+          }
+          sub={
+            nextEarnings
+              ? fmtDateShort(nextEarnings)
+              : (earningsNoData ? 'No data available' : 'Loading…')
+          }
+          color={
+            daysToEarnings !== null && daysToEarnings <= 30
+              ? '#F59E0B' : '#111318'
+          }
         />
       </div>
 
-      {/* Section 3–5 — Transactions table */}
+      {/* ── Section 3–5: Transactions Table ──────────────────────────────── */}
       <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid #F3F4F6' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111318', marginBottom: 2 }}>All Insider Transactions</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111318', marginBottom: 2 }}>
+            All Insider Transactions
+          </h2>
           <p style={{ fontSize: 12, color: '#9CA3AF' }}>
-            Price analysis · earnings blackout detection · conviction scoring
+            {earningsDates?.length
+              ? `Price analysis · real blackout detection (${earningsDates.length} known earnings dates) · conviction scoring`
+              : 'Price analysis · conviction scoring'}
           </p>
         </div>
 
@@ -451,9 +633,10 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
-                  {['Date', 'Insider', 'Role', 'Type', 'Shares', 'Price', 'Value', 'vs Market', 'Signal'].map(h => (
+                  {['Date','Insider','Role','Type','Shares','Price','Value','vs Market','Signal'].map(h => (
                     <th key={h} style={{
-                      padding: '10px 14px', textAlign: h === 'Shares' || h === 'Price' || h === 'Value' ? 'right' : 'left',
+                      padding: '10px 14px',
+                      textAlign: ['Shares','Price','Value'].includes(h) ? 'right' : 'left',
                       fontSize: 11, fontWeight: 600, color: '#9CA3AF',
                       letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -462,18 +645,18 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
               </thead>
               <tbody>
                 {companyTrades.map((t, i) => {
-                  const isBuy     = t.transaction_type === 'BUY';
-                  const name      = t.insider_name && t.insider_name !== 'Not disclosed'
+                  const isBuy      = t.transaction_type === 'BUY';
+                  const name       = t.insider_name && t.insider_name !== 'Not disclosed'
                     ? t.insider_name : (t.via_entity || null);
-                  const mktPrice  = findChartPrice(chartData, t.transaction_date);
-                  const ratio     = getPriceRatio(t.price_per_share, mktPrice);
-                  const nearBlack = isNearEarningsWindow(t.transaction_date);
+                  const mktPrice   = findChartPrice(chartData, t.transaction_date);
+                  const ratio      = getPriceRatio(t.price_per_share, mktPrice);
+                  const blackout   = checkEarningsBlackout(t.transaction_date, earningsDates || []);
 
                   let vsMarket = null;
                   if (ratio != null) {
-                    if (ratio < 0.85)     vsMarket = { label: '⚠ Option / Award', color: '#F59E0B', bg: '#FFFBEB' };
-                    else if (ratio > 1.15) vsMarket = { label: '⚠ Unusual price', color: '#F59E0B', bg: '#FFFBEB' };
-                    else                   vsMarket = { label: '✓ Market price',   color: '#16A34A', bg: '#F0FDF4' };
+                    if (ratio < 0.85)      vsMarket = { label: '⚠ Option / Award', color: '#F59E0B', bg: '#FFFBEB' };
+                    else if (ratio > 1.15) vsMarket = { label: '⚠ Unusual price',  color: '#F59E0B', bg: '#FFFBEB' };
+                    else                   vsMarket = { label: '✓ Market price',    color: '#16A34A', bg: '#F0FDF4' };
                   }
 
                   return (
@@ -495,8 +678,9 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
                             <button onClick={() => onInsiderClick(name)} style={{
                               background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                               fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
-                              fontFamily: "'DM Sans', sans-serif", overflow: 'hidden',
-                              textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', display: 'block',
+                              fontFamily: "'DM Sans', sans-serif",
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              maxWidth: '100%', display: 'block',
                             }}>{name}</button>
                           ) : (
                             <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
@@ -521,11 +705,13 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4,
                           fontWeight: 600, fontSize: 12, borderRadius: 4, padding: '2px 8px',
-                          color: isBuy ? '#15803D' : '#B91C1C',
+                          color:      isBuy ? '#15803D' : '#B91C1C',
                           background: isBuy ? '#F0FDF4' : '#FEF2F2',
                         }}>
                           <svg width="7" height="7" viewBox="0 0 8 8" fill={isBuy ? '#15803D' : '#B91C1C'}>
-                            {isBuy ? <polygon points="4,1 7,6 1,6"/> : <polygon points="1,2 7,2 4,7"/>}
+                            {isBuy
+                              ? <polygon points="4,1 7,6 1,6"/>
+                              : <polygon points="1,2 7,2 4,7"/>}
                           </svg>
                           {t.transaction_type}
                         </span>
@@ -549,10 +735,9 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
                       {/* vs Market */}
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                         {vsMarket ? (
-                          <span style={{
-                            fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                            color: vsMarket.color, background: vsMarket.bg,
-                          }}>{vsMarket.label}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4, color: vsMarket.color, background: vsMarket.bg }}>
+                            {vsMarket.label}
+                          </span>
                         ) : (
                           <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
                         )}
@@ -565,17 +750,21 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
                             <span style={{
                               fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
                               background: t.conviction_label === 'High Conviction' ? '#FEF9C3' : '#EEF2FF',
-                              color: t.conviction_label === 'High Conviction' ? '#92400E' : ACCENT,
+                              color:      t.conviction_label === 'High Conviction' ? '#92400E' : ACCENT,
                             }}>
                               {t.conviction_label === 'High Conviction' ? '⭐ HIGH' : 'MED'}
                             </span>
                           )}
-                          {nearBlack && isBuy && (
-                            <span title="Transaction occurred in a typical pre-earnings blackout window — historically a strong buy signal" style={{
-                              fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
-                              background: '#FEF3C7', color: '#92400E', cursor: 'help',
-                            }}>
-                              📅 Pre-earnings
+                          {/* Real pre-earnings badge — only shown when earnings data exists */}
+                          {isBuy && blackout.isNear && (
+                            <span
+                              title={`Purchased ${blackout.daysBefore} day${blackout.daysBefore === 1 ? '' : 's'} before earnings (${fmtDateShort(blackout.earningsDate)}) — historically a strong buy signal`}
+                              style={{
+                                fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
+                                background: '#FEF3C7', color: '#92400E', cursor: 'help',
+                              }}
+                            >
+                              📅 {blackout.daysBefore}d pre-earnings
                             </span>
                           )}
                         </div>
@@ -589,16 +778,16 @@ export default function CompanyPage({ ticker, company, countryCode, yahooTicker,
         )}
       </div>
 
-      {/* Pre-earnings research note */}
-      {companyTrades.some(t => isNearEarningsWindow(t.transaction_date) && t.transaction_type === 'BUY') && (
+      {/* Research note — only shown when real pre-earnings buys exist */}
+      {preEarningsBuys.length > 0 && (
         <div style={{
           marginTop: 16, padding: '12px 16px',
           background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
-          fontSize: 12, color: '#92400E', lineHeight: 1.5,
+          fontSize: 12, color: '#92400E', lineHeight: 1.6,
         }}>
-          📅 <strong>Pre-earnings window signal:</strong> Research (Seyhun 1998, Lakonishok & Lee 2001) shows CEO/CFO
-          purchases in the month before earnings carry 2–3× stronger predictive power. Transactions in Jan/Apr/Jul/Oct
-          fall within typical blackout periods, making these signals historically more significant.
+          📅 <strong>{preEarningsBuys.length} insider buy{preEarningsBuys.length > 1 ? 's' : ''} occurred in the 30-day blackout window</strong> before a real earnings date.
+          Research (Seyhun 1998, Lakonishok &amp; Lee 2001) shows CEO/CFO purchases in this window carry
+          2–3× stronger predictive power than purchases at other times.
         </div>
       )}
 
