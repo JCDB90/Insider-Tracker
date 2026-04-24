@@ -167,7 +167,8 @@ async function fetchStockAnalysis(ticker) {
  * Bursts mark the end of blackout periods ≈ earnings announcement dates.
  */
 function detectBursts(transactions) {
-  const dates = [...new Set(transactions.map(t => t.transaction_date))].sort();
+  // Normalise dates to YYYY-MM-DD (in case DB returns full timestamps)
+  const dates = [...new Set(transactions.map(t => String(t.transaction_date).slice(0, 10)))].filter(Boolean).sort();
   if (dates.length < 2) return null;
 
   // Find burst clusters: consecutive dates within 14 days of each other
@@ -194,7 +195,13 @@ function detectBursts(transactions) {
     const diffs = [];
     for (let i = 1; i < clusters.length; i++) diffs.push((new Date(clusters[i]) - new Date(clusters[i-1])) / 86400000);
     const avg = diffs.reduce((a,b) => a+b,0) / diffs.length;
-    interval = [90, 120, 182, 365].reduce((a,b) => Math.abs(a-avg) < Math.abs(b-avg) ? a : b);
+    if (avg < 30) {
+      // Sub-bursts from the same reporting window (e.g. 10 insiders filing over 3 weeks).
+      // The interval between them is NOT a reporting period — default to semi-annual.
+      interval = 182;
+    } else {
+      interval = [90, 120, 182, 365].reduce((a,b) => Math.abs(a-avg) < Math.abs(b-avg) ? a : b);
+    }
   }
 
   // Predict next: last burst + interval
