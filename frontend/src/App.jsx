@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import CompanyPage from './CompanyPage.jsx';
 
 const supabase = createClient(
   'https://loqmxllfjvdwamwicoow.supabase.co',
@@ -676,7 +677,7 @@ function InsiderCard({ row }) {
 
 // ─── TradesTable ──────────────────────────────────────────────────────────────
 
-function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick }) {
+function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, onCompanyClick }) {
   const cols = [
     { key: 'transaction_date', label: 'Date',    align: 'left',  sortable: true  },
     { key: 'company',          label: 'Company',  align: 'left',  sortable: true  },
@@ -771,7 +772,15 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick })
                   </td>
                   {/* Company */}
                   <td style={{ padding: rowPad, overflow: 'hidden' }} title={row.company}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', ...truncCell }}>{row.company}</div>
+                    {onCompanyClick ? (
+                      <button onClick={() => onCompanyClick(row.ticker, row.company, row.country_code)} style={{
+                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                        fontWeight: 600, fontSize: 13, color: '#111318', textAlign: 'left',
+                        fontFamily: "'DM Sans', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
+                      }} title={row.company}>{row.company}</button>
+                    ) : (
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', ...truncCell }}>{row.company}</div>
+                    )}
                     {row.ticker && (
                       <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>
                     )}
@@ -953,7 +962,7 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, addToWatchlist, onInsiderClick }) {
+function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
   const [saving, setSaving] = useState(false);
@@ -1211,7 +1220,15 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
                         {formatDateShort(t.transaction_date)}
                       </td>
                       <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.company}</div>
+                        {onCompanyClick ? (
+                          <button onClick={() => onCompanyClick(t.ticker, t.company, t.country_code)} style={{
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+                            fontWeight: 600, fontSize: 13, color: '#111318', fontFamily: "'DM Sans', sans-serif",
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', display: 'block',
+                          }}>{t.company}</button>
+                        ) : (
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.company}</div>
+                        )}
                         <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{t.ticker}</div>
                       </td>
                       <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
@@ -1262,7 +1279,7 @@ function DashboardPage({
   buybackSort, setBuybackSort,
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
-  countryCounts, onInsiderClick,
+  countryCounts, onInsiderClick, onCompanyClick,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
 
@@ -1397,6 +1414,7 @@ function DashboardPage({
               sortDir={tradeSort.dir}
               onSort={handleTradeSort}
               onInsiderClick={onInsiderClick}
+              onCompanyClick={onCompanyClick}
             />
           ) : (
             <BuybackTable
@@ -1433,7 +1451,7 @@ function DashboardPage({
 
 // ─── InsiderProfilePage ───────────────────────────────────────────────────────
 
-function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
+function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompanyClick }) {
   const myTrades = useMemo(() =>
     trades.filter(t => t.insider_name === insiderName)
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
@@ -1671,8 +1689,16 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack }) {
                   >
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                       <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{formatDateShort(t.transaction_date)}</div>
-                      {t.company && companies.length > 1 && (
-                        <div style={{ fontSize: 10, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }} title={t.company}>{t.ticker || t.company}</div>
+                      {t.company && (
+                        onCompanyClick ? (
+                          <button onClick={() => onCompanyClick(t.ticker, t.company, t.country_code)} style={{
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+                            fontSize: 10, color: ACCENT, fontFamily: "'DM Sans', sans-serif",
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120, display: 'block',
+                          }} title={t.company}>{t.ticker || t.company}</button>
+                        ) : (
+                          <div style={{ fontSize: 10, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }} title={t.company}>{t.ticker || t.company}</div>
+                        )
                       )}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right' }}>
@@ -2321,6 +2347,7 @@ export default function App() {
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
   const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
+  const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
 
   useEffect(() => {
     try { localStorage.setItem('ia_page', page); } catch {}
@@ -2423,6 +2450,12 @@ export default function App() {
     setPage('insiders');
   }
 
+  function handleCompanyClick(ticker, company, countryCode) {
+    const wl = watchlist.find(w => w.ticker === ticker && w.country_code === countryCode);
+    setSelectedCompany({ ticker, company, countryCode, yahooTicker: wl?.yahoo_ticker || null });
+    setPage('company');
+  }
+
   function toggleCountry(code) {
     setSelectedCountries(prev => {
       const next = new Set(prev);
@@ -2449,6 +2482,7 @@ export default function App() {
             clearCountries={clearCountries}
             countryCounts={countryCounts}
             onInsiderClick={handleInsiderClick}
+            onCompanyClick={handleCompanyClick}
           />
         )}
         {page === 'watchlist' && (
@@ -2459,6 +2493,7 @@ export default function App() {
             watchlistTickers={watchlistTickers}
             addToWatchlist={addToWatchlist}
             onInsiderClick={handleInsiderClick}
+            onCompanyClick={handleCompanyClick}
           />
         )}
         {page === 'insiders' && selectedInsider ? (
@@ -2467,6 +2502,7 @@ export default function App() {
             trades={trades}
             performance={performance}
             onBack={() => setSelectedInsider(null)}
+            onCompanyClick={handleCompanyClick}
           />
         ) : page === 'insiders' && (
           <InsidersPage
@@ -2481,6 +2517,18 @@ export default function App() {
           <AlertsPage trades={trades} tradesLoading={tradesLoading} watchlistTickers={watchlistTickers} />
         )}
         {page === 'pricing' && <PricingPage />}
+        {page === 'company' && selectedCompany && (
+          <CompanyPage
+            ticker={selectedCompany.ticker}
+            company={selectedCompany.company}
+            countryCode={selectedCompany.countryCode}
+            yahooTicker={selectedCompany.yahooTicker}
+            trades={trades}
+            watchlist={watchlist}
+            onBack={() => setPage('dashboard')}
+            onInsiderClick={handleInsiderClick}
+          />
+        )}
       </div>
     </div>
   );
