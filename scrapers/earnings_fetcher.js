@@ -258,12 +258,22 @@ async function main() {
     process.exit(1);
   }
 
-  // Load all tickers and their transactions
-  const { data: txRows } = await supabase
-    .from('insider_transactions')
-    .select('ticker,company,country_code,transaction_date,transaction_type')
-    .not('ticker', 'is', null).neq('ticker', '')
-    .order('transaction_date', { ascending: true });
+  // Load all tickers and their transactions — paginated (Supabase caps at 1000/page)
+  const txRows = [];
+  { let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('insider_transactions')
+        .select('ticker,company,country_code,transaction_date,transaction_type')
+        .not('ticker', 'is', null).neq('ticker', '')
+        .order('transaction_date', { ascending: true })
+        .range(from, from + 999);
+      if (error || !data?.length) break;
+      txRows.push(...data);
+      if (data.length < 1000) break;
+      from += 1000;
+    }
+  }
 
   const tickerMap = new Map();  // ticker:cc → { ticker, company, cc, txns }
   for (const r of txRows || []) {
