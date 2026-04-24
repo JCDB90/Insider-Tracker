@@ -33,21 +33,31 @@ const ACCENT = '#1B2CC1';
 
 // ─── Watchlist (personal stocks) ─────────────────────────────────────────────
 
-const WATCHLIST = [
-  { ticker: 'VID',  company: 'Vidrala',       country: 'ES', yahoo: 'VID.MC'   },
-  { ticker: 'THEP', company: 'Thermador',      country: 'FR', yahoo: 'THEP.PA'  },
-  { ticker: 'PRX',  company: 'Prosus',         country: 'NL', yahoo: 'PRX.AS'   },
-  { ticker: 'ASML', company: 'ASML',           country: 'NL', yahoo: 'ASML.AS'  },
-  { ticker: 'FLOW', company: 'Flow Traders',   country: 'NL', yahoo: 'FLOW.AS'  },
-  { ticker: 'JEN',  company: 'Jensen Group',   country: 'BE', yahoo: 'JEN.BR'   },
+// Hardcoded fallback — used only until the DB watchlist loads
+const WATCHLIST_FALLBACK = [
+  { ticker: 'VID',  company: 'Vidrala',       country_code: 'ES', yahoo_ticker: 'VID.MC'   },
+  { ticker: 'THEP', company: 'Thermador',      country_code: 'FR', yahoo_ticker: 'THEP.PA'  },
+  { ticker: 'PRX',  company: 'Prosus',         country_code: 'NL', yahoo_ticker: 'PRX.AS'   },
+  { ticker: 'ASML', company: 'ASML',           country_code: 'NL', yahoo_ticker: 'ASML.AS'  },
+  { ticker: 'FLOW', company: 'Flow Traders',   country_code: 'NL', yahoo_ticker: 'FLOW.AS'  },
+  { ticker: 'JEN',  company: 'Jensen Group',   country_code: 'BE', yahoo_ticker: 'JEN.BR'   },
 ];
 
-const WATCHLIST_TICKERS = new Set(WATCHLIST.map(w => w.ticker));
+// Match a transaction to a watchlist entry — requires both ticker AND country_code
+function matchesWatchlist(watchlist, t) {
+  return watchlist.some(w => w.ticker === t.ticker && w.country_code === t.country_code);
+}
 
-// Match a transaction to a watchlist entry — requires both ticker AND country to match,
-// preventing ticker collisions (e.g. VID = Vidrala ES and Videndum GB)
-function matchesWatchlist(t) {
-  return WATCHLIST.some(w => w.ticker === t.ticker && w.country === t.country_code);
+// ─── Pure filter function (no closure capture) ────────────────────────────────
+
+function applyFilters(rows, searchKeys, selectedCountries, search) {
+  let result = rows;
+  if (selectedCountries.size > 0) result = result.filter(r => selectedCountries.has(r.country_code));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    result = result.filter(r => searchKeys.some(k => (r[k] || '').toLowerCase().includes(q)));
+  }
+  return result;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -610,9 +620,7 @@ function InsiderCard({ row }) {
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               maxWidth: 150,
             }}>{row.company}</div>
-            {WATCHLIST_TICKERS.has(row.ticker) && (
-              <span title="In your watchlist" style={{ fontSize: 11, color: ACCENT, fontWeight: 700 }}>★</span>
-            )}
+            {/* watchlist star rendered by parent if needed */}
           </div>
           <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
             {row.ticker || '—'} · {COUNTRY_NAMES[row.country_code] || row.country_code}
@@ -942,13 +950,38 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, onInsiderClick }) {
+function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, addToWatchlist, onInsiderClick }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  async function handleAddStock(e) {
+    e.preventDefault();
+    if (!newStock.ticker.trim() || !newStock.company.trim()) return;
+    setSaving(true);
+    setSaveError('');
+    const success = await addToWatchlist({
+      ticker: newStock.ticker.trim().toUpperCase(),
+      company: newStock.company.trim(),
+      country_code: newStock.country_code,
+      yahoo_ticker: newStock.yahoo_ticker.trim() || null,
+    });
+    setSaving(false);
+    if (success) {
+      setShowAddModal(false);
+      setNewStock({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
+    } else {
+      setSaveError('Failed to save — ticker may already exist.');
+    }
+  }
+
   const watchlistTrades = useMemo(() => {
     const result = {};
-    for (const w of WATCHLIST) result[w.ticker] = { ...w, buys: [], sells: [] };
+    for (const w of watchlist) result[w.ticker] = { ...w, buys: [], sells: [] };
 
     for (const t of trades) {
-      if (!matchesWatchlist(t)) continue;
+      if (!matchesWatchlist(watchlist, t)) continue;
       const entry = result[t.ticker];
       if (!entry) continue;
       const type = (t.transaction_type || '').toUpperCase();
@@ -956,21 +989,105 @@ function WatchlistPage({ trades, tradesLoading, onInsiderClick }) {
       else entry.sells.push(t);
     }
     return Object.values(result);
-  }, [trades]);
+  }, [trades, watchlist]);
 
   const allWatchlistTrades = useMemo(() => {
     return trades
-      .filter(t => matchesWatchlist(t))
+      .filter(t => matchesWatchlist(watchlist, t))
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
-  }, [trades]);
+  }, [trades, watchlist]);
 
   return (
     <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ color: ACCENT }}>★</span> My Watchlist
-        </h1>
-        <p style={{ fontSize: 13, color: '#9CA3AF' }}>Insider activity in your personally tracked stocks</p>
+      {/* Add stock modal */}
+      {showAddModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowAddModal(false)}>
+          <div style={{
+            background: '#fff', borderRadius: 14, padding: '28px 32px',
+            width: 420, boxShadow: '0 16px 48px rgba(0,0,0,0.18)',
+            position: 'relative',
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', marginBottom: 20 }}>Add stock to watchlist</h2>
+            <form onSubmit={handleAddStock}>
+              {[
+                { label: 'Company name', key: 'company', placeholder: 'AB Industrivärden' },
+                { label: 'Ticker', key: 'ticker', placeholder: 'INDU-C' },
+                { label: 'Yahoo Finance ticker', key: 'yahoo_ticker', placeholder: 'INDU-C.ST' },
+              ].map(f => (
+                <div key={f.key} style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{f.label}</label>
+                  <input
+                    value={newStock[f.key]}
+                    onChange={e => setNewStock(s => ({ ...s, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    style={{
+                      width: '100%', padding: '8px 12px', border: '1px solid #D1D5DB',
+                      borderRadius: 7, fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                      outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              ))}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Country</label>
+                <select
+                  value={newStock.country_code}
+                  onChange={e => setNewStock(s => ({ ...s, country_code: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '8px 12px', border: '1px solid #D1D5DB',
+                    borderRadius: 7, fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                    background: '#fff', outline: 'none', boxSizing: 'border-box',
+                  }}
+                >
+                  {TRACKED_MARKETS.map(code => (
+                    <option key={code} value={code}>{COUNTRY_FLAGS[code]} {COUNTRY_NAMES[code]} ({code})</option>
+                  ))}
+                </select>
+              </div>
+              {saveError && <p style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{saveError}</p>}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setShowAddModal(false)} style={{
+                  padding: '8px 18px', border: '1px solid #D1D5DB', borderRadius: 7,
+                  background: '#fff', cursor: 'pointer', fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                }}>Cancel</button>
+                <button type="submit" disabled={saving} style={{
+                  padding: '8px 18px', border: 'none', borderRadius: 7,
+                  background: ACCENT, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
+                  fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                  opacity: saving ? 0.7 : 1,
+                }}>{saving ? 'Saving…' : 'Add to watchlist'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: ACCENT }}>★</span> My Watchlist
+          </h1>
+          <p style={{ fontSize: 13, color: '#9CA3AF' }}>Insider activity in your personally tracked stocks</p>
+        </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          title="Add stock to watchlist"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 14px', background: ACCENT, color: '#fff',
+            border: 'none', borderRadius: 8, cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+            marginTop: 2, flexShrink: 0,
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1v10M1 6h10" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          Add stock
+        </button>
       </div>
 
       {/* Stock summary cards */}
@@ -1773,7 +1890,8 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
 
 // ─── AlertsPage ───────────────────────────────────────────────────────────────
 
-function AlertsPage({ trades, tradesLoading }) {
+function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
+  watchlistTickers = watchlistTickers || new Set();
   const recentAlerts = useMemo(() => {
     return trades
       .filter(t => {
@@ -1782,8 +1900,8 @@ function AlertsPage({ trades, tradesLoading }) {
       })
       .sort((a, b) => {
         // Watchlist first, then high conviction, then by date/value
-        const aWatch = WATCHLIST_TICKERS.has(a.ticker) ? 1 : 0;
-        const bWatch = WATCHLIST_TICKERS.has(b.ticker) ? 1 : 0;
+        const aWatch = watchlistTickers.has(a.ticker) ? 1 : 0;
+        const bWatch = watchlistTickers.has(b.ticker) ? 1 : 0;
         if (bWatch !== aWatch) return bWatch - aWatch;
         const aHigh = a.conviction_label === 'High Conviction' ? 1 : 0;
         const bHigh = b.conviction_label === 'High Conviction' ? 1 : 0;
@@ -1793,7 +1911,7 @@ function AlertsPage({ trades, tradesLoading }) {
         return Number(b.total_value) - Number(a.total_value);
       })
       .slice(0, 30);
-  }, [trades]);
+  }, [trades, watchlistTickers]);
 
   function timeAgo(dateStr) {
     if (!dateStr) return '';
@@ -1820,7 +1938,7 @@ function AlertsPage({ trades, tradesLoading }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {recentAlerts.map((row, i) => {
               const urgent  = isHighValue(row);
-              const isWatch = WATCHLIST_TICKERS.has(row.ticker);
+              const isWatch = watchlistTickers.has(row.ticker);
               const isHigh  = row.conviction_label === 'High Conviction';
               const name    = row.insider_name && row.insider_name !== 'Not disclosed'
                 ? row.insider_name : (row.via_entity || 'Insider');
@@ -2199,6 +2317,7 @@ export default function App() {
 
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
+  const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
 
   useEffect(() => {
     try { localStorage.setItem('ia_page', page); } catch {}
@@ -2230,7 +2349,20 @@ export default function App() {
       setBuybacks(data);
       setBuybacksLoading(false);
     });
+    // Load watchlist from Supabase (overrides hardcoded fallback when DB has entries)
+    supabase.from('watchlist').select('*').order('created_at', { ascending: true }).then(({ data }) => {
+      if (data && data.length > 0) setWatchlist(data);
+    });
   }, []);
+
+  async function addToWatchlist(stock) {
+    const { error } = await supabase.from('watchlist').insert([stock]);
+    if (error) return false;
+    setWatchlist(prev => [...prev, stock]);
+    return true;
+  }
+
+  const watchlistTickers = useMemo(() => new Set(watchlist.map(w => w.ticker)), [watchlist]);
 
   const countryCounts = useMemo(() => {
     const counts = {};
@@ -2241,25 +2373,22 @@ export default function App() {
     return counts;
   }, [trades]);
 
-  function applyFilters(rows, searchKeys) {
-    let result = rows;
-    if (selectedCountries.size > 0) result = result.filter(r => selectedCountries.has(r.country_code));
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      result = result.filter(r => searchKeys.some(k => (r[k] || '').toLowerCase().includes(q)));
-    }
-    return result;
-  }
+  // applyFilters is a pure module-level function — no closure capture needed
+  const filteredTrades = useMemo(
+    () => sortRows(
+      applyFilters(trades, ['company', 'ticker', 'insider_name', 'via_entity'], selectedCountries, search),
+      tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']
+    ),
+    [trades, selectedCountries, search, tradeSort]
+  );
 
-  const filteredTrades = useMemo(() => {
-    const base = applyFilters(trades, ['company', 'ticker', 'insider_name', 'via_entity']);
-    return sortRows(base, tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']);
-  }, [trades, selectedCountries, search, tradeSort]);
-
-  const filteredBuybacks = useMemo(() => {
-    const base = applyFilters(buybacks, ['company', 'ticker']);
-    return sortRows(base, buybackSort.by, buybackSort.dir, ['total_value']);
-  }, [buybacks, selectedCountries, search, buybackSort]);
+  const filteredBuybacks = useMemo(
+    () => sortRows(
+      applyFilters(buybacks, ['company', 'ticker'], selectedCountries, search),
+      buybackSort.by, buybackSort.dir, ['total_value']
+    ),
+    [buybacks, selectedCountries, search, buybackSort]
+  );
 
   const tradeStats = useMemo(() => {
     const buys = trades.filter(t => ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase())).length;
@@ -2323,6 +2452,9 @@ export default function App() {
           <WatchlistPage
             trades={trades}
             tradesLoading={tradesLoading}
+            watchlist={watchlist}
+            watchlistTickers={watchlistTickers}
+            addToWatchlist={addToWatchlist}
             onInsiderClick={handleInsiderClick}
           />
         )}
@@ -2343,7 +2475,7 @@ export default function App() {
           />
         )}
         {page === 'alerts' && (
-          <AlertsPage trades={trades} tradesLoading={tradesLoading} />
+          <AlertsPage trades={trades} tradesLoading={tradesLoading} watchlistTickers={watchlistTickers} />
         )}
         {page === 'pricing' && <PricingPage />}
       </div>

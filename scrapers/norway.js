@@ -420,6 +420,12 @@ function parseBody(raw) {
     }
   }
 
+  // Post-processing: reject names that are role/title descriptions rather than persons.
+  // E.g. "board member in Protector Forsikring", "primary insider of Acme ASA".
+  if (insiderName && /\b(?:board|primary\s+insider|chair(?:man)?|member|director|officer|head|president|manager)\s+(?:member\s+)?(?:in|of|at|for)\b/i.test(insiderName)) {
+    insiderName = null;
+  }
+
   return { txType, insiderName, viaEntity, role, shares, price, total };
 }
 
@@ -534,13 +540,23 @@ async function scrapeNO() {
             const b       = pdfBlocks[i];
             const pdfFid  = pdfBlocks.length === 1 ? fid : `${fid}-pdf-${i}`;
             const blkDate = b.txDate || txDate;
+
+            // If the PDF "a) Name" is a corporate entity, move it to via_entity
+            // and use the body-parsed person name as insider_name.
+            let pdfInsiderName = b.name || parsed.insiderName || null;
+            let pdfViaEntity   = parsed.viaEntity || null;
+            if (b.name && looksLikeCorp(b.name)) {
+              pdfViaEntity   = b.name;
+              pdfInsiderName = parsed.insiderName || null;
+            }
+
             dbRows.push({
               filing_id:        pdfFid,
               country_code:     COUNTRY_CODE,
               ticker,
               company,
-              insider_name:     b.name || parsed.insiderName || null,
-              via_entity:       (looksLikeCorp(b.name) ? null : (parsed.viaEntity || null)),
+              insider_name:     pdfInsiderName,
+              via_entity:       pdfViaEntity,
               insider_role:     translateRole(b.role || parsed.role) || null,
               transaction_type: b.txType || txType,
               transaction_date: blkDate,
