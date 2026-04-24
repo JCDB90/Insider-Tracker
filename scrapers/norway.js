@@ -266,6 +266,16 @@ function parsePdfMarBlock(text) {
     }
   }
 
+  // PDF name post-processing: reject pure role strings captured as names
+  if (name) {
+    if (/^(?:independent\s+)?(?:non[\s-]executive\s+)?(?:executive\s+)?(?:chief\s+\w+\s+officer|chairman|director|officer|president|manager|member)\s*$/i.test(name)) {
+      role = role || name;
+      name = null;
+    }
+    // Strip company suffix appended to person name (e.g. "Talar Arif in Aker BP ASA")
+    name = name ? name.replace(/\s+(?:in|of|at)\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{2,}(?:ASA|AS|Ltd|plc|SE)\s*\.?$/i, '').trim() : null;
+  }
+
   return { name, role, txType, price: price || null, shares, total, currency, txDate };
 }
 
@@ -420,10 +430,35 @@ function parseBody(raw) {
     }
   }
 
-  // Post-processing: reject names that are role/title descriptions rather than persons.
-  // E.g. "board member in Protector Forsikring", "primary insider of Acme ASA".
-  if (insiderName && /\b(?:board|primary\s+insider|chair(?:man)?|member|director|officer|head|president|manager)\s+(?:member\s+)?(?:in|of|at|for)\b/i.test(insiderName)) {
-    insiderName = null;
+  // ── Post-processing: clean up name parse artifacts ───────────────────────────
+
+  if (insiderName) {
+    // 1. "This notification concerns NAME, who is..." → extract the real name
+    const concernsM = insiderName.match(/^this\s+notification\s+concerns\s+([A-ZÆØÅ][a-zA-ZÆØÅæøå\-\. ]{3,50}?)(?:,|\s+who\s)/i);
+    if (concernsM) insiderName = concernsM[1].trim();
+
+    // 2. Strip leading role abbreviation: "CIO Ilija Batljan" → "Ilija Batljan"
+    insiderName = insiderName.replace(/^(?:CEO|CFO|COO|CTO|CIO|CCO|CMO|CSO|EVP|SVP|VP|CFO)\s+/i, '');
+
+    // 3. Strip "in/of/at Company ASA" company suffix appended to person name
+    insiderName = insiderName.replace(/\s+(?:in|of|at|and\s+\w+\s+of)\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{2,}(?:ASA|AS|Ltd|plc|SE|BV|NV|LLC|GmbH|AG)\s*\.?$/i, '').trim();
+
+    // 4. Reject if name is a pure role title (with or without following preposition)
+    if (/^(?:independent\s+)?(?:non[\s-]executive\s+)?(?:executive\s+)?(?:chief\s+\w+\s+officer|chairman|director|officer|president|manager|member)\s*$/i.test(insiderName)) {
+      role = role || insiderName;
+      insiderName = null;
+    }
+
+    // 5. Reject role descriptions "ROLE in/of Company"
+    if (insiderName && /\b(?:board|primary\s+insider|chair(?:man)?|member|director|officer|head|president|manager)\s+(?:member\s+)?(?:in|of|at|for)\b/i.test(insiderName)) {
+      insiderName = null;
+    }
+
+    // 6. If still looks like a corporate entity, move to via_entity
+    if (insiderName && looksLikeCorp(insiderName)) {
+      if (!viaEntity) viaEntity = insiderName;
+      insiderName = null;
+    }
   }
 
   return { txType, insiderName, viaEntity, role, shares, price, total };
