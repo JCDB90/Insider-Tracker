@@ -1,18 +1,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Weekly Earnings Calendar Fetcher
 #
-# Fetches earnings dates from Yahoo Finance for all tickers in the DB
-# and stores them in the earnings_calendar Supabase table.
+# Source: Finnhub (primary) — free tier, bare-ticker with exchange validation
+# Coverage: ~1-5% of European tickers (cross-listed companies only).
+#   Full EU coverage requires Finnhub paid plan (~$49/mo).
 #
-# Schedule: Every Sunday at 06:00 UTC (before markets open in Asia)
-# Runtime:  ~335 tickers × ~220ms = ~5 min
+# Schedule: Every Sunday at 06:00 UTC
+# Runtime:  ~388 tickers × 220ms = ~4 min
 #
-# Requires:
-#   SUPABASE_URL  — set in Settings → Secrets → Actions
-#   SUPABASE_KEY  — service_role key (write access)
-#
-# First run: also requires migrations/005_earnings_calendar.sql to be
-# executed in the Supabase dashboard.
+# Secrets required:
+#   SUPABASE_URL      — Supabase project URL
+#   SUPABASE_KEY      — service_role key (bypasses RLS for writes)
+#   FINNHUB_API_KEY   — finnhub.io free API key
+#   FMP_API_KEY       — financialmodelingprep.com key (currently unused; FMP
+#                       free tier has no per-company EU endpoint)
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Weekly Earnings Calendar
