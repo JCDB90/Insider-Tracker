@@ -116,11 +116,12 @@ async function fetchFinnhub(ticker, countryCode, yahooOverride) {
     const entries = json.earningsCalendar;
     const resolvedSymbol = entries[0]?.symbol || sym;
 
-    // Validate exchange suffix if we have an expectation
+    // Strict exchange validation: resolved symbol MUST carry the expected
+    // exchange suffix. Bare-ticker results (e.g. "UCB" for a BE company)
+    // are rejected — they map to US companies, not the European one we want.
     if (expectedSuffix) {
-      const resolvedSuffix = resolvedSymbol.match(/\.[A-Z]+$/)?.[0]?.toUpperCase();
-      if (resolvedSuffix && resolvedSuffix !== expectedSuffix.toUpperCase()) {
-        // Wrong exchange — likely a different company with the same ticker name
+      const resolvedSuffix = resolvedSymbol.match(/\.[A-Z]{1,3}$/)?.[0]?.toUpperCase();
+      if (!resolvedSuffix || resolvedSuffix !== expectedSuffix.toUpperCase()) {
         await sleep(DELAY_MS);
         continue;
       }

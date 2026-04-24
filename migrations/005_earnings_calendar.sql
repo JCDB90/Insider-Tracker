@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS earnings_calendar (
 CREATE INDEX IF NOT EXISTS idx_earnings_ticker ON earnings_calendar (ticker);
 CREATE INDEX IF NOT EXISTS idx_earnings_date   ON earnings_calendar (earnings_date);
 
--- RLS: readable by anyone with the anon key
+-- RLS: allow read/write for all roles (data is non-sensitive)
 ALTER TABLE earnings_calendar ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "earnings_calendar_read" ON earnings_calendar
-  FOR SELECT USING (true);
+CREATE POLICY "earnings_calendar_all" ON earnings_calendar
+  FOR ALL USING (true) WITH CHECK (true);
