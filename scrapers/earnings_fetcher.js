@@ -371,11 +371,13 @@ async function main() {
   }
 
   // ── Flush to Supabase ──────────────────────────────────────────────────
+  // Deduplicate by (ticker, earnings_date) — prevents ON CONFLICT clash
+  // when two paths produce the same (ticker, date) with different country_codes.
+  const dedupedRows = [...new Map(allRows.map(r => [`${r.ticker}:${r.earnings_date}`, r])).values()];
   let upserted = 0;
-  if (allRows.length > 0) {
-    // Batch upsert in chunks of 100
-    for (let i = 0; i < allRows.length; i += 100) {
-      const chunk = allRows.slice(i, i + 100);
+  if (dedupedRows.length > 0) {
+    for (let i = 0; i < dedupedRows.length; i += 100) {
+      const chunk = dedupedRows.slice(i, i + 100);
       const { error } = await supabase.from('earnings_calendar')
         .upsert(chunk, { onConflict: 'ticker,earnings_date', ignoreDuplicates: false });
       if (error) console.error('  ⚠  upsert error:', error.message);
