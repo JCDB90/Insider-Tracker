@@ -182,6 +182,8 @@ const ROLE_RULES = [
   [/großaktionär/i,                             'Major Shareholder'],  // DE
 
   // ── Senior Executive ──────────────────────────────────────────────────────────
+  [/person\s+discharging\s+managerial\s+responsibilit/i, 'Senior Executive'],  // ESMA standard PDMR term
+  [/\bPDMR\b/,                                  'Senior Executive'],  // ESMA acronym
   [/\bsenior\s+executive\b/i,                   'Senior Executive'],  // FSMA BE
   [/\bsenior\s+manager\b/i,                     'Senior Executive'],
   [/sonstige\s+f[uü]hrungsperson/i,             'Senior Executive'],   // DE: other person with managerial responsibilities

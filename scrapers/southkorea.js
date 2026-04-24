@@ -384,6 +384,11 @@ async function scrapeKR() {
 
     const filingUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}`;
 
+    // Determine if filer is an institution (5+ Hangul chars = corporate entity)
+    const hangulCount = name ? [...name].filter(c => /[가-힯]/.test(c)).length : 0;
+    const isCorporateFiler = hangulCount > 4;
+    const romanizedName = romanizeKoreanName(name);
+
     // One DB row per transaction (filings can contain multiple trade dates)
     return result.txns.map((txn, idx) => ({
       filing_id:        `KR-${rcptNo}-${txn.transDate || filingDate}-${idx}`,
@@ -391,7 +396,8 @@ async function scrapeKR() {
       source:           SOURCE,
       ticker:           sc || listing.corp_code || null,
       company,
-      insider_name:     romanizeKoreanName(name),
+      insider_name:     isCorporateFiler ? null : romanizedName,
+      via_entity:       isCorporateFiler ? romanizedName : null,
       insider_role:     translateRole(role),
       transaction_type: txn.txType,
       transaction_date: txn.transDate || filingDate,

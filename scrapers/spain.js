@@ -32,6 +32,7 @@ const cheerio        = require('cheerio');
 const { PDFParse }   = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
 const { isinToTicker }            = require('./lib/isinToTicker');
+const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
@@ -371,7 +372,7 @@ async function scrapeES() {
         _isin:            pdf.isin || null,
         company:          f.company,
         insider_name:     f.insiderName,
-        insider_role:     f.role || 'Not disclosed',
+        insider_role:     translateRole(f.role) || 'Not disclosed',
         transaction_type: pdf.txType,
         transaction_date: f.txDate,
         shares,

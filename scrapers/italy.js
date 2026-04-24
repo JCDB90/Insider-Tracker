@@ -37,6 +37,7 @@ const { PDFParse } = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
 const { looksLikeCorp }           = require('./lib/entityUtils');
 const { isinToTicker }            = require('./lib/isinToTicker');
+const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'eMarket STORAGE Italy';
@@ -486,7 +487,7 @@ async function scrapeIT() {
         company,
         insider_name:     pdf.insiderName || null,
         via_entity:       pdf.viaEntity   || null,
-        insider_role:     pdf.role || 'Not disclosed',
+        insider_role:     translateRole(pdf.role) || 'Not disclosed',
         transaction_type: pdf.txType,
         transaction_date: txDate,
         shares,
