@@ -198,6 +198,11 @@ jobs:
         continue-on-error: true
         run: node scrapers/track-performance.js
 
+      - name: 🚩 Flag signals (cluster, repetitive, pre-earnings, price dip)
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scrapers/flag-signals.js
+
       # ── Summary ─────────────────────────────────────────────────────────────
       - name: 📊 Run summary
         if: always()

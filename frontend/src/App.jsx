@@ -147,6 +147,154 @@ function Flag({ code }) {
   );
 }
 
+// ─── SignalBadges — icon-only signal pills shown right of BUY/SELL ───────────
+
+const IcoTrendingDown = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 17 13.5 8.5 8.5 13.5 2 7" />
+    <polyline points="16 17 22 17 22 11" />
+  </svg>
+);
+const IcoRepeat = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="17 1 21 5 17 9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <polyline points="7 23 3 19 7 15" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </svg>
+);
+const IcoUsers = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+const IcoCalendar = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
+// Compact icon badges — order: 📉 🔁 🔄 📅
+function SignalBadges({ t, inline = true }) {
+  const badges = [];
+
+  if (t.is_price_dip) badges.push({
+    key: 'dip',
+    icon: <IcoTrendingDown />,
+    title: `Bought after ${t.price_drawdown != null ? (Number(t.price_drawdown) * 100).toFixed(0) + '%' : '10%+'} price decline`,
+    color: '#EA580C',
+    bg: '#FFF7ED',
+    border: '#FED7AA',
+  });
+
+  if (t.is_repetitive_buy) badges.push({
+    key: 'rep',
+    icon: <IcoRepeat />,
+    title: 'This insider made multiple purchases within 14 days',
+    color: '#6B7280',
+    bg: '#F9FAFB',
+    border: '#E5E7EB',
+  });
+
+  if (t.is_cluster_buy) badges.push({
+    key: 'cluster',
+    icon: <IcoUsers />,
+    title: 'Multiple insiders at this company bought within 14 days',
+    color: '#4338CA',
+    bg: '#EEF2FF',
+    border: '#C7D2FE',
+  });
+
+  if (t.is_pre_earnings) badges.push({
+    key: 'earn',
+    icon: <IcoCalendar />,
+    title: 'Purchased 30–60 days before earnings',
+    color: '#D97706',
+    bg: '#FFFBEB',
+    border: '#FDE68A',
+  });
+
+  if (badges.length === 0) return null;
+
+  return (
+    <div style={{ display: 'flex', gap: 3, alignItems: 'center', flexWrap: inline ? 'nowrap' : 'wrap' }}>
+      {badges.map(b => (
+        <span
+          key={b.key}
+          title={b.title}
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 20, height: 20, borderRadius: 4,
+            background: b.bg, border: '1px solid ' + b.border,
+            color: b.color, flexShrink: 0, cursor: 'default',
+          }}
+        >{b.icon}</span>
+      ))}
+    </div>
+  );
+}
+
+// Profile-page version: icon + label text, used inside "Signals" section
+function SignalBadgesFull({ t }) {
+  const badges = [];
+
+  if (t.is_price_dip) badges.push({
+    key: 'dip',
+    icon: <IcoTrendingDown />,
+    label: 'Bought on dip',
+    title: `Bought after ${t.price_drawdown != null ? (Number(t.price_drawdown) * 100).toFixed(0) + '%' : '10%+'} price decline`,
+    color: '#EA580C', bg: '#FFF7ED', border: '#FED7AA',
+  });
+  if (t.is_repetitive_buy) badges.push({
+    key: 'rep',
+    icon: <IcoRepeat />,
+    label: 'Repetitive buyer',
+    title: 'This insider made multiple purchases within 14 days',
+    color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB',
+  });
+  if (t.is_cluster_buy) badges.push({
+    key: 'cluster',
+    icon: <IcoUsers />,
+    label: 'Cluster buy',
+    title: 'Multiple insiders at this company bought within 14 days',
+    color: '#4338CA', bg: '#EEF2FF', border: '#C7D2FE',
+  });
+  if (t.is_pre_earnings) badges.push({
+    key: 'earn',
+    icon: <IcoCalendar />,
+    label: 'Pre-earnings buy',
+    title: 'Purchased 30–60 days before earnings',
+    color: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
+  });
+
+  if (badges.length === 0) return <span style={{ fontSize: 12, color: '#D1D5DB' }}>—</span>;
+
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {badges.map(b => (
+        <span
+          key={b.key}
+          title={b.title}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '3px 8px', borderRadius: 4,
+            background: b.bg, border: '1px solid ' + b.border, color: b.color,
+            fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap',
+          }}
+        >
+          {b.icon}{b.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ─── InsiderRatingBadge ───────────────────────────────────────────────────────
 
 function InsiderRatingBadge({ rating, large = false }) {
@@ -176,81 +324,6 @@ function InsiderRatingBadge({ rating, large = false }) {
       borderRadius: 20, fontSize: 11, fontWeight: 700, background: bg, color: text,
       border: '1px solid ' + border, whiteSpace: 'nowrap',
     }}>{star}{label} · {rating}</span>
-  );
-}
-
-// ─── ConvictionBadge ──────────────────────────────────────────────────────────
-
-function ConvictionBadge({ label, score, compact = false }) {
-  if (!label) return null;
-  const isHigh = label === 'High Conviction';
-  const isMed  = label === 'Medium Conviction';
-
-  const cfg = isHigh
-    ? { bg: '#FEF9C3', color: '#92400E', border: '#FDE68A', dot: '#F59E0B', short: 'HIGH' }
-    : isMed
-    ? { bg: '#EEF2FF', color: ACCENT,    border: '#C7D2FE', dot: ACCENT,    short: 'MED'  }
-    : { bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB', dot: '#9CA3AF', short: 'LOW'  };
-
-  if (compact) {
-    return (
-      <span title={`${label}${score != null ? ` (${(score * 100).toFixed(0)}%)` : ''}`} style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 20, height: 20, borderRadius: '50%',
-        background: cfg.bg, border: '1px solid ' + cfg.border,
-        fontSize: 9, fontWeight: 700, color: cfg.color, flexShrink: 0,
-        letterSpacing: '-0.02em',
-      }}>{cfg.short}</span>
-    );
-  }
-
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      background: cfg.bg, border: '1px solid ' + cfg.border,
-      borderRadius: 4, padding: '2px 7px',
-      fontSize: 11, fontWeight: 600, color: cfg.color,
-    }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.dot, flexShrink: 0 }} />
-      {label}
-      {score != null && (
-        <span style={{ fontFamily: "'DM Mono', monospace", opacity: 0.7, fontSize: 10 }}>
-          {(score * 100).toFixed(0)}%
-        </span>
-      )}
-    </span>
-  );
-}
-
-// ─── ClusterBadge ─────────────────────────────────────────────────────────────
-
-function ClusterBadge({ clusterSize, clusterValue, clusterStart, clusterEnd, currency, insiderName }) {
-  if (!clusterSize || clusterSize < 2) return null;
-  if (!isRealPerson(insiderName)) return null;
-  const parts = [`insider made ${clusterSize} purchases`];
-  if (clusterStart && clusterEnd && clusterStart !== clusterEnd) {
-    parts.push(`between ${formatDateShort(clusterStart)} and ${formatDateShort(clusterEnd)}`);
-  } else if (clusterStart) {
-    parts.push(`around ${formatDateShort(clusterStart)}`);
-  }
-  if (clusterValue) parts.push(`totalling ${formatValue(clusterValue, currency || 'EUR')}`);
-  parts.push('— a strong signal of conviction');
-  return (
-    <span
-      title={parts.join(' ')}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        background: '#EEF2FF', border: '1px solid #C7D2FE',
-        borderRadius: 4, padding: '2px 7px',
-        fontSize: 11, fontWeight: 600, color: '#4338CA',
-        cursor: 'default', whiteSpace: 'nowrap',
-      }}
-    >
-      <svg width="9" height="9" viewBox="0 0 10 10" fill="#4338CA">
-        <circle cx="3" cy="5" r="2"/><circle cx="7" cy="3" r="1.5"/><circle cx="7" cy="7" r="1.5"/>
-      </svg>
-      Cluster
-    </span>
   );
 }
 
@@ -611,9 +684,7 @@ function InsiderCard({ row }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           <TypeChip type={row.transaction_type} />
-          {row.conviction_label && (
-            <ConvictionBadge label={row.conviction_label} score={row.conviction_score} />
-          )}
+          <SignalBadges t={row} />
         </div>
       </div>
 
@@ -797,23 +868,11 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
                     )}
                   </td>
-                  {/* Type + conviction + cluster */}
+                  {/* Type + signal badges */}
                   <td style={{ padding: rowPad }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <TypeChip type={row.transaction_type} />
-                      {row.conviction_label && (
-                        <ConvictionBadge label={row.conviction_label} score={row.conviction_score} compact />
-                      )}
-                      {row.cluster_size >= 2 && (
-                        <ClusterBadge
-                          clusterSize={row.cluster_size}
-                          clusterValue={row.cluster_value}
-                          clusterStart={row.cluster_start}
-                          clusterEnd={row.cluster_end}
-                          currency={row.currency}
-                          insiderName={row.insider_name}
-                        />
-                      )}
+                      <SignalBadges t={row} />
                     </div>
                   </td>
                   {/* Price */}
@@ -1085,16 +1144,16 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 32 }}>
         {watchlistTrades.map(w => {
           const latestBuy = w.buys[0];
-          const hasHighConviction = w.buys.some(b => b.conviction_label === 'High Conviction');
+          const hasCluster = w.buys.some(b => b.is_cluster_buy);
           const recentBuys90 = w.buys.filter(b => (Date.now() - new Date(b.transaction_date)) / 86400000 <= 90);
 
           return (
             <div key={w.ticker} style={{
               background: '#fff',
-              border: '1px solid ' + (hasHighConviction ? '#FDE68A' : '#E8E9EE'),
-              borderTop: '3px solid ' + (hasHighConviction ? '#F59E0B' : ACCENT + '40'),
+              border: '1px solid ' + (hasCluster ? '#C7D2FE' : '#E8E9EE'),
+              borderTop: '3px solid ' + (hasCluster ? '#4338CA' : ACCENT + '40'),
               borderRadius: 10, padding: 16,
-              boxShadow: hasHighConviction ? '0 4px 16px rgba(245,158,11,0.10)' : '0 1px 3px rgba(0,0,0,0.04)',
+              boxShadow: hasCluster ? '0 4px 16px rgba(67,56,202,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div>
@@ -1104,8 +1163,10 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
                     <Flag code={w.country} />
                   </div>
                 </div>
-                {hasHighConviction && (
-                  <span style={{ fontSize: 10, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>HIGH ★</span>
+                {hasCluster && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, background: '#EEF2FF', color: '#4338CA', border: '1px solid #C7D2FE', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
+                    <IcoUsers /> Cluster
+                  </span>
                 )}
               </div>
 
@@ -1132,7 +1193,7 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
                     <span style={{ fontSize: 11, color: '#9CA3AF' }}>{formatDateShort(latestBuy.transaction_date)}</span>
-                    {latestBuy.conviction_label && <ConvictionBadge label={latestBuy.conviction_label} score={latestBuy.conviction_score} compact />}
+                    <SignalBadges t={latestBuy} />
                   </div>
                 </div>
               ) : (
@@ -1644,7 +1705,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
                   { label: '90d',        align: 'right' },
                   { label: '6m',         align: 'right' },
                   { label: '1y',         align: 'right' },
-                  { label: 'Conviction', align: 'left'  },
+                  { label: 'Signals',    align: 'left'  },
                 ].map(col => (
                   <th key={col.label} style={{
                     padding: '10px 12px', fontSize: 11, fontWeight: 600, color: '#9CA3AF',
@@ -1702,27 +1763,10 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
                       ))
                     )}
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                        {isBuy && t.conviction_score != null ? (
-                          <ConvictionBadge
-                            label={t.conviction_score >= 0.70 ? 'High Conviction' : t.conviction_score >= 0.40 ? 'Medium Conviction' : 'Low Conviction'}
-                            score={t.conviction_score}
-                            compact
-                          />
-                        ) : (
-                          <TypeChip type={t.transaction_type} />
-                        )}
-                        {t.cluster_size >= 2 && (
-                          <ClusterBadge
-                            clusterSize={t.cluster_size}
-                            clusterValue={t.cluster_value}
-                            clusterStart={t.cluster_start}
-                            clusterEnd={t.cluster_end}
-                            currency={t.currency}
-                            insiderName={t.insider_name}
-                          />
-                        )}
-                      </div>
+                      {isBuy
+                        ? <SignalBadgesFull t={t} />
+                        : <TypeChip type={t.transaction_type} />
+                      }
                     </td>
                   </tr>
                 );
@@ -1907,13 +1951,13 @@ function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
         return (type === 'BUY' || type === 'PURCHASE') && t.total_value;
       })
       .sort((a, b) => {
-        // Watchlist first, then high conviction, then by date/value
+        // Watchlist first, then cluster buys, then by date/value
         const aWatch = watchlistTickers.has(a.ticker) ? 1 : 0;
         const bWatch = watchlistTickers.has(b.ticker) ? 1 : 0;
         if (bWatch !== aWatch) return bWatch - aWatch;
-        const aHigh = a.conviction_label === 'High Conviction' ? 1 : 0;
-        const bHigh = b.conviction_label === 'High Conviction' ? 1 : 0;
-        if (bHigh !== aHigh) return bHigh - aHigh;
+        const aSignal = (a.is_cluster_buy || a.is_pre_earnings) ? 1 : 0;
+        const bSignal = (b.is_cluster_buy || b.is_pre_earnings) ? 1 : 0;
+        if (bSignal !== aSignal) return bSignal - aSignal;
         if (b.transaction_date > a.transaction_date) return 1;
         if (b.transaction_date < a.transaction_date) return -1;
         return Number(b.total_value) - Number(a.total_value);
@@ -1945,14 +1989,14 @@ function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {recentAlerts.map((row, i) => {
-              const urgent  = isHighValue(row);
-              const isWatch = watchlistTickers.has(row.ticker);
-              const isHigh  = row.conviction_label === 'High Conviction';
-              const name    = row.insider_name && row.insider_name !== 'Not disclosed'
+              const urgent    = isHighValue(row);
+              const isWatch   = watchlistTickers.has(row.ticker);
+              const isCluster = row.is_cluster_buy;
+              const name      = row.insider_name && row.insider_name !== 'Not disclosed'
                 ? row.insider_name : (row.via_entity || 'Insider');
 
-              const accentColor = isWatch ? '#F59E0B' : isHigh ? ACCENT : urgent ? '#F59E0B' : '#E2E4E9';
-              const borderColor = isWatch ? '#FDE68A' : isHigh ? '#C7D2FE' : urgent ? '#FDE68A' : '#E8E9EE';
+              const accentColor = isWatch ? '#F59E0B' : isCluster ? ACCENT : urgent ? '#F59E0B' : '#E2E4E9';
+              const borderColor = isWatch ? '#FDE68A' : isCluster ? '#C7D2FE' : urgent ? '#FDE68A' : '#E8E9EE';
 
               return (
                 <div key={row.id ?? i} style={{
@@ -1969,14 +2013,12 @@ function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
                           ★ Watchlist
                         </span>
                       )}
-                      {row.conviction_label && (
-                        <ConvictionBadge label={row.conviction_label} score={row.conviction_score} />
-                      )}
-                      {!row.conviction_label && urgent && (
+                      {urgent && (
                         <span style={{ fontSize: 11, fontWeight: 600, background: '#FEF9C3', color: '#92400E', borderRadius: 4, padding: '1px 7px' }}>
                           High-Value Buy
                         </span>
                       )}
+                      <SignalBadges t={row} />
                       <span style={{ fontSize: 11, color: '#9CA3AF' }}>{timeAgo(row.transaction_date)}</span>
                       <Flag code={row.country_code} />
                     </div>

@@ -26,6 +26,76 @@ const COUNTRY_YAHOO_SUFFIX = {
   CH:'.SW', GB:'.L',  PL:'.WA', IE:'.IR', LU:'.LU', CZ:'.PR',
 };
 
+// ─── Signal icon helpers (shared with App.jsx concept, inlined here) ─────────
+
+const IcoTrendDown = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 17 13.5 8.5 8.5 13.5 2 7" />
+    <polyline points="16 17 22 17 22 11" />
+  </svg>
+);
+const IcoRepeat = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="17 1 21 5 17 9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <polyline points="7 23 3 19 7 15" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </svg>
+);
+const IcoUsers = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+const IcoCalendar = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
+function TxSignalBadges({ t, blackout }) {
+  const badges = [];
+  if (t.is_price_dip) badges.push({
+    key: 'dip', icon: <IcoTrendDown />, title: `Bought after ${t.price_drawdown != null ? (Number(t.price_drawdown)*100).toFixed(0)+'%' : '10%+'} price decline`,
+    color: '#EA580C', bg: '#FFF7ED', border: '#FED7AA',
+  });
+  if (t.is_repetitive_buy) badges.push({
+    key: 'rep', icon: <IcoRepeat />, title: 'Same insider made multiple purchases within 14 days',
+    color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB',
+  });
+  if (t.is_cluster_buy) badges.push({
+    key: 'cluster', icon: <IcoUsers />, title: 'Multiple insiders at this company bought within 14 days',
+    color: '#4338CA', bg: '#EEF2FF', border: '#C7D2FE',
+  });
+  if (t.is_pre_earnings || blackout?.isNear) badges.push({
+    key: 'earn', icon: <IcoCalendar />,
+    title: blackout?.isNear
+      ? `Purchased ${blackout.daysBefore} days before earnings (${fmtDateShort(blackout.earningsDate)})`
+      : 'Purchased 30–60 days before earnings',
+    color: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
+  });
+
+  if (badges.length === 0) return <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>;
+  return (
+    <div style={{ display: 'flex', gap: 3 }}>
+      {badges.map(b => (
+        <span key={b.key} title={b.title} style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 20, height: 20, borderRadius: 4,
+          background: b.bg, border: '1px solid ' + b.border,
+          color: b.color, flexShrink: 0, cursor: 'default',
+        }}>{b.icon}</span>
+      ))}
+    </div>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function sym(currency) {
@@ -567,8 +637,8 @@ export default function CompanyPage({
           </h2>
           <p style={{ fontSize: 12, color: '#9CA3AF' }}>
             {earningsDates?.length
-              ? `Price analysis · real blackout detection (${earningsDates.length} known earnings dates) · conviction scoring`
-              : 'Price analysis · conviction scoring'}
+              ? `Price analysis · signal detection · ${earningsDates.length} known earnings dates`
+              : 'Price analysis · signal detection'}
           </p>
         </div>
 
@@ -692,30 +762,8 @@ export default function CompanyPage({
                       </td>
 
                       {/* Signal badges */}
-                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          {t.conviction_label && (
-                            <span style={{
-                              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-                              background: t.conviction_label === 'High Conviction' ? '#FEF9C3' : '#EEF2FF',
-                              color:      t.conviction_label === 'High Conviction' ? '#92400E' : ACCENT,
-                            }}>
-                              {t.conviction_label === 'High Conviction' ? '⭐ HIGH' : 'MED'}
-                            </span>
-                          )}
-                          {/* Real pre-earnings badge — only shown when earnings data exists */}
-                          {isBuy && blackout.isNear && (
-                            <span
-                              title={`Purchased ${blackout.daysBefore} day${blackout.daysBefore === 1 ? '' : 's'} before earnings (${fmtDateShort(blackout.earningsDate)}) — historically a strong buy signal`}
-                              style={{
-                                fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
-                                background: '#FEF3C7', color: '#92400E', cursor: 'help',
-                              }}
-                            >
-                              📅 {blackout.daysBefore}d pre-earnings
-                            </span>
-                          )}
-                        </div>
+                      <td style={{ padding: '10px 14px' }}>
+                        <TxSignalBadges t={t} blackout={isBuy ? blackout : null} />
                       </td>
                     </tr>
                   );

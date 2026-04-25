@@ -73,6 +73,7 @@ echo ""
 echo "── Scoring & Performance ──────────────────────────────"
 "$NODE_BIN" scrapers/score-insiders.js
 "$NODE_BIN" scrapers/track-performance.js
+"$NODE_BIN" scrapers/flag-signals.js
 
 set -e
 
