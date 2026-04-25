@@ -156,21 +156,8 @@ async function main() {
     results.push(result);
   }
 
-  // ── Buyback scrapers ──────────────────────────────────────────────────────
-  if (filterCodes.length === 0 || filterCodes.includes('NO') || filterCodes.includes('GB')) {
-    for (const [code, file, label] of [
-      ['NO', 'buybacks/norway-buybacks', 'Norway Buybacks'],
-      ['GB', 'buybacks/uk-buybacks',     'UK Buybacks'],
-    ]) {
-      if (filterCodes.length > 0 && !filterCodes.includes(code)) continue;
-      const scriptPath = path.join(ROOT, 'scrapers', `${file}.js`);
-      if (fs.existsSync(scriptPath)) {
-        console.log(`\n[${code}+] ${label}`);
-        const result = await runScript(scriptPath, `${code}-buy`);
-        results.push(result);
-      }
-    }
-  }
+  // Buyback scrapers run on a separate weekly schedule (scripts/run-buybacks.sh)
+  // and are NOT included in the daily run to avoid unnecessary load.
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
   if (!noCleanup && filterCodes.length === 0) {

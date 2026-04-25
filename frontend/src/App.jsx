@@ -970,6 +970,225 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
   );
 }
 
+// ─── BuybackPrograms — grouped accordion view ─────────────────────────────────
+
+function BuybackPrograms({ rows, loading }) {
+  const [expanded, setExpanded] = useState(new Set());
+  const toggle = key => setExpanded(prev => {
+    const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next;
+  });
+
+  // Group rows by country_code + normalised company name
+  const programs = useMemo(() => {
+    const groups = {};
+    for (const row of rows) {
+      const key = `${row.country_code}|${(row.company || '').toLowerCase().trim().slice(0, 40)}`;
+      if (!groups[key]) groups[key] = { key, company: row.company, ticker: row.ticker || '', country_code: row.country_code, currency: row.currency, executions: [] };
+      groups[key].executions.push(row);
+    }
+    return Object.values(groups).map(g => {
+      const execRows = g.executions.filter(r => r.shares_bought != null);
+      const totalShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
+      const totalValue  = execRows.reduce((s, r) => s + Number(r.total_value  || 0), 0);
+      const weightedPrice = totalShares > 0 ? totalValue / totalShares : null;
+      const dates = g.executions.map(r => r.execution_date || r.announced_date).filter(Boolean).sort();
+      // Latest completion_pct from newest execution that has it
+      const withPct = [...g.executions].filter(r => r.completion_pct != null).sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
+      const completionPct = withPct[0]?.completion_pct ?? null;
+      const status = completionPct >= 95 ? 'Completed' : execRows.length > 0 ? 'Active' : 'Announced';
+      return {
+        ...g,
+        totalShares, totalValue, weightedPrice,
+        firstDate: dates[0], lastDate: dates[dates.length - 1],
+        executionCount: execRows.length, completionPct, status,
+        executions: [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||'')),
+      };
+    }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
+  }, [rows]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '18px 20px' }}>
+            <div style={{ height: 14, width: 200, background: '#F3F4F6', borderRadius: 4, marginBottom: 10 }} />
+            <div style={{ height: 6, width: '60%', background: '#F3F4F6', borderRadius: 3, marginBottom: 8 }} />
+            <div style={{ height: 12, width: 280, background: '#F3F4F6', borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (programs.length === 0) {
+    return (
+      <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
+        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No buyback programs found</div>
+        <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Norway and UK buybacks scraped weekly</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {programs.map(p => {
+        const isExpanded = expanded.has(p.key);
+        const pct = p.completionPct != null ? Number(p.completionPct) : null;
+        const statusCfg =
+          p.status === 'Completed' ? { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' } :
+          p.status === 'Announced' ? { bg: '#EEF2FF', color: ACCENT,    border: '#C7D2FE' } :
+                                     { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' };
+
+        return (
+          <div key={p.key} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+            {/* ── Program card header ─────────────────────────────────── */}
+            <div
+              onClick={() => toggle(p.key)}
+              style={{ padding: '16px 20px', cursor: 'pointer', userSelect: 'none' }}
+              onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+              onMouseLeave={e => e.currentTarget.style.background = ''}
+            >
+              {/* Row 1: flag + company + status */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <Flag code={p.country_code} />
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: '#111318', marginRight: 8 }}>
+                      {p.company || '—'}
+                    </span>
+                    {p.ticker && <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>({p.ticker})</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                    background: statusCfg.bg, color: statusCfg.color, border: '1px solid ' + statusCfg.border,
+                  }}>{p.status}</span>
+                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{isExpanded ? '▲' : '▼'}</span>
+                </div>
+              </div>
+
+              {/* Row 2: progress bar (if pct known) */}
+              {pct != null && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: '#6B7280' }}>
+                      {formatValue(p.totalValue, p.currency)} spent
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: ACCENT, fontFamily: "'DM Mono', monospace" }}>
+                      {pct.toFixed(1)}% complete
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Row 3: stats */}
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {p.totalShares > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Shares Bought</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                      {p.totalShares.toLocaleString('en-US')}
+                    </div>
+                  </div>
+                )}
+                {p.weightedPrice != null && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Wtd Avg Price</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                      {formatPrice(p.weightedPrice, p.currency)}
+                    </div>
+                  </div>
+                )}
+                {pct == null && p.totalValue > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Total Value</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                      {formatValue(p.totalValue, p.currency)}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Period</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>
+                    {p.firstDate ? `${formatDateShort(p.firstDate)} → ${formatDateShort(p.lastDate)}` : '—'}
+                  </div>
+                </div>
+                {p.executionCount > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Executions</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>{p.executionCount}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Expanded execution rows ─────────────────────────────── */}
+            {isExpanded && (
+              <div style={{ borderTop: '1px solid #F3F4F6' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #F3F4F6' }}>
+                      {['Date', 'Shares', 'Avg Price', 'Daily Value', 'Progress'].map((h, i) => (
+                        <th key={h} style={{
+                          padding: '7px 16px', fontSize: 10, fontWeight: 600, color: '#9CA3AF',
+                          letterSpacing: '0.06em', textTransform: 'uppercase',
+                          textAlign: i >= 1 && i <= 3 ? 'right' : 'left',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.executions.map((ex, i) => (
+                      <tr key={ex.id ?? i}
+                        style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #F9FAFB' : 'none' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      >
+                        <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                          {formatDateShort(ex.execution_date || ex.announced_date)}
+                        </td>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {ex.shares_bought != null ? Number(ex.shares_bought).toLocaleString('en-US') : '—'}
+                        </td>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {ex.avg_price != null ? formatPrice(ex.avg_price, ex.currency) : '—'}
+                        </td>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {formatValue(ex.total_value, ex.currency)}
+                        </td>
+                        <td style={{ padding: '7px 16px' }}>
+                          {ex.completion_pct != null ? (
+                            <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: ACCENT, fontWeight: 600 }}>
+                              {Number(ex.completion_pct).toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {p.executions[0]?.filing_url && (
+                  <div style={{ padding: '8px 16px', borderTop: '1px solid #F3F4F6' }}>
+                    <a href={p.executions[0].filing_url} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}>
+                      View latest filing ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── BuybackTable ─────────────────────────────────────────────────────────────
 
 function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
@@ -1467,7 +1686,12 @@ function DashboardPage({
 
   const isLoading = activeTab === 'trades' ? tradesLoading : buybacksLoading;
   const activeCount = activeTab === 'trades' ? filteredTrades.length : filteredBuybacks.length;
-  const totalCount = activeTab === 'trades' ? trades.length : buybacks.length;
+  const totalCount  = activeTab === 'trades' ? trades.length : buybacks.length;
+  // Distinct program count for buybacks tab (groups by company+country)
+  const buybackProgramCount = useMemo(() => {
+    const keys = new Set(filteredBuybacks.map(r => `${r.country_code}|${(r.company||'').toLowerCase().trim().slice(0,40)}`));
+    return keys.size;
+  }, [filteredBuybacks]);
 
   return (
     <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -1550,7 +1774,9 @@ function DashboardPage({
                   fontSize: 12, color: '#9CA3AF', background: '#F7F8FA',
                   border: '1px solid #E8E9EE', borderRadius: 6, padding: '4px 10px',
                 }}>
-                  {activeCount.toLocaleString()} / {totalCount.toLocaleString()}
+                  {activeTab === 'buybacks'
+                    ? `${buybackProgramCount} programs`
+                    : `${activeCount.toLocaleString()} / ${totalCount.toLocaleString()}`}
                 </span>
               )}
             </div>
@@ -1569,13 +1795,7 @@ function DashboardPage({
               onPageChange={setTradePage}
             />
           ) : (
-            <BuybackTable
-              rows={filteredBuybacks}
-              loading={buybacksLoading}
-              sortBy={buybackSort.by}
-              sortDir={buybackSort.dir}
-              onSort={handleBuybackSort}
-            />
+            <BuybackPrograms rows={filteredBuybacks} loading={buybacksLoading} />
           )}
 
           {/* Buybacks footer — pagination handles trades inline in the table */}

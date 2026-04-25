@@ -1,0 +1,38 @@
+name: Weekly Buyback Scraper
+
+on:
+  schedule:
+    - cron: '0 7 * * 6'   # 07:00 UTC every Saturday
+  workflow_dispatch:       # Manual trigger
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  NODE_ENV: production
+
+jobs:
+  buybacks:
+    name: Scrape buyback programs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: 🇳🇴 Norway Buybacks (Oslo Bors cat 1007)
+        continue-on-error: true
+        run: node scrapers/buybacks/norway-buybacks.js
+
+      - name: 🇬🇧 UK Buybacks (FCA NSM)
+        continue-on-error: true
+        run: node scrapers/buybacks/uk-buybacks.js
+
+      - name: 📊 Summary
+        if: always()
+        run: |
+          echo "Buyback scrape complete — $(date -u '+%Y-%m-%d %H:%M UTC')"
