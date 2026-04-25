@@ -108,8 +108,9 @@ function computeSignals(buys, earningsMap) {
     });
     const minGap = samePeers.length > 0
       ? Math.min(...samePeers.map(p => daysBetween(p.transaction_date, t.transaction_date)))
-      : Infinity;
-    const isRepetitive = minGap >= REP_MIN_GAP;
+      : null;
+    // Must have at least one same-insider peer AND the closest one must be >= 4 days away
+    const isRepetitive = minGap !== null && minGap >= REP_MIN_GAP;
 
     // ── PRE-EARNINGS: 30–60 days before a known earnings date ─────────────────
     let isPreEarnings = false;
