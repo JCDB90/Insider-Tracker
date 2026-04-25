@@ -214,6 +214,42 @@ async function mapConcurrent(items, fn, concurrency) {
   return results;
 }
 
+// ─── Chunked link collection ──────────────────────────────────────────────────
+//
+// FSMA's Drupal search caps results at ~50 per request regardless of date range.
+// A single 180-day window only returns the 50 most-recent filings, missing the
+// rest. Solution: slice the range into CHUNK_DAYS windows and collect links from
+// each, then dedup.
+
+const CHUNK_DAYS = 14; // days per sub-window
+
+function addDaysToDate(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchAllLinks(from, to) {
+  const allLinks = new Set();
+  let chunkStart = from;
+
+  while (chunkStart <= to) {
+    const chunkEnd = addDaysToDate(chunkStart, CHUNK_DAYS - 1) > to
+      ? to
+      : addDaysToDate(chunkStart, CHUNK_DAYS - 1);
+
+    const links = await fetchTransactionLinks(chunkStart, chunkEnd);
+    let added = 0;
+    for (const l of links) { if (!allLinks.has(l)) { allLinks.add(l); added++; } }
+    if (added) console.log(`  ${chunkStart} → ${chunkEnd}: ${added} new links (total ${allLinks.size})`);
+
+    chunkStart = addDaysToDate(chunkEnd, 1);
+    if (links.length > 0) await new Promise(r => setTimeout(r, 400)); // polite delay
+  }
+
+  return [...allLinks];
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeBE() {
@@ -222,16 +258,16 @@ async function scrapeBE() {
   const co   = cutoff();
   const from = isoDate(co);
   const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to}…`);
+  console.log(`  Fetching ${from} → ${to} in ${CHUNK_DAYS}-day chunks…`);
 
-  // Step 1: Get list of transaction links
-  const links = await fetchTransactionLinks(from, to);
+  // Step 1: Get all transaction links across chunked date windows
+  const links = await fetchAllLinks(from, to);
   if (!links.length) {
     console.log('  ⚠  FSMA transaction-search returned no results or is not accessible.');
     console.log('  ℹ  0 rows saved.');
     return { saved: 0 };
   }
-  console.log(`  Found ${links.length} transaction links`);
+  console.log(`  Total unique links: ${links.length}`);
 
   // Step 2: Fetch detail pages concurrently
   console.log(`  Fetching detail pages (${CONCURRENCY} concurrent)…`);
