@@ -116,7 +116,13 @@ function sortRows(rows, sortBy, sortDir, numericKeys = []) {
     if (numericKeys.includes(sortBy)) { av = Number(av); bv = Number(bv); }
     if (av < bv) return sortDir === 'asc' ? -1 : 1;
     if (av > bv) return sortDir === 'asc' ? 1 : -1;
-    return 0;
+    // Tiebreaker: group same-company same-day trades together, then by insider name
+    const ca = (a.company || '').toLowerCase();
+    const cb = (b.company || '').toLowerCase();
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    const ia = (a.insider_name || '').toLowerCase();
+    const ib = (b.insider_name || '').toLowerCase();
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
   });
 }
 
@@ -124,35 +130,11 @@ function sortRows(rows, sortBy, sortDir, numericKeys = []) {
 
 function TypeChip({ type }) {
   const t = (type || '').toUpperCase();
-  const isBuy = t === 'BUY' || t === 'PURCHASE';
+  const isBuy  = t === 'BUY'  || t === 'PURCHASE';
   const isSell = t === 'SELL' || t === 'SALE';
-  if (isBuy) return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontWeight: 600, fontSize: 12,
-      color: '#15803D', background: '#F0FDF4',
-      borderRadius: 4, padding: '2px 8px',
-    }}>
-      <svg width="7" height="7" viewBox="0 0 8 8" fill="#15803D"><polygon points="4,1 7,6 1,6" /></svg>
-      BUY
-    </span>
-  );
-  if (isSell) return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontWeight: 600, fontSize: 12,
-      color: '#B91C1C', background: '#FEF2F2',
-      borderRadius: 4, padding: '2px 8px',
-    }}>
-      <svg width="7" height="7" viewBox="0 0 8 8" fill="#B91C1C"><polygon points="1,2 7,2 4,7" /></svg>
-      SELL
-    </span>
-  );
-  return (
-    <span style={{ fontSize: 12, color: '#6B7280', background: '#F3F4F6', borderRadius: 4, padding: '2px 8px' }}>
-      {type || '—'}
-    </span>
-  );
+  if (isBuy)  return <span style={{ fontWeight: 600, fontSize: 12, color: '#15803D', background: '#F0FDF4', borderRadius: 4, padding: '2px 8px' }}>BUY</span>;
+  if (isSell) return <span style={{ fontWeight: 600, fontSize: 12, color: '#B91C1C', background: '#FEF2F2', borderRadius: 4, padding: '2px 8px' }}>SELL</span>;
+  return <span style={{ fontSize: 12, color: '#6B7280', background: '#F3F4F6', borderRadius: 4, padding: '2px 8px' }}>{type || '—'}</span>;
 }
 
 function Flag({ code }) {

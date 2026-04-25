@@ -166,20 +166,37 @@ function StockChart({ data, trades, earningsDates }) {
 
     series.setData(data);
 
-    // Build markers: clean dots only (no text labels — InsiderScreener style)
+    // Build markers with price-aware positioning:
+    //   • Transaction price within 5% of market → 'inBar' (dot ON the line)
+    //   • Transaction price < 95% of market     → 'belowBar' (option exercise / discount)
+    //   • Transaction price > 105% of market    → 'aboveBar'
+    //   • No price data available               → default below/above by side
     const minTime = data[0]?.time;
     const maxTime = data[data.length - 1]?.time;
 
     const insiderMarkers = trades
       .filter(t => t.transaction_date >= minTime && t.transaction_date <= maxTime)
-      .map(t => ({
-        time:     t.transaction_date,
-        position: t.transaction_type === 'BUY' ? 'belowBar' : 'aboveBar',
-        color:    t.transaction_type === 'BUY' ? '#16A34A' : '#DC2626',
-        shape:    'circle',
-        text:     '',   // no text on chart — keep it clean
-        size:     1.2,
-      }));
+      .map(t => {
+        const isBuy = t.transaction_type === 'BUY';
+        let position = isBuy ? 'belowBar' : 'aboveBar';
+
+        const marketPrice = findChartPrice(data, t.transaction_date);
+        if (marketPrice && t.price_per_share && t.price_per_share > 0) {
+          const ratio = Number(t.price_per_share) / marketPrice;
+          if (ratio >= 0.95 && ratio <= 1.05) position = 'inBar';
+          else if (ratio < 0.95)              position = 'belowBar';
+          else                                position = 'aboveBar';
+        }
+
+        return {
+          time:  t.transaction_date,
+          position,
+          color: isBuy ? '#16A34A' : '#DC2626',
+          shape: 'circle',
+          text:  '',
+          size:  1.2,
+        };
+      });
 
     // Earnings date markers — small amber square, no text
     const earningsMarkers = (earningsDates || [])
@@ -433,86 +450,24 @@ export default function CompanyPage({
       <div style={{
         background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
         padding: '20px 24px', marginBottom: 24,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 16,
+        display: 'flex', alignItems: 'center', gap: 14,
       }}>
-        {/* Left: company identity */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 10, flexShrink: 0,
-            background: ACCENT + '15', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontSize: 20,
-          }}>
-            {flag}
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>
-              {company}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontFamily: "'DM Mono', monospace", color: '#6B7280' }}>{ticker}</span>
-              <span style={{ color: '#D1D5DB' }}>·</span>
-              <span style={{ fontSize: 13, color: '#9CA3AF' }}>{countryCode}</span>
-              {/* Next earnings pill */}
-              {earningsReady && nextEarnings && (
-                <>
-                  <span style={{ color: '#D1D5DB' }}>·</span>
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                    background: daysToEarnings !== null && daysToEarnings <= 30
-                      ? '#FEF3C7' : '#F3F4F6',
-                    color: daysToEarnings !== null && daysToEarnings <= 30
-                      ? '#92400E' : '#6B7280',
-                    border: daysToEarnings !== null && daysToEarnings <= 30
-                      ? '1px solid #FDE68A' : '1px solid #E5E7EB',
-                  }}>
-                    📅 Earnings{' '}
-                    {daysToEarnings !== null && daysToEarnings >= 0
-                      ? `in ${daysToEarnings}d`
-                      : fmtDateShort(nextEarnings)}
-                  </span>
-                </>
-              )}
-              {earningsReady && earningsNoData && (
-                <>
-                  <span style={{ color: '#D1D5DB' }}>·</span>
-                  <span style={{ fontSize: 12, color: '#D1D5DB' }}>No earnings data</span>
-                </>
-              )}
-            </div>
-          </div>
+        <div style={{
+          width: 48, height: 48, borderRadius: 10, flexShrink: 0,
+          background: ACCENT + '15', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', fontSize: 20,
+        }}>
+          {flag}
         </div>
-
-        {/* Right: live price */}
-        <div style={{ textAlign: 'right' }}>
-          {priceLoading ? (
-            <div style={{ fontSize: 13, color: '#9CA3AF' }}>Loading price…</div>
-          ) : currentPrice ? (
-            <>
-              <div style={{
-                fontSize: 28, fontWeight: 700, fontFamily: "'DM Mono', monospace",
-                letterSpacing: '-0.02em', color: '#111318',
-              }}>
-                {fmtPrice(currentPrice, priceCurrency)}
-              </div>
-              {priceChange != null && (
-                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2,
-                  color: changePositive ? '#16A34A' : '#DC2626' }}>
-                  {changePositive ? '▲' : '▼'} {Math.abs(priceChange).toFixed(2)}% today
-                </div>
-              )}
-              {nextEarnings && daysToEarnings !== null && daysToEarnings >= 0 && (
-                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
-                  Next earnings: {fmtDateShort(nextEarnings)}
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 12, color: '#9CA3AF' }}>
-              {yahooSymbols.length ? 'Price unavailable' : 'No ticker'}
-            </div>
-          )}
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em' }}>
+            {company}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+            <span style={{ fontSize: 13, fontFamily: "'DM Mono', monospace", color: '#6B7280' }}>{ticker}</span>
+            <span style={{ color: '#D1D5DB' }}>·</span>
+            <span style={{ fontSize: 13, color: '#9CA3AF' }}>{countryCode}</span>
+          </div>
         </div>
       </div>
 
