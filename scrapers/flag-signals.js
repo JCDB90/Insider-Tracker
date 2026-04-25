@@ -131,23 +131,33 @@ function computeSignals(buys, earningsMap) {
 
 // ── Batch upsert ──────────────────────────────────────────────────────────────
 
-async function upsertSignals(results) {
-  const entries = Object.entries(results);
+async function upsertSignals(results, rawRows) {
+  // Group rows by their exact flag combination so we can do bulk UPDATE ... WHERE id IN (...)
+  // This avoids sending 4000 individual updates while keeping the id type native.
+  const buckets = new Map(); // JSON(flags) → [id, ...]
+
+  for (const row of rawRows) {
+    const flags = results[row.id];
+    if (!flags) continue;
+    const key = JSON.stringify(flags);
+    if (!buckets.has(key)) buckets.set(key, { flags, ids: [] });
+    buckets.get(key).ids.push(row.id);
+  }
+
   let updated = 0;
-
-  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-    const batch = entries.slice(i, i + BATCH_SIZE);
-    const updates = batch.map(([id, flags]) => ({ id: Number(id), ...flags }));
-
-    // Supabase upsert with id as the conflict key
-    const { error } = await sb
-      .from('insider_transactions')
-      .upsert(updates, { onConflict: 'id', ignoreDuplicates: false });
-
-    if (error) {
-      console.error(`  ❌ Upsert batch ${i}–${i + batch.length}: ${error.message}`);
-    } else {
-      updated += batch.length;
+  for (const { flags, ids } of buckets.values()) {
+    // Process in chunks of BATCH_SIZE to avoid PostgREST URL length limits
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await sb
+        .from('insider_transactions')
+        .update(flags)
+        .in('id', chunk);
+      if (error) {
+        console.error(`  ❌ Update chunk: ${error.message}`);
+      } else {
+        updated += chunk.length;
+      }
     }
   }
 
@@ -183,8 +193,20 @@ async function main() {
   console.log(`    📅 Pre-earnings:   ${preEarn}`);
   console.log(`    📉 Price dip:      ${dip}`);
 
+  // ── Print examples for each signal type ──────────────────────────────────
+  const examples = {
+    cluster:    buys.find(r => results[r.id]?.is_cluster_buy),
+    repetitive: buys.find(r => results[r.id]?.is_repetitive_buy),
+    preEarnings:buys.find(r => results[r.id]?.is_pre_earnings),
+    priceDip:   buys.find(r => results[r.id]?.is_price_dip),
+  };
+  if (examples.cluster)    console.log(`  🔄 Cluster example:    ${examples.cluster.company} — ${examples.cluster.insider_name} (${examples.cluster.transaction_date})`);
+  if (examples.repetitive) console.log(`  🔁 Repetitive example: ${examples.repetitive.company} — ${examples.repetitive.insider_name} (${examples.repetitive.transaction_date})`);
+  if (examples.preEarnings)console.log(`  📅 Pre-earn example:   ${examples.preEarnings.company} — ${examples.preEarnings.insider_name} (${examples.preEarnings.transaction_date}, ticker: ${examples.preEarnings.ticker})`);
+  if (examples.priceDip)   console.log(`  📉 Price dip example:  ${examples.priceDip.company} — ${examples.priceDip.insider_name} (drawdown: ${(Number(examples.priceDip.price_drawdown)*100).toFixed(1)}%)`);
+
   console.log('  Writing to DB…');
-  const updated = await upsertSignals(results);
+  const updated = await upsertSignals(results, buys);
 
   console.log(`  ✅ ${((Date.now() - t0) / 1000).toFixed(1)}s — ${updated} rows flagged`);
 }
