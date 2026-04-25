@@ -974,51 +974,47 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
 
 function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
   const cols = [
-    { key: 'announced_date', label: 'Date',    align: 'left',  sortable: true  },
-    { key: 'company',        label: 'Company',  align: 'left',  sortable: true  },
-    { key: 'ticker',         label: 'Ticker',   align: 'left',  sortable: true  },
-    { key: 'country_code',   label: 'Country',  align: 'left',  sortable: false },
-    { key: 'total_value',    label: 'Size',     align: 'right', sortable: true  },
-    { key: 'source',         label: 'Source',   align: 'left',  sortable: false },
+    { key: 'execution_date', label: 'Date',       align: 'left',  sortable: true  },
+    { key: 'company',        label: 'Company',     align: 'left',  sortable: true  },
+    { key: 'country_code',   label: 'Country',     align: 'left',  sortable: false },
+    { key: 'shares_bought',  label: 'Shares',      align: 'right', sortable: true  },
+    { key: 'avg_price',      label: 'Avg Price',   align: 'right', sortable: true  },
+    { key: 'total_value',    label: 'Value',       align: 'right', sortable: true  },
+    { key: 'completion_pct', label: 'Progress',    align: 'left',  sortable: true  },
+    { key: 'status',         label: 'Status',      align: 'left',  sortable: false },
   ];
 
-  const rowPad = '8px 16px';
+  const rowPad = '8px 14px';
 
   return (
     <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
               {cols.map(col => (
-                <th
-                  key={col.key}
-                  onClick={() => col.sortable && onSort(col.key)}
-                  style={{
-                    padding: '10px 16px', textAlign: col.align,
-                    fontSize: 11, fontWeight: 600, color: '#9CA3AF',
-                    letterSpacing: '0.06em', textTransform: 'uppercase',
-                    cursor: col.sortable ? 'pointer' : 'default',
-                    userSelect: 'none', whiteSpace: 'nowrap',
-                  }}
-                >
+                <th key={col.key} onClick={() => col.sortable && onSort(col.key)} style={{
+                  padding: '10px 14px', textAlign: col.align,
+                  fontSize: 11, fontWeight: 600, color: '#9CA3AF',
+                  letterSpacing: '0.06em', textTransform: 'uppercase',
+                  cursor: col.sortable ? 'pointer' : 'default',
+                  userSelect: 'none', whiteSpace: 'nowrap',
+                }}>
                   {col.label}
-                  {col.sortable && (
-                    sortBy === col.key
-                      ? <span style={{ color: ACCENT }}>{sortDir === 'asc' ? ' ↑' : ' ↓'}</span>
-                      : <span style={{ color: '#D1D5DB' }}> ↕</span>
-                  )}
+                  {col.sortable && (sortBy === col.key
+                    ? <span style={{ color: ACCENT }}>{sortDir === 'asc' ? ' ↑' : ' ↓'}</span>
+                    : <span style={{ color: '#D1D5DB' }}> ↕</span>)}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              Array.from({ length: 10 }).map((_, i) => (
+              Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #F9FAFB' }}>
                   {cols.map((_, j) => (
                     <td key={j} style={{ padding: rowPad }}>
-                      <div style={{ height: 14, borderRadius: 4, background: '#F3F4F6', width: j === 1 ? 120 : 70 }} />
+                      <div style={{ height: 13, borderRadius: 4, background: '#F3F4F6', width: j === 1 ? 120 : 60 }} />
                     </td>
                   ))}
                 </tr>
@@ -1026,40 +1022,79 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={cols.length} style={{ padding: '60px 20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#9CA3AF' }}>No results found</div>
+                  <div style={{ fontSize: 13, color: '#9CA3AF' }}>No buyback programs found</div>
+                  <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Norway and UK buybacks scraped daily</div>
                 </td>
               </tr>
             ) : (
-              rows.map((row, i) => (
-                <tr
-                  key={row.id ?? i}
-                  style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
-                >
-                  <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
-                    {formatDateShort(row.announced_date)}
-                  </td>
-                  <td style={{ padding: rowPad }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#111318' }}>{row.company}</div>
-                  </td>
-                  <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151' }}>{row.ticker || '—'}</td>
-                  <td style={{ padding: rowPad }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Flag code={row.country_code} />
-                      <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: rowPad, textAlign: 'right' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
-                      {formatValue(row.total_value, row.currency)}
-                    </span>
-                  </td>
-                  <td style={{ padding: rowPad, fontSize: 11, color: '#9CA3AF', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.source || '—'}
-                  </td>
-                </tr>
-              ))
+              rows.map((row, i) => {
+                const pct    = row.completion_pct != null ? Number(row.completion_pct) : null;
+                const isAnn  = row.status === 'Announced';
+                return (
+                  <tr key={row.id ?? i}
+                    style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
+                    {/* Date */}
+                    <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                      {formatDateShort(row.execution_date || row.announced_date)}
+                    </td>
+                    {/* Company */}
+                    <td style={{ padding: rowPad, maxWidth: 200, overflow: 'hidden' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={row.company}>{row.company || '—'}</div>
+                      {row.ticker && <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>}
+                    </td>
+                    {/* Country */}
+                    <td style={{ padding: rowPad }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Flag code={row.country_code} />
+                        <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
+                      </div>
+                    </td>
+                    {/* Shares bought */}
+                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
+                      {row.shares_bought != null ? Number(row.shares_bought).toLocaleString('en-US') : '—'}
+                    </td>
+                    {/* Avg price */}
+                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
+                      {row.avg_price != null ? formatPrice(row.avg_price, row.currency) : '—'}
+                    </td>
+                    {/* Total value */}
+                    <td style={{ padding: rowPad, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                        {formatValue(row.total_value, row.currency)}
+                      </span>
+                    </td>
+                    {/* Progress bar */}
+                    <td style={{ padding: rowPad, minWidth: 110 }}>
+                      {pct != null ? (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <span style={{ fontSize: 11, color: '#374151', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                          </div>
+                          <div style={{ height: 5, background: '#F3F4F6', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 3 }} />
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
+                      )}
+                    </td>
+                    {/* Status */}
+                    <td style={{ padding: rowPad }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                        background: isAnn ? '#EEF2FF' : '#F0FDF4',
+                        color:      isAnn ? ACCENT    : '#16A34A',
+                      }}>
+                        {row.status || 'Active'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -203,6 +203,17 @@ jobs:
         continue-on-error: true
         run: node scrapers/flag-signals.js
 
+      # ── Buyback Programs ────────────────────────────────────────────────────
+      - name: 🇳🇴 Norway Buybacks (Oslo Bors cat 1007)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NO' }}
+        continue-on-error: true
+        run: node scrapers/buybacks/norway-buybacks.js
+
+      - name: 🇬🇧 UK Buybacks (FCA NSM)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
+        continue-on-error: true
+        run: node scrapers/buybacks/uk-buybacks.js
+
       # ── Summary ─────────────────────────────────────────────────────────────
       - name: 📊 Run summary
         if: always()
