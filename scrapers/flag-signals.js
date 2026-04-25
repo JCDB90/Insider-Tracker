@@ -5,10 +5,11 @@
  * Computes 4 boolean signal flags for every BUY transaction and writes them
  * to insider_transactions.  Run after score-insiders.js in the daily pipeline.
  *
- *   is_cluster_buy    — ≥2 DIFFERENT insiders at same company bought within 14 days
- *   is_repetitive_buy — same insider at same company made ≥2 buys within 14 days
+ *   is_cluster_buy    — ≥1 OTHER named insider at same company bought within 7 days
+ *   is_repetitive_buy — same insider at same company bought again, 4–14 days later
+ *                       (gap < 4d = tranche execution, not a separate decision)
  *   is_pre_earnings   — transaction falls 30–60 days before a known earnings date
- *   is_price_dip      — price_drawdown ≥ 10 % (stock dropped 10%+ before the buy)
+ *   is_price_dip      — price_drawdown 10–60% (caps out split/delisting outliers)
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -17,11 +18,14 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.s
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const WINDOW_DAYS      = 14;   // cluster / repetitive window
+const CLUSTER_WINDOW   = 7;    // days — different insiders, same company
+const REP_MIN_GAP      = 4;    // days — exclude 1–3 day tranche executions
+const REP_MAX_GAP      = 14;   // days — same insider "came back" window
 const PRE_EARNINGS_MIN = 30;   // days before earnings — minimum
 const PRE_EARNINGS_MAX = 60;   // days before earnings — maximum
-const DIP_THRESHOLD    = 0.10; // 10 % drawdown
-const BATCH_SIZE       = 200;  // upsert batch size
+const DIP_MIN          = 0.10; // 10 % minimum drawdown
+const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
+const BATCH_SIZE       = 200;
 
 function daysBetween(a, b) {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
@@ -84,21 +88,21 @@ function computeSignals(buys, earningsMap) {
     const companyKey = (t.company || t.ticker || '').toLowerCase();
     const peers      = byCompany[companyKey] || [];
 
-    // ── CLUSTER: different insiders, same company, within window ──────────────
-    const clusterPeers = peers.filter(p =>
-      p.id !== t.id &&
-      (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase() &&
-      daysBetween(p.transaction_date, t.transaction_date) <= WINDOW_DAYS
-    );
-    const isCluster = clusterPeers.length >= 1; // ≥1 other different insider = cluster
+    // ── CLUSTER: different named insiders, same company, within 7 days ────────
+    const clusterPeers = peers.filter(p => {
+      if (!p.insider_name || !t.insider_name) return false;
+      if ((p.insider_name || '').toLowerCase() === (t.insider_name || '').toLowerCase()) return false;
+      return daysBetween(p.transaction_date, t.transaction_date) <= CLUSTER_WINDOW;
+    });
+    const isCluster = clusterPeers.length >= 1;
 
-    // ── REPETITIVE: same insider, same company, within window ─────────────────
-    const repPeers = peers.filter(p =>
-      p.id !== t.id &&
-      (p.insider_name || '').toLowerCase() === (t.insider_name || '').toLowerCase() &&
-      p.insider_name &&
-      daysBetween(p.transaction_date, t.transaction_date) <= WINDOW_DAYS
-    );
+    // ── REPETITIVE: same named insider, gap 4–14 days (excludes tranche buys) ─
+    const repPeers = peers.filter(p => {
+      if (!p.insider_name || !t.insider_name) return false;
+      if ((p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase()) return false;
+      const gap = daysBetween(p.transaction_date, t.transaction_date);
+      return gap >= REP_MIN_GAP && gap <= REP_MAX_GAP;
+    });
     const isRepetitive = repPeers.length >= 1;
 
     // ── PRE-EARNINGS: 30–60 days before a known earnings date ─────────────────
@@ -115,8 +119,9 @@ function computeSignals(buys, earningsMap) {
       }
     }
 
-    // ── PRICE DIP: drawdown ≥ threshold ───────────────────────────────────────
-    const isPriceDip = (t.price_drawdown != null && Number(t.price_drawdown) >= DIP_THRESHOLD);
+    // ── PRICE DIP: 10–60 % drawdown (excludes splits / delisting outliers) ────
+    const dip = t.price_drawdown != null ? Number(t.price_drawdown) : null;
+    const isPriceDip = dip !== null && dip >= DIP_MIN && dip <= DIP_MAX;
 
     results[t.id] = {
       is_cluster_buy:    isCluster,
