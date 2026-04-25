@@ -146,7 +146,12 @@ async function scrapeLU() {
   const to   = isoDate(new Date());
   console.log(`  Fetching ${from} → ${to}…`);
 
-  const result = await fetchMats('TWO_WEEKS_AGO');
+  // Pick the smallest publicationPeriod bucket that covers RETENTION_DAYS
+  const pubPeriod = RETENTION_DAYS <= 14  ? 'TWO_WEEKS_AGO'
+                  : RETENTION_DAYS <= 30  ? 'ONE_MONTH_AGO'
+                  : RETENTION_DAYS <= 90  ? 'THREE_MONTHS_AGO'
+                  : 'SIX_MONTHS_AGO';
+  const result = await fetchMats(pubPeriod);
 
   if (!result) {
     console.log('  ⚠  LuxSE GraphQL API not accessible.');

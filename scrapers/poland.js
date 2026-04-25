@@ -39,7 +39,7 @@ const SOURCE         = 'GPW Warsaw / ESPI (MAR Art. 19)';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'PLN';
 const PAGE_SIZE      = 200;
-const MAX_PAGES      = 10;
+const MAX_PAGES      = 50;
 const DELAY_MS       = 300;
 
 function isoDate(d) {

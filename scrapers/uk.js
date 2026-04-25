@@ -438,7 +438,7 @@ async function scrapeUK() {
     allHits = allHits.concat(hits);
     from += hits.length;
 
-    if (from >= total || allHits.length >= 200) break;  // cap at 200/run to avoid rate-limiting
+    if (from >= total) break;
   }
 
   console.log(`  Found ${total} total hits, processing ${allHits.length}`);
