@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { createChart, LineSeries } from 'lightweight-charts';
+import { createChart, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { supabase } from './supabase.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -196,7 +196,8 @@ function StockChart({ data, trades, earningsDates }) {
     const allMarkers = [...insiderMarkers, ...earningsMarkers, ...blackoutMarkers]
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    if (allMarkers.length) series.setMarkers(allMarkers);
+    // v5 API: createSeriesMarkers() replaces series.setMarkers()
+    if (allMarkers.length) createSeriesMarkers(series, allMarkers);
 
     chart.timeScale().fitContent();
     chartRef.current = chart;
