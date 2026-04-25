@@ -96,14 +96,20 @@ function computeSignals(buys, earningsMap) {
     });
     const isCluster = clusterPeers.length >= 1;
 
-    // ── REPETITIVE: same named insider, gap 4–14 days (excludes tranche buys) ─
-    const repPeers = peers.filter(p => {
+    // ── REPETITIVE: same named insider, shortest gap must be ≥ 4 days ─────────
+    // Flag only when the CLOSEST other purchase is ≥ REP_MIN_GAP away.
+    // Jan 1 + Jan 2 + Jan 7 → min gap = 1d → NOT flagged (tranche execution).
+    // Jan 1 + Jan 8         → min gap = 7d → FLAGGED (genuine second decision).
+    const samePeers = peers.filter(p => {
       if (!p.insider_name || !t.insider_name) return false;
       if ((p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase()) return false;
       const gap = daysBetween(p.transaction_date, t.transaction_date);
-      return gap >= REP_MIN_GAP && gap <= REP_MAX_GAP;
+      return gap > 0 && gap <= REP_MAX_GAP;
     });
-    const isRepetitive = repPeers.length >= 1;
+    const minGap = samePeers.length > 0
+      ? Math.min(...samePeers.map(p => daysBetween(p.transaction_date, t.transaction_date)))
+      : Infinity;
+    const isRepetitive = minGap >= REP_MIN_GAP;
 
     // ── PRE-EARNINGS: 30–60 days before a known earnings date ─────────────────
     let isPreEarnings = false;
