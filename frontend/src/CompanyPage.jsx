@@ -59,16 +59,37 @@ function fmtDateShort(s) {
   return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function buildYahooSymbol(ticker, countryCode, yahooTicker) {
-  if (yahooTicker) return yahooTicker;
-  if (!ticker) return null;
-  return ticker + (COUNTRY_YAHOO_SUFFIX[countryCode] || '');
+/**
+ * Build an ordered list of Yahoo Finance symbol candidates to try.
+ * The proxy (api/yahoo-chart.js) tries each in sequence and returns the
+ * first one that has actual price data.
+ *
+ * Handles scraper-generated tickers like "MIDSON" (from "Midsona AB")
+ * where the real Yahoo symbol is "MIDS.ST" (first 4 chars).
+ */
+function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker) {
+  if (yahooTicker) return [yahooTicker];
+  if (!ticker) return [];
+  const sfx = COUNTRY_YAHOO_SUFFIX[countryCode] || '';
+  const bare = ticker.replace(/[-.].*$/, ''); // strip share-class suffix: MIDS-B → MIDS
+  const candidates = [
+    ticker + sfx,              // full ticker + exchange suffix (primary)
+    bare + sfx,                // bare ticker + suffix (MIDS.ST)
+    ticker.slice(0, 4) + sfx, // first 4 chars (MIDS.ST for MIDSON)
+    ticker,                    // bare (US cross-listed fallback)
+  ];
+  return [...new Set(candidates)].filter(Boolean);
 }
 
 /**
- * Check whether txDate falls in the 30-day blackout window before any known earnings date.
- * Returns { isNear, daysBefore, earningsDate } — only fires when earningsDates is non-empty
- * so companies with no data show nothing rather than a wrong badge.
+ * Check whether txDate falls in the 30-60 day window before any known earnings date.
+ * This captures insiders buying just BEFORE the pre-earnings blackout begins.
+ *   < 30 days before: too close — likely during the blackout period (suspicious)
+ *  30–60 days before: ideal signal — insider buying before blackout starts ✓
+ *   > 60 days before: too early — not meaningfully close to earnings
+ *
+ * Only fires when earningsDates is non-empty so companies with no data
+ * show nothing rather than a wrong badge.
  */
 function checkEarningsBlackout(txDate, earningsDates) {
   if (!earningsDates || earningsDates.length === 0) return { isNear: false };
@@ -76,10 +97,10 @@ function checkEarningsBlackout(txDate, earningsDates) {
   const todayMs = Date.now();
   let best = null;
   for (const ed of earningsDates) {
-    // Skip past earnings dates — predictions that expired aren't meaningful
     if (new Date(ed).getTime() < todayMs) continue;
     const daysBefore = (new Date(ed).getTime() - txMs) / 86400000;
-    if (daysBefore >= 0 && daysBefore <= 30) {
+    // Window: 30–60 days before earnings
+    if (daysBefore >= 30 && daysBefore <= 60) {
       if (!best || daysBefore < best.daysBefore) best = { daysBefore: Math.round(daysBefore), earningsDate: ed };
     }
   }
@@ -145,27 +166,22 @@ function StockChart({ data, trades, earningsDates }) {
 
     series.setData(data);
 
-    // Build markers: insider buys/sells + earnings dates
+    // Build markers: clean dots only (no text labels — InsiderScreener style)
     const minTime = data[0]?.time;
     const maxTime = data[data.length - 1]?.time;
 
     const insiderMarkers = trades
       .filter(t => t.transaction_date >= minTime && t.transaction_date <= maxTime)
-      .map(t => {
-        const isBuy = t.transaction_type === 'BUY';
-        const name  = t.insider_name && t.insider_name !== 'Not disclosed'
-          ? t.insider_name : (t.via_entity || 'Insider');
-        return {
-          time:     t.transaction_date,
-          position: isBuy ? 'belowBar' : 'aboveBar',
-          color:    isBuy ? '#16A34A' : '#DC2626',
-          shape:    isBuy ? 'arrowUp' : 'arrowDown',
-          text:     `${name}${t.shares ? ' · ' + fmtShares(t.shares) + ' sh' : ''}`,
-          size:     1.5,
-        };
-      });
+      .map(t => ({
+        time:     t.transaction_date,
+        position: t.transaction_type === 'BUY' ? 'belowBar' : 'aboveBar',
+        color:    t.transaction_type === 'BUY' ? '#16A34A' : '#DC2626',
+        shape:    'circle',
+        text:     '',   // no text on chart — keep it clean
+        size:     1.2,
+      }));
 
-    // Earnings date markers — amber square on the price line
+    // Earnings date markers — small amber square, no text
     const earningsMarkers = (earningsDates || [])
       .filter(ed => ed >= minTime && ed <= maxTime)
       .map(ed => ({
@@ -173,27 +189,11 @@ function StockChart({ data, trades, earningsDates }) {
         position: 'inBar',
         color:    '#F59E0B',
         shape:    'square',
-        text:     '📅 Earnings',
-        size:     1.5,
+        text:     '',
+        size:     1,
       }));
 
-    // Blackout window start markers — 30 days before each earnings date
-    const blackoutMarkers = (earningsDates || [])
-      .map(ed => {
-        const d = new Date(ed); d.setDate(d.getDate() - 30);
-        return d.toISOString().slice(0, 10);
-      })
-      .filter(d => d >= minTime && d <= maxTime)
-      .map(d => ({
-        time:     d,
-        position: 'aboveBar',
-        color:    '#FCD34D',
-        shape:    'circle',
-        text:     '30d blackout',
-        size:     0.8,
-      }));
-
-    const allMarkers = [...insiderMarkers, ...earningsMarkers, ...blackoutMarkers]
+    const allMarkers = [...insiderMarkers, ...earningsMarkers]
       .sort((a, b) => a.time.localeCompare(b.time));
 
     // v5 API: createSeriesMarkers() replaces series.setMarkers()
@@ -273,12 +273,11 @@ export default function CompanyPage({
     [trades, ticker, company]
   );
 
-  // Resolve Yahoo Finance symbol
-  const yahooSymbol = useMemo(() => {
-    if (yahooTicker) return yahooTicker;
+  // Build ordered list of Yahoo Finance symbol candidates (proxy tries each in sequence)
+  const yahooSymbols = useMemo(() => {
     const wl = watchlist?.find(w => w.ticker === ticker && w.country_code === countryCode);
-    if (wl?.yahoo_ticker) return wl.yahoo_ticker;
-    return buildYahooSymbol(ticker, countryCode, null);
+    const override = yahooTicker || wl?.yahoo_ticker || null;
+    return buildYahooSymbolCandidates(ticker, countryCode, override);
   }, [ticker, countryCode, yahooTicker, watchlist]);
 
   // ── Fetch earnings dates from Supabase ──────────────────────────────────────
@@ -308,14 +307,16 @@ export default function CompanyPage({
       });
   }, [ticker]);
 
-  // ── Fetch chart data from Yahoo proxy ───────────────────────────────────────
+  // ── Fetch chart data from Yahoo proxy (tries multiple symbol candidates) ────
   useEffect(() => {
-    if (!yahooSymbol) { setPriceLoading(false); setChartError(true); return; }
+    if (!yahooSymbols.length) { setPriceLoading(false); setChartError(true); return; }
 
     setPriceLoading(true);
     setChartError(false);
 
-    fetch(`/api/yahoo-chart?symbol=${encodeURIComponent(yahooSymbol)}&range=${chartRange}&interval=1d`)
+    // Pass all candidates; proxy tries them in order and returns first with data
+    const symbolsParam = yahooSymbols.map(encodeURIComponent).join(',');
+    fetch(`/api/yahoo-chart?symbols=${symbolsParam}&range=${chartRange}&interval=1d`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(json => {
         const result = json?.chart?.result?.[0];
@@ -350,7 +351,7 @@ export default function CompanyPage({
       })
       .catch(() => setChartError(true))
       .finally(() => setPriceLoading(false));
-  }, [yahooSymbol, chartRange]);
+  }, [yahooSymbols, chartRange]);
 
   // ── Derived earnings values ──────────────────────────────────────────────────
   const { nextEarnings, prevEarnings } = useMemo(() => {
@@ -509,7 +510,7 @@ export default function CompanyPage({
             </>
           ) : (
             <div style={{ fontSize: 12, color: '#9CA3AF' }}>
-              {yahooSymbol ? 'Price unavailable' : 'No ticker'}
+              {yahooSymbols.length ? 'Price unavailable' : 'No ticker'}
             </div>
           )}
         </div>
@@ -560,21 +561,18 @@ export default function CompanyPage({
         )}
 
         {/* Chart legend */}
-        {earningsDates?.length > 0 && (
-          <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
-            {[
-              { color: '#16A34A', shape: '▲', label: 'Insider buy' },
-              { color: '#DC2626', shape: '▼', label: 'Insider sell' },
-              { color: '#F59E0B', shape: '■', label: 'Earnings date' },
-              { color: '#FCD34D', shape: '●', label: '30-day blackout start' },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontSize: 12, color: item.color }}>{item.shape}</span>
-                <span style={{ fontSize: 11, color: '#9CA3AF' }}>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
+          {[
+            { color: '#16A34A', shape: '●', label: 'Insider buy' },
+            { color: '#DC2626', shape: '●', label: 'Insider sell' },
+            ...(earningsDates?.length ? [{ color: '#F59E0B', shape: '■', label: 'Earnings date' }] : []),
+          ].map(item => (
+            <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 12, color: item.color }}>{item.shape}</span>
+              <span style={{ fontSize: 11, color: '#9CA3AF' }}>{item.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Section 2: KPI Cards ──────────────────────────────────────────── */}
@@ -598,21 +596,9 @@ export default function CompanyPage({
           color={kpis.sentimentColor}
         />
         <KpiCard
-          label={nextEarnings ? 'Next Earnings' : 'Last Earnings'}
-          value={
-            nextEarnings
-              ? (daysToEarnings !== null && daysToEarnings >= 0 ? `${daysToEarnings}d` : fmtDateShort(nextEarnings))
-              : (prevEarnings ? fmtDateShort(prevEarnings) : '—')
-          }
-          sub={
-            nextEarnings
-              ? fmtDateShort(nextEarnings)
-              : (earningsNoData ? 'No data available' : 'Loading…')
-          }
-          color={
-            daysToEarnings !== null && daysToEarnings <= 30
-              ? '#F59E0B' : '#111318'
-          }
+          label="Largest Trade"
+          value={kpis.largest ? fmtVal(kpis.largest.total_value, kpis.largest.currency) : '—'}
+          sub={kpis.largest ? fmtDateShort(kpis.largest.transaction_date) : 'No data'}
         />
       </div>
 
@@ -790,7 +776,7 @@ export default function CompanyPage({
           background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
           fontSize: 12, color: '#92400E', lineHeight: 1.6,
         }}>
-          📅 <strong>{preEarningsBuys.length} insider buy{preEarningsBuys.length > 1 ? 's' : ''} occurred in the 30-day blackout window</strong> before a real earnings date.
+          📅 <strong>{preEarningsBuys.length} insider buy{preEarningsBuys.length > 1 ? 's' : ''} occurred 30–60 days before a real earnings date</strong> — just before the typical pre-earnings blackout begins.
           Research (Seyhun 1998, Lakonishok &amp; Lee 2001) shows CEO/CFO purchases in this window carry
           2–3× stronger predictive power than purchases at other times.
         </div>
