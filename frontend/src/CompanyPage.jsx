@@ -74,9 +74,11 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker) {
   const bare = ticker.replace(/[-.].*$/, ''); // strip share-class suffix: MIDS-B → MIDS
   const candidates = [
     ticker + sfx,              // full ticker + exchange suffix (primary)
-    bare + sfx,                // bare ticker + suffix (MIDS.ST)
-    ticker.slice(0, 4) + sfx, // first 4 chars (MIDS.ST for MIDSON)
-    ticker,                    // bare (US cross-listed fallback)
+    bare + sfx,                // bare ticker + suffix (MIDS-B → MIDS.ST)
+    ticker.slice(0, 4) + sfx, // first 4 chars (MIDSON → MIDS.ST)
+    // Only add bare (no suffix) if we don't have a known exchange suffix.
+    // "AB" with .ST suffix is fine; bare "AB" resolves to AllianceBernstein (US).
+    ...(sfx ? [] : [ticker]),
   ];
   return [...new Set(candidates)].filter(Boolean);
 }

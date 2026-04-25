@@ -59,19 +59,43 @@ function mapType(s) {
 }
 
 const TICKERS = {
-  'evolution': 'EVO', 'hexagon': 'HEXA-B', 'ericsson': 'ERIC-B', 'volvo': 'VOLV-B',
-  'abb': 'ABB', 'atlas copco': 'ATCO-A', 'investor': 'INVE-B', 'essity': 'ESSITY-B',
-  'sandvik': 'SAND', 'handelsbanken': 'SHB-A', 'swedbank': 'SWED-A', 'seb': 'SEB-A',
-  'nordea': 'NDA-SE', 'alfa laval': 'ALFA', 'nibe': 'NIBE-B', 'sinch': 'SINCH',
-  'tele2': 'TEL2-B', 'telia': 'TELIA', 'boliden': 'BOL', 'h&m': 'HM-B',
-  'hennes & mauritz': 'HM-B', 'autoliv': 'ALIV-SDB', 'elekta': 'EKTA-B',
-  'getinge': 'GETI-B', 'ssab': 'SSAB-A', 'husqvarna': 'HUSQ-B', 'skanska': 'SKA-B',
+  // Large caps with share classes
+  'evolution': 'EVO', 'hexagon': 'HEXA-B', 'ericsson': 'ERIC-B',
+  'volvo cars': 'VOLCAR-B', 'volvo': 'VOLV-B',
+  'abb': 'ABB', 'atlas copco': 'ATCO-A', 'investor': 'INVE-B',
+  'essity': 'ESSITY-B', 'sandvik': 'SAND',
+  'handelsbanken': 'SHB-A', 'swedbank': 'SWED-A',
+  'seb ': 'SEB-A',  // trailing space prevents matching "sebago" etc.
+  'nordea': 'NDA-SE', 'alfa laval': 'ALFA', 'nibe': 'NIBE-B',
+  'sinch': 'SINCH', 'tele2': 'TEL2-B', 'telia': 'TELIA',
+  'boliden': 'BOL', 'h&m': 'HM-B', 'hennes & mauritz': 'HM-B',
+  'autoliv': 'ALIV-SDB', 'elekta': 'EKTA-B',
+  'getinge': 'GETI-B', 'ssab': 'SSAB-A',
+  'husqvarna': 'HUSQ-B', 'skanska': 'SKA-B',
+  // Additional commonly-filed companies — prevents "AB X" → "AB" ticker bug
+  'electrolux': 'ELUX-B',
+  'kinnevik': 'KINV-B',
+  'industrivärden': 'INDU-C', 'industrivarden': 'INDU-C',
+  'lifco': 'LIFCO-B',
+  'saab': 'SAAB-B',
+  'castellum': 'CAST',
+  'fastighets': 'FASTU-B',
+  'fingerprint': 'FING-B',
+  'midsona': 'MIDS-B',
+  'nyfosa': 'NYF',
+  'epiroc': 'EPI-B',
 };
 function getTicker(n) {
   if (!n) return null;
   const l = n.toLowerCase();
   for (const [k, v] of Object.entries(TICKERS)) if (l.includes(k)) return v;
-  return n.split(/\s+/)[0].toUpperCase().slice(0, 6) || null;
+  // Strip leading "AB " (Aktiebolag = Swedish "Inc.") and trailing " AB (publ)"
+  // to prevent "AB Electrolux" → "AB" which Yahoo Finance maps to AllianceBernstein (US)
+  const clean = n
+    .replace(/^AB\s+/i, '')
+    .replace(/\s+AB(?:\s+\(publ\))?\.?\s*$/i, '')
+    .trim();
+  return clean.split(/\s+/)[0].toUpperCase().slice(0, 6) || null;
 }
 
 async function fetchPage(from, to, page) {
