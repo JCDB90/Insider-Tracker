@@ -84,6 +84,18 @@ const TICKERS = {
   'midsona': 'MIDS-B',
   'nyfosa': 'NYF',
   'epiroc': 'EPI-B',
+  'elanders': 'ELAN-B',
+  'hexpol': 'HEXPOL-B',
+  'lundbergs': 'LUND-B',
+  'latour': 'LATO-B',
+  'ica gruppen': 'ICA',
+  'addtech': 'ADDT-B',
+  'addnode': 'ADDN-B',
+  'bilia': 'BILI-A',
+  'thule': 'THULE',
+  'nolato': 'NOLA-B',
+  'troax': 'TROAX',
+  'vitec': 'VIT-B',
 };
 function getTicker(n) {
   if (!n) return null;

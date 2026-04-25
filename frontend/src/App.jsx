@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
@@ -682,7 +682,7 @@ function InsiderCard({ row }) {
             {row.ticker || '—'} · {COUNTRY_NAMES[row.country_code] || row.country_code}
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
           <TypeChip type={row.transaction_type} />
           <SignalBadges t={row} />
         </div>
@@ -725,9 +725,76 @@ function InsiderCard({ row }) {
   );
 }
 
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 50;
+
+function Pagination({ page, totalRows, onChange }) {
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  if (totalPages <= 1 && totalRows <= PAGE_SIZE) return null;
+
+  const from = Math.min((page - 1) * PAGE_SIZE + 1, totalRows);
+  const to   = Math.min(page * PAGE_SIZE, totalRows);
+
+  // Build page number list with ellipsis
+  function pageNums() {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const near = new Set([1, totalPages, page - 1, page, page + 1].filter(p => p >= 1 && p <= totalPages));
+    const sorted = [...near].sort((a, b) => a - b);
+    const result = [];
+    let prev = 0;
+    for (const n of sorted) {
+      if (n - prev > 1) result.push('…');
+      result.push(n);
+      prev = n;
+    }
+    return result;
+  }
+
+  const btnBase = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: 28, height: 28, borderRadius: 5, border: '1px solid #E2E4E9',
+    background: '#fff', color: '#374151', fontSize: 12, fontFamily: "'DM Mono', monospace",
+    cursor: 'pointer', fontWeight: 500, padding: '0 6px',
+  };
+  const activeBtn = { ...btnBase, background: ACCENT, color: '#fff', border: '1px solid ' + ACCENT, fontWeight: 700 };
+  const disabledBtn = { ...btnBase, color: '#D1D5DB', cursor: 'default', background: '#F9FAFB' };
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '10px 16px', borderTop: '1px solid #F3F4F6',
+    }}>
+      <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+        Showing <span style={{ color: '#374151', fontWeight: 500 }}>{from.toLocaleString()}–{to.toLocaleString()}</span>
+        {' '}of <span style={{ color: '#374151', fontWeight: 500 }}>{totalRows.toLocaleString()}</span> transactions
+      </span>
+      <div style={{ display: 'flex', gap: 3 }}>
+        <button
+          style={page === 1 ? disabledBtn : btnBase}
+          disabled={page === 1}
+          onClick={() => page > 1 && onChange(page - 1)}
+        >← Prev</button>
+
+        {pageNums().map((n, i) =>
+          n === '…'
+            ? <span key={`e${i}`} style={{ display: 'inline-flex', alignItems: 'center', padding: '0 4px', color: '#9CA3AF', fontSize: 12 }}>…</span>
+            : <button key={n} style={n === page ? activeBtn : btnBase} onClick={() => onChange(n)}>{n}</button>
+        )}
+
+        <button
+          style={page === totalPages ? disabledBtn : btnBase}
+          disabled={page === totalPages}
+          onClick={() => page < totalPages && onChange(page + 1)}
+        >Next →</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── TradesTable ──────────────────────────────────────────────────────────────
 
-function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, onCompanyClick }) {
+function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, onCompanyClick, page, onPageChange }) {
   const cols = [
     { key: 'transaction_date', label: 'Date',    align: 'left',  sortable: true  },
     { key: 'company',          label: 'Company',  align: 'left',  sortable: true  },
@@ -752,13 +819,13 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
     <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <colgroup>
-          <col style={{ width: 100 }} />  {/* Date */}
-          <col style={{ width: 150 }} />  {/* Company */}
-          <col style={{ width: 150 }} />  {/* Insider */}
-          <col style={{ width: 88 }} />   {/* Type */}
-          <col style={{ width: 110 }} />  {/* Price */}
-          <col style={{ width: 110 }} />  {/* Value */}
-          <col style={{ width: 72 }} />   {/* Country */}
+          <col style={{ width: 95 }} />   {/* Date */}
+          <col style={{ width: 145 }} />  {/* Company */}
+          <col style={{ width: 145 }} />  {/* Insider */}
+          <col style={{ width: 150 }} />  {/* Type + signal icons */}
+          <col style={{ width: 100 }} />  {/* Price */}
+          <col style={{ width: 105 }} />  {/* Value */}
+          <col style={{ width: 60 }} />   {/* Country */}
         </colgroup>
         <thead>
           <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
@@ -803,7 +870,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
               </td>
             </tr>
           ) : (
-            rows.map((row, i) => {
+            (page != null ? rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : rows).map((row, i) => {
               const name = row.insider_name && row.insider_name !== 'Not disclosed'
                 ? row.insider_name
                 : null;
@@ -868,9 +935,9 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
                     )}
                   </td>
-                  {/* Type + signal badges */}
+                  {/* Type + signal badges — single line, no wrap */}
                   <td style={{ padding: rowPad }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
                       <TypeChip type={row.transaction_type} />
                       <SignalBadges t={row} />
                     </div>
@@ -896,6 +963,9 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
           )}
         </tbody>
       </table>
+      {!loading && page != null && onPageChange && (
+        <Pagination page={page} totalRows={rows.length} onChange={onPageChange} />
+      )}
     </div>
   );
 }
@@ -1322,8 +1392,15 @@ function DashboardPage({
   countryCounts, onInsiderClick, onCompanyClick,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
+  const [tradePage, setTradePage] = useState(1);
+
+  // Reset to page 1 whenever the filtered set changes (search, country, sort)
+  const prevFilterKey = useRef('');
+  const filterKey = selectedCountries.size + '|' + (filteredTrades.length);
+  if (filterKey !== prevFilterKey.current) { prevFilterKey.current = filterKey; if (tradePage !== 1) setTradePage(1); }
 
   function handleTradeSort(col) {
+    setTradePage(1);
     setTradeSort(s => ({ by: col, dir: s.by === col ? (s.dir === 'asc' ? 'desc' : 'asc') : 'desc' }));
   }
   function handleBuybackSort(col) {
@@ -1455,6 +1532,8 @@ function DashboardPage({
               onSort={handleTradeSort}
               onInsiderClick={onInsiderClick}
               onCompanyClick={onCompanyClick}
+              page={tradePage}
+              onPageChange={setTradePage}
             />
           ) : (
             <BuybackTable
@@ -1466,7 +1545,8 @@ function DashboardPage({
             />
           )}
 
-          {!isLoading && activeCount > 0 && (
+          {/* Buybacks footer — pagination handles trades inline in the table */}
+          {!isLoading && activeTab === 'buybacks' && activeCount > 0 && (
             <div style={{
               marginTop: 12, padding: '10px 16px',
               background: '#fff', border: '1px solid #E8E9EE', borderRadius: '0 0 10px 10px',
@@ -1474,13 +1554,9 @@ function DashboardPage({
               borderTop: 'none',
             }}>
               <p style={{ fontSize: 12, color: '#9CA3AF' }}>
-                Showing{' '}
                 <span style={{ color: '#374151', fontWeight: 500 }}>{activeCount.toLocaleString()}</span>
-                {' '}of{' '}
-                <span style={{ color: '#374151', fontWeight: 500 }}>{totalCount.toLocaleString()}</span>
-                {' '}{activeTab === 'trades' ? 'transactions' : 'programs'}
+                {' '}programs · sourced from regulatory filings
               </p>
-              <p style={{ fontSize: 12, color: '#D1D5DB' }}>Sourced from regulatory filings</p>
             </div>
           )}
         </div>

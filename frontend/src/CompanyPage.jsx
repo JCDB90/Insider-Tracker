@@ -134,22 +134,49 @@ function fmtDateShort(s) {
  * The proxy (api/yahoo-chart.js) tries each in sequence and returns the
  * first one that has actual price data.
  *
- * Handles scraper-generated tickers like "MIDSON" (from "Midsona AB")
- * where the real Yahoo symbol is "MIDS.ST" (first 4 chars).
+ * Handles:
+ *  - Empty ticker (ABEO FR stored with no ticker) → derives from company name
+ *  - Swedish B-shares (ELANDE stored for Elanders → tries ELAN-B.ST, ELANB.ST)
+ *  - Share-class suffix stripping (MIDS-B → MIDS.ST)
+ *  - 4-char truncation (MIDSON → MIDS.ST)
  */
-function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker) {
+function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
   if (yahooTicker) return [yahooTicker];
-  if (!ticker) return [];
+
   const sfx = COUNTRY_YAHOO_SUFFIX[countryCode] || '';
-  const bare = ticker.replace(/[-.].*$/, ''); // strip share-class suffix: MIDS-B → MIDS
+
+  // When scraper stored no ticker, derive from first word of company name
+  const derived = (!ticker && company)
+    ? company.replace(/\s+(AB|SA|NV|BV|PLC|SE|SAS|AG|GmbH)[\s.]*$/i, '').trim()
+        .split(/\s+/)[0].toUpperCase().replace(/[^A-Z0-9]/g, '')
+    : null;
+
+  const base = ticker || derived || '';
+  if (!base) return [];
+
+  const bare = base.replace(/[-.].*$/, ''); // MIDS-B → MIDS, ELAN-B → ELAN
+
   const candidates = [
-    ticker + sfx,              // full ticker + exchange suffix (primary)
-    bare + sfx,                // bare ticker + suffix (MIDS-B → MIDS.ST)
-    ticker.slice(0, 4) + sfx, // first 4 chars (MIDSON → MIDS.ST)
-    // Only add bare (no suffix) if we don't have a known exchange suffix.
-    // "AB" with .ST suffix is fine; bare "AB" resolves to AllianceBernstein (US).
-    ...(sfx ? [] : [ticker]),
+    base + sfx,                // primary: stored ticker + suffix
+    bare + sfx,                // bare without share-class suffix
+    base.slice(0, 4) + sfx,   // first 4 chars (MIDSON → MIDS.ST)
   ];
+
+  // Swedish B-shares: scraper often stores name-truncated tickers (e.g. ELANDE
+  // instead of ELAN-B). Try both hyphenated and concatenated B-share variants.
+  if (countryCode === 'SE' && !base.includes('-')) {
+    const root = base.replace(/[BE]$/, ''); // ELANDE → ELAND, ELANB → ELAN
+    candidates.push(
+      root + '-B' + sfx,     // ELAN-B.ST
+      root + 'B' + sfx,      // ELANB.ST
+      root.slice(0, 4) + '-B' + sfx, // ELAN-B.ST from truncated root
+    );
+  }
+
+  // No bare (no-suffix) fallback when exchange suffix is known — prevents
+  // e.g. "AB" resolving to AllianceBernstein on NYSE.
+  if (!sfx) candidates.push(base);
+
   return [...new Set(candidates)].filter(Boolean);
 }
 
@@ -366,7 +393,7 @@ export default function CompanyPage({
   const yahooSymbols = useMemo(() => {
     const wl = watchlist?.find(w => w.ticker === ticker && w.country_code === countryCode);
     const override = yahooTicker || wl?.yahoo_ticker || null;
-    return buildYahooSymbolCandidates(ticker, countryCode, override);
+    return buildYahooSymbolCandidates(ticker, countryCode, override, company);
   }, [ticker, countryCode, yahooTicker, watchlist]);
 
   // ── Fetch earnings dates from Supabase ──────────────────────────────────────
