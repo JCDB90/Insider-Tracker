@@ -1395,9 +1395,7 @@ function DashboardPage({
   const [tradePage, setTradePage] = useState(1);
 
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
-  const prevFilterKey = useRef('');
-  const filterKey = selectedCountries.size + '|' + (filteredTrades.length);
-  if (filterKey !== prevFilterKey.current) { prevFilterKey.current = filterKey; if (tradePage !== 1) setTradePage(1); }
+  useEffect(() => { setTradePage(1); }, [filteredTrades]);
 
   function handleTradeSort(col) {
     setTradePage(1);

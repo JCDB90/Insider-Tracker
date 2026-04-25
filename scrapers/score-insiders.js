@@ -136,7 +136,7 @@ const priceRangeCache = new Map();
 async function fetchHighBefore(ticker, countryCode, txDate) {
   if (!ticker || !txDate) return null;
 
-  const from = addDays(txDate, -90);
+  const from = addDays(txDate, -60); // 60-day lookback: research sweet spot (90d too noisy)
   const to   = addDays(txDate, -1);
   const suffixes = getSuffixesForCountry(countryCode);
 
