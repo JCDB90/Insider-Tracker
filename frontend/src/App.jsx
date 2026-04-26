@@ -972,14 +972,22 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
 
 // ─── BuybackPrograms — grouped accordion view ─────────────────────────────────
 
+const BUYBACK_STALE_DAYS = 90; // programmes with no execution > 90d ago are hidden by default
+
 function BuybackPrograms({ rows, loading }) {
-  const [expanded, setExpanded] = useState(new Set());
+  const [expanded,     setExpanded]     = useState(new Set());
+  const [showInactive, setShowInactive] = useState(false);
   const toggle = key => setExpanded(prev => {
     const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next;
   });
 
+  const cutoffDate = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - BUYBACK_STALE_DAYS);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
   // Group rows by country_code + normalised company name
-  const programs = useMemo(() => {
+  const allPrograms = useMemo(() => {
     const groups = {};
     for (const row of rows) {
       const key = `${row.country_code}|${(row.company || '').toLowerCase().trim().slice(0, 40)}`;
@@ -987,24 +995,59 @@ function BuybackPrograms({ rows, loading }) {
       groups[key].executions.push(row);
     }
     return Object.values(groups).map(g => {
-      const execRows = g.executions.filter(r => r.shares_bought != null);
-      const totalShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
-      const totalValue  = execRows.reduce((s, r) => s + Number(r.total_value  || 0), 0);
-      const weightedPrice = totalShares > 0 ? totalValue / totalShares : null;
+      const sorted = [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
+      const latest = sorted[0];
+
+      // total_value = programme max authorised (same across rows; take latest)
+      // spent_value / cumulative_value = cumulative spent from latest report
+      const programMax    = Number(latest?.total_value   || 0) || null;
+      const spentCumul    = Number(latest?.spent_value   || latest?.cumulative_value || 0) || null;
+      const cumShares     = Number(latest?.cumulative_shares || 0) || null;
+
+      // Fall back to summing weekly shares_bought if no cumulative available
+      const execRows  = g.executions.filter(r => r.shares_bought != null);
+      const sumShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
+      const sumValue  = execRows.reduce((s, r) => s + Number(
+        // Use per-row cumulative_value if no programme max (old data: total_value = weekly)
+        programMax ? 0 : (r.total_value || 0)
+      ), 0);
+
+      const totalShares = cumShares || sumShares;
+      // When we have both programMax and spentCumul, use them; otherwise show sum
+      const displaySpent = spentCumul || sumValue;
+      // Weighted avg price from latest execution
+      const avgPrice = Number(latest?.avg_price || 0) || null;
+
       const dates = g.executions.map(r => r.execution_date || r.announced_date).filter(Boolean).sort();
-      // Latest completion_pct from newest execution that has it
-      const withPct = [...g.executions].filter(r => r.completion_pct != null).sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
-      const completionPct = withPct[0]?.completion_pct ?? null;
-      const status = completionPct >= 95 ? 'Completed' : execRows.length > 0 ? 'Active' : 'Announced';
+      const lastDate  = dates[dates.length - 1];
+      const firstDate = dates[0];
+
+      const completionPct = latest?.completion_pct ?? (
+        programMax && spentCumul ? Math.round((spentCumul / programMax) * 1000) / 10 : null
+      );
+
+      const isStale = lastDate < cutoffDate;
+      const status  = completionPct >= 95  ? 'Completed'
+                    : latest?.status === 'Announced' ? 'Announced'
+                    : isStale ? 'Expired'
+                    : 'Active';
+
       return {
         ...g,
-        totalShares, totalValue, weightedPrice,
-        firstDate: dates[0], lastDate: dates[dates.length - 1],
-        executionCount: execRows.length, completionPct, status,
-        executions: [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||'')),
+        programMax, spentCumul: displaySpent, cumShares: totalShares, avgPrice,
+        firstDate, lastDate, executionCount: execRows.length,
+        completionPct, status, isStale,
+        executions: sorted,
       };
     }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
-  }, [rows]);
+  }, [rows, cutoffDate]);
+
+  const programs = useMemo(() =>
+    showInactive ? allPrograms : allPrograms.filter(p => !p.isStale && p.status !== 'Completed'),
+    [allPrograms, showInactive]
+  );
+
+  const hiddenCount = allPrograms.length - programs.length;
 
   if (loading) {
     return (
@@ -1019,22 +1062,40 @@ function BuybackPrograms({ rows, loading }) {
       </div>
     );
   }
-  if (programs.length === 0) {
+  if (programs.length === 0 && !loading) {
     return (
       <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No buyback programs found</div>
-        <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Norway and UK buybacks scraped weekly</div>
+        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs</div>
+        {hiddenCount > 0 && (
+          <button onClick={() => setShowInactive(true)} style={{
+            marginTop: 10, fontSize: 12, color: ACCENT, background: 'none', border: 'none',
+            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+          }}>Show {hiddenCount} completed / expired programs</button>
+        )}
       </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Toggle for completed/expired programs */}
+      {hiddenCount > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={() => setShowInactive(v => !v)} style={{
+            fontSize: 12, color: ACCENT, background: 'none', border: '1px solid #E2E4E9',
+            borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+          }}>
+            {showInactive ? `Hide completed/expired` : `Show ${hiddenCount} completed/expired`}
+          </button>
+        </div>
+      )}
+
       {programs.map(p => {
         const isExpanded = expanded.has(p.key);
         const pct = p.completionPct != null ? Number(p.completionPct) : null;
         const statusCfg =
           p.status === 'Completed' ? { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' } :
+          p.status === 'Expired'   ? { bg: '#F9FAFB', color: '#9CA3AF', border: '#E5E7EB' } :
           p.status === 'Announced' ? { bg: '#EEF2FF', color: ACCENT,    border: '#C7D2FE' } :
                                      { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' };
 
@@ -1067,46 +1128,45 @@ function BuybackPrograms({ rows, loading }) {
                 </div>
               </div>
 
-              {/* Row 2: progress bar (if pct known) */}
-              {pct != null && (
+              {/* Row 2: progress bar */}
+              {(pct != null || (p.spentCumul && p.programMax)) && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <span style={{ fontSize: 12, color: '#6B7280' }}>
-                      {formatValue(p.totalValue, p.currency)} spent
+                      {p.programMax
+                        ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
+                        : <>{formatValue(p.spentCumul, p.currency)} spent</>}
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: ACCENT, fontFamily: "'DM Mono', monospace" }}>
-                      {pct.toFixed(1)}% complete
-                    </span>
+                    {pct != null && (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'DM Mono', monospace" }}>
+                        {pct.toFixed(1)}%
+                      </span>
+                    )}
                   </div>
-                  <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
-                  </div>
+                  {pct != null && (
+                    <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
+                        background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Row 3: stats */}
-              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                {p.totalShares > 0 && (
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                {p.cumShares > 0 && (
                   <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Shares Bought</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Total Shares</div>
                     <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
-                      {p.totalShares.toLocaleString('en-US')}
+                      {p.cumShares.toLocaleString('en-US')}
                     </div>
                   </div>
                 )}
-                {p.weightedPrice != null && (
+                {p.avgPrice != null && (
                   <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Wtd Avg Price</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Latest Avg Price</div>
                     <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
-                      {formatPrice(p.weightedPrice, p.currency)}
-                    </div>
-                  </div>
-                )}
-                {pct == null && p.totalValue > 0 && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Total Value</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
-                      {formatValue(p.totalValue, p.currency)}
+                      {formatPrice(p.avgPrice, p.currency)}
                     </div>
                   </div>
                 )}
@@ -1118,7 +1178,7 @@ function BuybackPrograms({ rows, loading }) {
                 </div>
                 {p.executionCount > 0 && (
                   <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Executions</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Reports</div>
                     <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>{p.executionCount}</div>
                   </div>
                 )}

@@ -75,106 +75,180 @@ function getJson(url) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+const MO_MAP = { january:1,february:2,march:3,april:4,may:5,june:6,
+  july:7,august:8,september:9,october:10,november:11,december:12 };
+
+function parseProseDate(s) {
+  if (!s) return null;
+  // "3 March 2026" or "27 May 2026"
+  const m = s.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if (m) {
+    const mon = MO_MAP[m[2].toLowerCase()];
+    if (mon) return `${m[3]}-${String(mon).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  }
+  // "10.04.2026" or "4/13/2026"
+  const d2 = s.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (d2) return `${d2[3]}-${String(d2[2]).padStart(2,'0')}-${String(d2[1]).padStart(2,'0')}`;
+  return null;
+}
+
 // ── Parse buyback message body ────────────────────────────────────────────────
+//
+// Handles three main formats found on Oslo Bors:
+//
+//  A) LINK Mobility / weekly summary with 4-col pipe table:
+//     |Date | Shares | Avg price (NOK) | Total value (NOK)|
+//     |Period Total | 1,750,000 | 23.59 | 41,288,800|
+//     |Previously disclosed buybacks | 7,850,000 | 22.00 | 172,765,850|
+//     |Accumulated under the buyback program | 9,600,000 | 22.30 | 214,054,650|
+//     + prose: "total consideration of up to NOK 300 million"
+//
+//  B) Nordea / simple 4-col pipe table:
+//     |XHEL |233,667|15.69|3,666,819.40|  → |Total|425,142|15.68|6,665,154.53|
+//
+//  C) Tieto/Helsinki / space-separated:
+//     "Total   51 800   15.78"
 
 function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
   if (!body || typeof body !== 'string') return null;
-
   const text = body.replace(/\r\n?/g, '\n');
 
-  // Detect currency from table header: "Total cost, EUR" / "NOK" / "GBP" etc.
-  const currM = text.match(/Total\s+cost[,\s]+([A-Z]{3})/i)
-             || text.match(/(?:price|kurs)[,\s]+([A-Z]{3})(?:\s*\*|\s*\n|\s+per)/i)
+  // ── Currency ──────────────────────────────────────────────────────────────
+  const currM = text.match(/Total\s+(?:cost|transactions?\s+value)[,\s]+([A-Z]{3})/i)
+             || text.match(/(?:value|price|kurs)[,\s(]+([A-Z]{3})[),\s]/i)
              || text.match(/\b(NOK|EUR|USD|GBP|SEK|DKK|CHF)\b/);
   const currency = currM ? currM[1].toUpperCase() : 'NOK';
 
-  // Parse Total row from ASCII table:
-  // |Total     |425,142|15.68              |6,665,154.53       |
-  const totalRowM = text.match(
-    /\|\s*Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i
-  );
-
-  let sharesBought = null, avgPrice = null, totalValue = null;
-
-  if (totalRowM) {
-    // Nordea / pipe-table format: |Total |425,142|15.68|6,665,154.53|
-    sharesBought = Math.round(parseNum(totalRowM[1]) || 0) || null;
-    avgPrice     = parseNum(totalRowM[2]);
-    totalValue   = parseNum(totalRowM[3]);
+  // ── Program authorization (max value) ─────────────────────────────────────
+  // "total consideration of up to NOK 300 million"
+  // "repurchase up to NOK 100,000,000"
+  let programMax = null;
+  const maxM = text.match(/(?:total\s+consideration\s+of\s+up\s+to|up\s+to\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?|repurchase\s+(?:shares\s+)?for\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?)\s*(?:NOK|EUR|USD|GBP|SEK|DKK|CHF)?\s*([\d,. ]+)\s*(million|billion|mn|bn)?/i);
+  if (maxM) {
+    const mult = /billion|bn/i.test(maxM[2]||'') ? 1e9 : /million|mn/i.test(maxM[2]||'') ? 1e6 : 1;
+    const v = parseNum(maxM[1]);
+    if (v) programMax = Math.round(v * mult);
   }
 
-  // Tieto / Helsinki space-table format:
-  // "Total                  51 800    15.78"  (no pipes, space-separated)
+  // ── Program dates ──────────────────────────────────────────────────────────
+  // "program commenced on 3 March 2026"
+  const startM = text.match(/(?:program(?:me)?\s+commenced\s+on|commencing\s+on|start(?:ing)?\s+(?:date|on))\s+(\d{1,2}\s+\w+\s+\d{4}|\d{1,2}[./]\d{1,2}[./]\d{4})/i);
+  const programStart = startM ? parseProseDate(startM[1]) : null;
+
+  // "will run until no later than the Company's Annual General Meeting on 27 May 2026"
+  // "no later than [date]" / "until [date]"
+  const endM = text.match(/(?:no\s+later\s+than|until|expire|end(?:ing)?(?:\s+(?:on|date))?)\s+(?:the\s+Company['']?s?\s+Annual\s+General\s+Meeting\s+on\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
+  const programEnd = endM ? parseProseDate(endM[1]) : null;
+
+  // ── Accumulated / cumulative row ───────────────────────────────────────────
+  // |Accumulated under the buyback program | 9,600,000 | 22.2974 | 214,054,650|
+  let cumShares = null, cumValue = null;
+  const accumM = text.match(/\|\s*Accumulated[^|]*?\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+  if (accumM) {
+    cumShares = Math.round(parseNum(accumM[1]) || 0) || null;
+    cumValue  = parseNum(accumM[3]) ? Math.round(parseNum(accumM[3])) : null;
+  }
+
+  // ── Period Total row (this week's execution) ───────────────────────────────
+  // |Period Total | 1,750,000 | 23.5936 | 41,288,800|
+  let sharesBought = null, avgPrice = null, weeklyValue = null;
+  const periodM = text.match(/\|\s*Period\s+Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+  if (periodM) {
+    sharesBought = Math.round(parseNum(periodM[1]) || 0) || null;
+    avgPrice     = parseNum(periodM[2]);
+    weeklyValue  = parseNum(periodM[3]) ? Math.round(parseNum(periodM[3])) : null;
+  }
+
+  // ── Fallback: simple |Total| row (Nordea format) ──────────────────────────
+  if (!sharesBought) {
+    const simpleTotal = text.match(/\|\s*Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+    if (simpleTotal) {
+      sharesBought = Math.round(parseNum(simpleTotal[1]) || 0) || null;
+      avgPrice     = parseNum(simpleTotal[2]);
+      weeklyValue  = parseNum(simpleTotal[3]) ? Math.round(parseNum(simpleTotal[3])) : null;
+    }
+  }
+
+  // ── Fallback: Tieto space-table ────────────────────────────────────────────
   if (!sharesBought) {
     const spaceTotal = text.match(/^Total\s+([\d ,]+)\s+([\d.,]+)/im)
                     || text.match(/\bTotal\b\s+([\d ,]+)\s+([\d.,]+)/im);
     if (spaceTotal) {
       sharesBought = Math.round(parseNum(spaceTotal[1]) || 0) || null;
       avgPrice     = parseNum(spaceTotal[2]);
-      totalValue   = (sharesBought && avgPrice) ? Math.round(sharesBought * avgPrice) : null;
+      weeklyValue  = (sharesBought && avgPrice) ? Math.round(sharesBought * avgPrice) : null;
     }
   }
 
-  // Prose format: "X shares ... at a price of NOK Y" or "bought back X shares at Y"
+  // ── Fallback: prose "X shares at NOK Y" ───────────────────────────────────
   if (!sharesBought) {
-    const proseSharesM = text.match(/([\d, ]+)\s+(?:own\s+)?shares?\s+(?:at|for|@)/i);
-    const prosePriceM  = text.match(/(?:at|price\s+of|average\s+price\s+of)\s+(?:NOK|EUR|GBP|USD|SEK|DKK)?\s*([\d.,]+)\s*(?:per\s+share)?/i);
-    if (proseSharesM) sharesBought = Math.round(parseNum(proseSharesM[1]) || 0) || null;
-    if (prosePriceM)  avgPrice     = parseNum(prosePriceM[1]);
-    if (sharesBought && avgPrice)  totalValue = Math.round(sharesBought * avgPrice);
+    const proseS = text.match(/([\d,. ]+)\s+(?:own\s+)?shares?\s+(?:at|for|@)/i);
+    const proseP = text.match(/average\s+price\s+of\s+(?:NOK|EUR|GBP|USD)?\s*([\d.,]+)/i)
+                || text.match(/(?:at|price\s+of)\s+(?:NOK|EUR|GBP|USD)?\s*([\d.,]+)\s*per\s+share/i);
+    if (proseS) sharesBought = Math.round(parseNum(proseS[1]) || 0) || null;
+    if (proseP) avgPrice = parseNum(proseP[1]);
+    if (sharesBought && avgPrice) weeklyValue = Math.round(sharesBought * avgPrice);
   }
 
-  // Generic fallback: pipe-table rows sum
+  // ── Pipe-table row sum fallback (individual venue rows) ───────────────────
   if (!sharesBought) {
-    const rowRe = /\|\s*[A-Z]{3,5}\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/g;
-    let totalShares = 0, totalCost = 0, count = 0;
-    let m;
+    const rowRe = /\|\s*[A-Z0-9\-]{2,6}\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/g;
+    let ts = 0, tc = 0, cnt = 0, m;
     while ((m = rowRe.exec(text)) !== null) {
-      const s = parseNum(m[1]);
-      const c = parseNum(m[3]);
-      if (s && c) { totalShares += s; totalCost += c; count++; }
+      const s = parseNum(m[1]), c = parseNum(m[3]);
+      if (s && c && s < 1e8 && c < 1e12) { ts += s; tc += c; cnt++; }
     }
-    if (count > 0) {
-      sharesBought = Math.round(totalShares);
-      totalValue   = Math.round(totalCost * 100) / 100;
-      avgPrice     = sharesBought > 0 ? Math.round((totalCost / totalShares) * 10000) / 10000 : null;
+    if (cnt > 0) {
+      sharesBought = Math.round(ts);
+      weeklyValue  = Math.round(tc);
+      avgPrice     = ts > 0 ? Math.round((tc / ts) * 10000) / 10000 : null;
     }
   }
 
-  // Extract execution date from body text
-  // "on 10.04.2026" or "10 April 2026" or from title "on 10.04.2026"
+  // ── Execution date ─────────────────────────────────────────────────────────
+  // "For the period from 13 April to 17 April 2026" → use end date
+  // "on 24.4.2026" → direct date
   let execDate = msgDate;
-  const dateM = text.match(/on\s+(\d{1,2})[./](\d{1,2})[./](\d{4})/i)
-             || text.match(/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
-  if (dateM) {
-    if (dateM[0].includes('/') || dateM[0].includes('.')) {
-      const [, dd, mm, yyyy] = dateM;
-      execDate = `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-    } else {
-      const moMap = { january:1,february:2,march:3,april:4,may:5,june:6,july:7,august:8,september:9,october:10,november:11,december:12 };
-      execDate = `${dateM[3]}-${String(moMap[dateM[2].toLowerCase()]).padStart(2,'0')}-${String(dateM[1]).padStart(2,'0')}`;
-    }
+  const periodDates = text.match(/period\s+from\s+[\d\s\w]+\s+to\s+(\d{1,2}\s+\w+(?:\s+\d{4})?)/i)
+                   || text.match(/period\s+from\s+.*?to\s+(\d{1,2}[./]\d{1,2}[./]\d{4})/i);
+  if (periodDates) {
+    let d = parseProseDate(periodDates[1]);
+    // If year missing, assume current year
+    if (d && d.length < 10) d = new Date().getFullYear() + '-' + d;
+    if (d) execDate = d;
+  }
+  if (execDate === msgDate) {
+    // "on 24.4.2026" or "Trade date 23.4.2026"
+    const singleDate = text.match(/(?:trade\s+date|on)\s+(\d{1,2}[./]\d{1,2}[./]\d{4})/i)
+                    || text.match(/(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/i);
+    if (singleDate) { const d = parseProseDate(singleDate[1]); if (d) execDate = d; }
   }
 
-  // Extract program completion info
-  // "amounts to 2,829,295,540 Euros, which represents approximately 56.3 % of the maximum"
-  const pctM = text.match(/([\d.]+)\s*%\s+of\s+the\s+maximum/i);
-  const completionPct = pctM ? parseFloat(pctM[1]) : null;
+  // ── Completion % ──────────────────────────────────────────────────────────
+  // Derive from cumulative / programMax, or parse prose
+  let completionPct = null;
+  if (cumValue && programMax && programMax > 0) {
+    completionPct = Math.round((cumValue / programMax) * 1000) / 10; // 1 decimal
+  } else {
+    const pctM = text.match(/([\d.]+)\s*%\s+of\s+the\s+(?:maximum|total)/i);
+    if (pctM) completionPct = parseFloat(pctM[1]);
+  }
 
-  // Extract ISIN
-  const isinM = text.match(/(?:ISIN|isin)[:\s]+([A-Z]{2}[A-Z0-9]{10})/i);
-  const isin  = isinM ? isinM[1] : null;
-
-  if (!sharesBought && !totalValue) return null;
+  if (!sharesBought && !weeklyValue && !programMax) return null;
 
   return {
     currency,
     shares_bought:    sharesBought,
     avg_price:        avgPrice,
-    total_value:      totalValue ? Math.round(totalValue) : null,
-    execution_date:   execDate,
+    weekly_value:     weeklyValue,      // this period's execution value
+    program_max:      programMax,       // authorized programme size
+    program_start:    programStart,
+    program_end:      programEnd,
+    cumulative_shares: cumShares,
+    cumulative_value:  cumValue,
     completion_pct:   completionPct,
-    isin,
   };
 }
 
@@ -220,22 +294,32 @@ async function scrapeNOBuybacks() {
     if (!result) { skipped++; continue; }
 
     parsed++;
+    const execDate = result.execution_date || msgDate;
     dbRows.push({
-      filing_id:      filingId,
-      country_code:   COUNTRY_CODE,
-      ticker:         msg.issuerSign  || null,
-      company:        msg.issuerName  || null,
-      announced_date: result.execution_date || msgDate,
-      execution_date: result.execution_date || msgDate,
-      shares_bought:  result.shares_bought,
-      avg_price:      result.avg_price,
-      total_value:    result.total_value,
-      currency:       result.currency,
-      completion_pct: result.completion_pct,
-      status:         'Active',
-      filing_url:     `${NEWSWEB_BASE}/message/${msgId}`,
-      source_url:     `${NEWSWEB_BASE}/message/${msgId}`,
-      source:         SOURCE,
+      filing_id:        filingId,
+      country_code:     COUNTRY_CODE,
+      ticker:           msg.issuerSign || null,
+      company:          msg.issuerName || null,
+      // announced_date = programme start date when known, else execution date
+      announced_date:   result.program_start || execDate,
+      execution_date:   execDate,
+      // total_value = max authorised programme size (e.g. NOK 300M)
+      total_value:      result.program_max || null,
+      // spent_value = cumulative spent to date
+      spent_value:      result.cumulative_value || null,
+      // weekly execution fields
+      shares_bought:    result.shares_bought,
+      avg_price:        result.avg_price,
+      // cumulative totals from the report
+      cumulative_shares: result.cumulative_shares || null,
+      cumulative_value:  result.cumulative_value || null,
+      completion_pct:    result.completion_pct,
+      pct_complete:      result.completion_pct,
+      currency:          result.currency,
+      status:            result.completion_pct >= 95 ? 'Completed' : 'Active',
+      filing_url:        `${NEWSWEB_BASE}/message/${msgId}`,
+      source_url:        `${NEWSWEB_BASE}/message/${msgId}`,
+      source:            SOURCE,
     });
   }
 
@@ -247,7 +331,10 @@ async function scrapeNOBuybacks() {
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
-  console.log(`  Sample: ${dbRows.slice(0,3).map(r=>`${r.company} ${r.shares_bought?.toLocaleString()} shares @ ${r.avg_price} ${r.currency}`).join('; ')}`);
+  const withMax = dbRows.filter(r=>r.total_value).length;
+  const withCum = dbRows.filter(r=>r.cumulative_value).length;
+  console.log(`  Program max extracted: ${withMax}, Cumulative totals: ${withCum}`);
+  console.log(`  Sample: ${dbRows.slice(0,2).map(r=>`${r.company}: ${r.shares_bought?.toLocaleString()} shares, cumulative ${r.cumulative_value?.toLocaleString()} ${r.currency}${r.completion_pct ? ' ('+r.completion_pct+'%)' : ''}`).join('; ')}`);
   return { saved: dbRows.length };
 }
 
