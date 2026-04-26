@@ -110,7 +110,7 @@ async function saveBuybackPrograms(rows) {
 
   const { data, error } = await supabase
     .from('buyback_programs')
-    .upsert(rows, { onConflict: 'filing_id', ignoreDuplicates: true });
+    .upsert(rows, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
     console.error('  DB error (buyback_programs):', error.message);
