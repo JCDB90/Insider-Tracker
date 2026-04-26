@@ -295,32 +295,28 @@ async function scrapeNOBuybacks() {
 
     parsed++;
     const execDate = result.execution_date || msgDate;
-    dbRows.push({
-      filing_id:        filingId,
-      country_code:     COUNTRY_CODE,
-      ticker:           msg.issuerSign || null,
-      company:          msg.issuerName || null,
-      // announced_date = programme start date when known, else execution date
-      announced_date:   result.program_start || execDate,
-      execution_date:   execDate,
-      // total_value = max authorised programme size (e.g. NOK 300M)
-      total_value:      result.program_max || null,
-      // spent_value = cumulative spent to date
-      spent_value:      result.cumulative_value || null,
-      // weekly execution fields
-      shares_bought:    result.shares_bought,
-      avg_price:        result.avg_price,
-      // cumulative totals from the report
-      cumulative_shares: result.cumulative_shares || null,
-      cumulative_value:  result.cumulative_value || null,
-      completion_pct:    result.completion_pct,
-      pct_complete:      result.completion_pct,
-      currency:          result.currency,
-      status:            result.completion_pct >= 95 ? 'Completed' : 'Active',
-      filing_url:        `${NEWSWEB_BASE}/message/${msgId}`,
-      source_url:        `${NEWSWEB_BASE}/message/${msgId}`,
-      source:            SOURCE,
-    });
+    const row = {
+      filing_id:      filingId,
+      country_code:   COUNTRY_CODE,
+      ticker:         msg.issuerSign || null,
+      company:        msg.issuerName || null,
+      announced_date: result.program_start || execDate,
+      execution_date: execDate,
+      shares_bought:  result.shares_bought,
+      avg_price:      result.avg_price,
+      currency:       result.currency,
+      status:         result.completion_pct >= 95 ? 'Completed' : 'Active',
+      filing_url:     `${NEWSWEB_BASE}/message/${msgId}`,
+      source_url:     `${NEWSWEB_BASE}/message/${msgId}`,
+      source:         SOURCE,
+    };
+    // Conditionally include enriched fields — never overwrite existing DB values with null
+    if (result.program_max      != null) row.total_value       = result.program_max;
+    if (result.cumulative_value != null) { row.spent_value = result.cumulative_value; row.cumulative_value = result.cumulative_value; }
+    if (result.cumulative_shares!= null) row.cumulative_shares = result.cumulative_shares;
+    if (result.completion_pct   != null) { row.completion_pct = result.completion_pct; row.pct_complete = result.completion_pct; }
+    if (result.program_start    != null) row.announced_date    = result.program_start;
+    dbRows.push(row);
   }
 
   console.log(`  Parsed: ${parsed}, Skipped (no data): ${skipped}`);

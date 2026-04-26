@@ -312,27 +312,28 @@ async function scrapeGBBuybacks() {
 
     parsed++;
     const fileUrl = `https://data.fca.org.uk/artefacts/${downloadLink}`;
-    dbRows.push({
-      filing_id:        filingId,
-      country_code:     COUNTRY_CODE,
-      ticker:           '',
-      company:          result.company || src.company || null,
-      announced_date:   result.program_start || result.execution_date || src.submitted_date?.slice(0, 10),
-      execution_date:   result.execution_date,
-      shares_bought:    result.shares_bought,
-      avg_price:        result.avg_price,
-      // programme-level columns (same semantics as norway scraper)
-      total_value:      result.total_value,    // programme max (derived or explicit)
-      spent_value:      result.spent_value,    // cumulative spent to date
-      cumulative_value: result.spent_value,    // keep in sync
-      completion_pct:   result.completion_pct,
-      pct_complete:     result.completion_pct,
-      currency:         result.currency,
-      status:           result.status || 'Active',
-      filing_url:       fileUrl,
-      source_url:       fileUrl,
-      source:           SOURCE,
-    });
+    // Base row — always present fields
+    const row = {
+      filing_id:      filingId,
+      country_code:   COUNTRY_CODE,
+      ticker:         '',
+      company:        result.company || src.company || null,
+      announced_date: result.program_start || result.execution_date || src.submitted_date?.slice(0, 10),
+      execution_date: result.execution_date,
+      shares_bought:  result.shares_bought,
+      avg_price:      result.avg_price,
+      currency:       result.currency,
+      status:         result.status || 'Active',
+      filing_url:     fileUrl,
+      source_url:     fileUrl,
+      source:         SOURCE,
+    };
+    // Only include enriched fields when non-null — preserves existing DB values
+    // when a document lacks cumulative/programme data (avoids null overwrites)
+    if (result.total_value  != null) row.total_value  = result.total_value;
+    if (result.spent_value  != null) { row.spent_value = result.spent_value; row.cumulative_value = result.spent_value; }
+    if (result.completion_pct != null) { row.completion_pct = result.completion_pct; row.pct_complete = result.completion_pct; }
+    dbRows.push(row);
   }
 
   console.log(`  Parsed: ${parsed}, Skipped: ${skipped}`);
