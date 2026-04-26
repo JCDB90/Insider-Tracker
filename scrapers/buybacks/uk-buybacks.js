@@ -201,24 +201,44 @@ function parseUKBuybackDoc(text, meta) {
   if (startM) programStart = parseProseDate(startM[1]);
   if (endM)   programEnd   = parseProseDate(endM[1]);
 
+  // ── Cumulative spent from execution reports ───────────────────────────────
+  // "cash amount... amounts to 2,829,295,540 Euros" (cumulative to date)
+  let spentValue = null;
+  const spentM = text.match(/cash\s+amount[^.]*?amounts?\s+to\s+([\d,]+(?:\.\d+)?)\s*(?:[A-Z]{3}|Euros?|Pounds?|dollars?)/i)
+              || text.match(/total\s+consideration[^.]*?amounts?\s+to\s+([\d,]+(?:\.\d+)?)/i);
+  if (spentM) spentValue = Math.round(parseNum(spentM[1]));
+
+  // Derive programme max from spent + completion %:
+  // "2,829,295,540 represents approximately 56.3% of the maximum"  → max = spent / 0.563
+  let derivedMax = null;
+  if (spentValue && completionPct && completionPct > 0) {
+    derivedMax = Math.round(spentValue / (completionPct / 100));
+  }
+  // Use explicit announcement value if available, else derived
+  const effectiveMax = programMaxValue || derivedMax || null;
+
   // Decide result type
-  const hasExecution  = !!sharesBought;
-  const hasAnnouncement = !!programMaxValue;
+  const hasExecution    = !!sharesBought;
+  const hasAnnouncement = !!effectiveMax;
 
   if (!hasExecution && !hasAnnouncement) return null;
 
   return {
     company,
     isin,
-    currency:        hasExecution ? currency : programCurrency,
-    shares_bought:   sharesBought,
-    avg_price:       avgPrice,
-    total_value:     hasExecution ? totalValue : programMaxValue,
-    execution_date:  execDate || meta.submittedDate?.slice(0, 10),
-    completion_pct:  completionPct,
-    status:          hasExecution ? 'Active' : 'Announced',
-    program_start:   programStart,
-    program_end:     programEnd,
+    currency:          hasExecution ? currency : programCurrency,
+    // weekly execution fields
+    shares_bought:     sharesBought,
+    avg_price:         avgPrice,
+    weekly_value:      totalValue,       // this period's execution value (not stored directly in total_value)
+    // programme-level fields (same column semantics as norway scraper)
+    total_value:       effectiveMax,     // programme max authorised
+    spent_value:       spentValue,       // cumulative spent
+    execution_date:    execDate || meta.submittedDate?.slice(0, 10),
+    completion_pct:    completionPct,
+    status:            hasExecution ? 'Active' : 'Announced',
+    program_start:     programStart,
+    program_end:       programEnd,
   };
 }
 
@@ -293,21 +313,25 @@ async function scrapeGBBuybacks() {
     parsed++;
     const fileUrl = `https://data.fca.org.uk/artefacts/${downloadLink}`;
     dbRows.push({
-      filing_id:      filingId,
-      country_code:   COUNTRY_CODE,
-      ticker:         '',                    // FCA NSM doesn't expose ticker; empty string satisfies NOT NULL
-      company:        result.company || src.company || null,
-      announced_date: result.program_start || result.execution_date || src.submitted_date?.slice(0, 10),
-      execution_date: result.execution_date,
-      shares_bought:  result.shares_bought,
-      avg_price:      result.avg_price,
-      total_value:    result.total_value,
-      completion_pct: result.completion_pct,
-      currency:       result.currency,
-      status:         result.status || 'Active',
-      filing_url:     fileUrl,
-      source_url:     fileUrl,
-      source:         SOURCE,
+      filing_id:        filingId,
+      country_code:     COUNTRY_CODE,
+      ticker:           '',
+      company:          result.company || src.company || null,
+      announced_date:   result.program_start || result.execution_date || src.submitted_date?.slice(0, 10),
+      execution_date:   result.execution_date,
+      shares_bought:    result.shares_bought,
+      avg_price:        result.avg_price,
+      // programme-level columns (same semantics as norway scraper)
+      total_value:      result.total_value,    // programme max (derived or explicit)
+      spent_value:      result.spent_value,    // cumulative spent to date
+      cumulative_value: result.spent_value,    // keep in sync
+      completion_pct:   result.completion_pct,
+      pct_complete:     result.completion_pct,
+      currency:         result.currency,
+      status:           result.status || 'Active',
+      filing_url:       fileUrl,
+      source_url:       fileUrl,
+      source:           SOURCE,
     });
   }
 
