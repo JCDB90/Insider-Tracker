@@ -1384,7 +1384,7 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick }) {
+function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
   const [saving, setSaving] = useState(false);
@@ -1430,6 +1430,15 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
       .filter(t => matchesWatchlist(watchlist, t))
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
   }, [trades, watchlist]);
+
+  // Buyback signals: any buyback_programs row whose ticker matches a watchlist stock
+  const watchlistBuybacks = useMemo(() => {
+    if (!buybacks?.length) return [];
+    return buybacks
+      .filter(b => watchlist.some(w => w.ticker === b.ticker && w.country_code === b.country_code))
+      .sort((a, b) => (b.announced_date || '').localeCompare(a.announced_date || ''))
+      .slice(0, 10);
+  }, [buybacks, watchlist]);
 
   return (
     <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
@@ -1587,6 +1596,62 @@ function WatchlistPage({ trades, tradesLoading, watchlist, watchlistTickers, add
           );
         })}
       </div>
+
+      {/* Buyback signals for watchlist stocks */}
+      {watchlistBuybacks.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ marginBottom: 14 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🔄</span> Buyback Programs
+            </h2>
+            <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>Active share repurchase programs for your watchlist stocks</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {watchlistBuybacks.map((b, i) => {
+              const pct = b.completion_pct != null ? Number(b.completion_pct) : null;
+              return (
+                <div key={b.id ?? i} style={{
+                  background: '#fff', border: '1px solid #E8E9EE', borderLeft: '3px solid ' + ACCENT,
+                  borderRadius: 8, padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <Flag code={b.country_code} />
+                      <span style={{ fontWeight: 600, fontSize: 13, color: '#111318' }}>{b.company}</span>
+                      {b.ticker && <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>{b.ticker}</span>}
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
+                        background: b.status === 'Announced' ? '#EEF2FF' : '#FFFBEB',
+                        color: b.status === 'Announced' ? ACCENT : '#D97706',
+                      }}>{b.status || 'Active'}</span>
+                    </div>
+                    {pct != null && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ flex: 1, height: 4, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
+                          <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 2 }} />
+                        </div>
+                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: ACCENT, fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                        {b.spent_value && b.total_value && (
+                          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                            {formatValue(b.spent_value, b.currency)} of {formatValue(b.total_value, b.currency)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
+                      {b.cumulative_shares ? Number(b.cumulative_shares).toLocaleString('en-US') + ' shares' : formatValue(b.total_value, b.currency)}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{formatDateShort(b.announced_date)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* All watchlist transactions table */}
       <div>
@@ -2903,6 +2968,7 @@ export default function App() {
           <WatchlistPage
             trades={trades}
             tradesLoading={tradesLoading}
+            buybacks={buybacks}
             watchlist={watchlist}
             watchlistTickers={watchlistTickers}
             addToWatchlist={addToWatchlist}

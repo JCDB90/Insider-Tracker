@@ -36,6 +36,7 @@ cd "$APP_DIR"
 
 "$NODE_BIN" scrapers/buybacks/norway-buybacks.js
 "$NODE_BIN" scrapers/buybacks/uk-buybacks.js
+"$NODE_BIN" scrapers/buybacks/watchlist-buybacks.js
 
 echo ""
 echo "  Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
