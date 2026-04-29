@@ -314,7 +314,7 @@ async function scrapeNOBuybacks() {
     if (result.program_max      != null) row.total_value       = result.program_max;
     if (result.cumulative_value != null) { row.spent_value = result.cumulative_value; row.cumulative_value = result.cumulative_value; }
     if (result.cumulative_shares!= null) row.cumulative_shares = result.cumulative_shares;
-    if (result.completion_pct   != null) { row.completion_pct = result.completion_pct; row.pct_complete = result.completion_pct; }
+    if (result.completion_pct   != null) { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
     if (result.program_start    != null) row.announced_date    = result.program_start;
     dbRows.push(row);
   }
