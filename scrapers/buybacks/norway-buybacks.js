@@ -317,8 +317,9 @@ async function scrapeNOBuybacks() {
       source_url:     `${NEWSWEB_BASE}/message/${msgId}`,
       source:         SOURCE,
     };
-    // Conditionally include enriched fields — never overwrite existing DB values with null
-    if (result.program_max      != null) row.total_value       = result.program_max;
+    // total_value always written (even null) so bad extractions get cleared on re-run
+    // total_value always written so bad extractions get cleared on re-run
+    row.total_value = result.program_max || null;
     if (result.cumulative_value != null) { row.spent_value = result.cumulative_value; row.cumulative_value = result.cumulative_value; }
     if (result.cumulative_shares!= null) row.cumulative_shares = result.cumulative_shares;
     if (result.completion_pct   != null) { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
