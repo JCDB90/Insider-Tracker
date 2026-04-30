@@ -115,22 +115,30 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
   if (!body || typeof body !== 'string') return null;
   const text = body.replace(/\r\n?/g, '\n');
 
-  // ── Currency ──────────────────────────────────────────────────────────────
-  const currM = text.match(/Total\s+(?:cost|transactions?\s+value)[,\s]+([A-Z]{3})/i)
-             || text.match(/(?:value|price|kurs)[,\s(]+([A-Z]{3})[),\s]/i)
-             || text.match(/\b(NOK|EUR|USD|GBP|SEK|DKK|CHF)\b/);
+  // ── Currency — only accept known codes ───────────────────────────────────
+  const KNOWN_CCY = /\b(NOK|EUR|USD|GBP|SEK|DKK|CHF)\b/i;
+  const currM = text.match(/Total\s+(?:cost|transactions?\s+value)[,\s]+(NOK|EUR|USD|GBP|SEK|DKK|CHF)/i)
+             || text.match(KNOWN_CCY);
   const currency = currM ? currM[1].toUpperCase() : 'NOK';
 
-  // ── Program authorization (max VALUE, not share count) ────────────────────
-  // "total consideration of up to NOK 300 million"
-  // "repurchase shares for a total consideration of up to NOK 100,000,000"
-  // Requires an explicit currency code to distinguish value from share count.
+  // ── Program authorization (max VALUE) ────────────────────────────────────
+  // Handles both orderings: "NOK 300 million" and "300 million NOK"
+  // Requires currency keyword to distinguish value from share count.
+  const CCY = '(NOK|EUR|USD|GBP|SEK|DKK|CHF)';
   let programMax = null;
-  const maxM = text.match(/(?:total\s+consideration\s+of\s+up\s+to|up\s+to\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?|repurchase\s+(?:shares\s+)?for\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?)\s*(NOK|EUR|USD|GBP|SEK|DKK|CHF)\s*([\d,. ]+)\s*(million|billion|mn|bn)?/i);
-  if (maxM) {
-    const mult = /billion|bn/i.test(maxM[3]||'') ? 1e9 : /million|mn/i.test(maxM[3]||'') ? 1e6 : 1;
-    const v = parseNum(maxM[2]);
-    if (v) programMax = Math.round(v * mult);
+  const maxPrefix = /(?:total\s+consideration\s+of\s+up\s+to|up\s+to\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?|repurchase\s+(?:shares\s+)?for\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?)/i;
+  // currency-before: "up to NOK 300 million"
+  const maxM1 = text.match(new RegExp(maxPrefix.source + '\\s*' + CCY + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?', 'i'));
+  // currency-after:  "up to 300 million NOK"
+  const maxM2 = text.match(new RegExp(maxPrefix.source + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?\\s*' + CCY, 'i'));
+
+  for (const m of [maxM1, maxM2].filter(Boolean)) {
+    // maxM1 groups: 1=currency, 2=number, 3=mult | maxM2 groups: 1=number, 2=mult, 3=currency
+    const num  = m === maxM1 ? m[2] : m[1];
+    const mult_s = m === maxM1 ? m[3] : m[2];
+    const mult = /billion|bn/i.test(mult_s||'') ? 1e9 : /million|mn/i.test(mult_s||'') ? 1e6 : 1;
+    const v = parseNum(num);
+    if (v && v * mult > 1000) { programMax = Math.round(v * mult); break; } // > 1000 to skip share counts
   }
 
   // ── Program dates ──────────────────────────────────────────────────────────
