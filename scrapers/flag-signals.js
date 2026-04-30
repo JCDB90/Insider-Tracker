@@ -21,11 +21,40 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const CLUSTER_WINDOW   = 7;    // days — different insiders, same company
 const REP_MIN_GAP      = 4;    // days — exclude 1–3 day tranche executions
 const REP_MAX_GAP      = 14;   // days — same insider "came back" window
-const PRE_EARNINGS_MIN = 30;   // days before earnings — minimum
-const PRE_EARNINGS_MAX = 60;   // days before earnings — maximum
 const DIP_MIN          = 0.10; // 10 % minimum drawdown
 const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
 const BATCH_SIZE       = 200;
+
+// ── Deterministic pre-earnings blackout windows ───────────────────────────────
+// Companies enter a trading blackout 30-45 days before quarterly results.
+// An insider buying DURING the pre-blackout window (before it starts) is a
+// stronger signal than buying at a random time.
+//
+// Standard EU quarterly reporting schedule:
+//   Q1 results:  Apr 15 – May 30  → blackout starts Mar 1
+//   Q2/H1:       Jul 15 – Aug 31  → blackout starts Jun 1
+//   Q3:          Oct 15 – Nov 30  → blackout starts Sep 1
+//   Q4/FY:       Jan 20 – Mar 31  → blackout starts Dec 6
+//
+// is_pre_earnings = true when a BUY falls inside one of these windows:
+//   Q1 blackout:  March 1  – April 14
+//   Q2 blackout:  June 1   – July 14
+//   Q3 blackout:  September 1 – October 14
+//   Q4 blackout:  December 6 – January 19
+function isPreEarningsWindow(dateStr) {
+  const d = new Date(dateStr);
+  const m = d.getMonth() + 1; // 1–12
+  const day = d.getDate();
+  if (m === 3)                    return true;  // all of March
+  if (m === 4 && day <= 14)       return true;  // Apr 1–14
+  if (m === 6)                    return true;  // all of June
+  if (m === 7 && day <= 14)       return true;  // Jul 1–14
+  if (m === 9)                    return true;  // all of September
+  if (m === 10 && day <= 14)      return true;  // Oct 1–14
+  if (m === 12 && day >= 6)       return true;  // Dec 6–31
+  if (m === 1 && day <= 19)       return true;  // Jan 1–19
+  return false;
+}
 
 function daysBetween(a, b) {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
@@ -53,27 +82,9 @@ async function loadAllBuys() {
   return rows;
 }
 
-// ── Load earnings calendar ────────────────────────────────────────────────────
-
-async function loadEarnings() {
-  const { data, error } = await sb
-    .from('earnings_calendar')
-    .select('ticker, country_code, earnings_date')
-    .gte('earnings_date', new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10));
-  if (error) throw new Error('Load earnings: ' + error.message);
-  // Group by ticker+country
-  const map = {};
-  for (const r of data || []) {
-    const key = `${r.ticker}|${r.country_code}`;
-    if (!map[key]) map[key] = [];
-    map[key].push(r.earnings_date);
-  }
-  return map;
-}
-
 // ── Signal computation ────────────────────────────────────────────────────────
 
-function computeSignals(buys, earningsMap) {
+function computeSignals(buys) {
   const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_earnings, is_price_dip }
 
   // Index by company (for cluster / repetitive detection)
@@ -112,19 +123,8 @@ function computeSignals(buys, earningsMap) {
     // Must have at least one same-insider peer AND the closest one must be >= 4 days away
     const isRepetitive = minGap !== null && minGap >= REP_MIN_GAP;
 
-    // ── PRE-EARNINGS: 30–60 days before a known earnings date ─────────────────
-    let isPreEarnings = false;
-    const earningsKey = `${t.ticker}|${t.country_code}`;
-    const dates = earningsMap[earningsKey] || [];
-    const txMs  = new Date(t.transaction_date).getTime();
-    for (const ed of dates) {
-      const edMs = new Date(ed).getTime();
-      const daysBefore = (edMs - txMs) / 86400000;
-      if (daysBefore >= PRE_EARNINGS_MIN && daysBefore <= PRE_EARNINGS_MAX) {
-        isPreEarnings = true;
-        break;
-      }
-    }
+    // ── PRE-EARNINGS: deterministic quarterly blackout windows ───────────────
+    const isPreEarnings = isPreEarningsWindow(t.transaction_date);
 
     // ── PRICE DIP: 10–60 % drawdown (excludes splits / delisting outliers) ────
     const dip = t.price_drawdown != null ? Number(t.price_drawdown) : null;
@@ -186,13 +186,8 @@ async function main() {
   const buys = await loadAllBuys();
   console.log(`  ${buys.length} BUY transactions loaded`);
 
-  console.log('  Loading earnings calendar…');
-  const earningsMap = await loadEarnings();
-  const earningsTickers = Object.keys(earningsMap).length;
-  console.log(`  ${earningsTickers} tickers with earnings dates`);
-
-  console.log('  Computing signals…');
-  const results = computeSignals(buys, earningsMap);
+  console.log('  Computing signals (pre-earnings: deterministic quarterly windows)…');
+  const results = computeSignals(buys);
 
   const cluster   = Object.values(results).filter(r => r.is_cluster_buy).length;
   const repetitive= Object.values(results).filter(r => r.is_repetitive_buy).length;

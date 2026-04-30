@@ -144,8 +144,14 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
 
   // ── Accumulated / cumulative row ───────────────────────────────────────────
   // |Accumulated under the buyback program | 9,600,000 | 22.2974 | 214,054,650|
+  // Note: Oslo Bors sometimes splits cell text across multiple lines:
+  // |Accumulated under   |              |              |              |
+  // |the buyback         | 9,600,000    | 22.2974      | 214,054,650  |
+  // |program             |              |              |              |
+  // → normalise by collapsing consecutive pipe-rows into one before matching.
+  const normText = text.replace(/\|\s*\n\s*\|/g, '| ');  // join broken pipe rows
   let cumShares = null, cumValue = null;
-  const accumM = text.match(/\|\s*Accumulated[^|]*?\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+  const accumM = normText.match(/\|\s*Accumulated[^|]*?\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
   if (accumM) {
     cumShares = Math.round(parseNum(accumM[1]) || 0) || null;
     cumValue  = parseNum(accumM[3]) ? Math.round(parseNum(accumM[3])) : null;
@@ -154,7 +160,7 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
   // ── Period Total row (this week's execution) ───────────────────────────────
   // |Period Total | 1,750,000 | 23.5936 | 41,288,800|
   let sharesBought = null, avgPrice = null, weeklyValue = null;
-  const periodM = text.match(/\|\s*Period\s+Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+  const periodM = normText.match(/\|\s*Period\s+Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
   if (periodM) {
     sharesBought = Math.round(parseNum(periodM[1]) || 0) || null;
     avgPrice     = parseNum(periodM[2]);
@@ -163,7 +169,7 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
 
   // ── Fallback: simple |Total| row (Nordea format) ──────────────────────────
   if (!sharesBought) {
-    const simpleTotal = text.match(/\|\s*Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
+    const simpleTotal = normText.match(/\|\s*Total\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|\s*([\d,. ]+?)\s*\|/i);
     if (simpleTotal) {
       sharesBought = Math.round(parseNum(simpleTotal[1]) || 0) || null;
       avgPrice     = parseNum(simpleTotal[2]);

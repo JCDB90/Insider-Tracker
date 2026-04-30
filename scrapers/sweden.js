@@ -84,6 +84,7 @@ const TICKERS = {
   'midsona': 'MIDS-B',
   'nyfosa': 'NYF',
   'epiroc': 'EPI-B',
+  'viaplay': 'VPLAY-B',
   'elanders': 'ELAN-B',
   'hexpol': 'HEXPOL-B',
   'lundbergs': 'LUND-B',

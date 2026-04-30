@@ -998,32 +998,34 @@ function BuybackPrograms({ rows, loading }) {
       const sorted = [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
       const latest = sorted[0];
 
-      // total_value = programme max authorised (same across rows; take latest)
-      // spent_value / cumulative_value = cumulative spent from latest report
-      const programMax    = Number(latest?.total_value   || 0) || null;
-      const spentCumul    = Number(latest?.spent_value   || latest?.cumulative_value || 0) || null;
-      const cumShares     = Number(latest?.cumulative_shares || 0) || null;
+      // Use the row with completion_pct as the "enriched" row for programme data.
+      // total_value is reliable as programme max only when completion_pct is set —
+      // otherwise it might be a legacy weekly execution value.
+      const enriched = sorted.find(r => r.completion_pct != null) || null;
 
-      // Fall back to summing weekly shares_bought if no cumulative available
+      const programMax = enriched ? (Number(enriched.total_value) || null) : null;
+      const spentCumul = enriched
+        ? (Number(enriched.spent_value || enriched.cumulative_value) || null)
+        : null;
+      const cumShares = enriched ? (Number(enriched.cumulative_shares) || null) : null;
+
+      // For shares display: prefer cumulative_shares from enriched row, else sum weekly
       const execRows  = g.executions.filter(r => r.shares_bought != null);
       const sumShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
-      const sumValue  = execRows.reduce((s, r) => s + Number(
-        // Use per-row cumulative_value if no programme max (old data: total_value = weekly)
-        programMax ? 0 : (r.total_value || 0)
-      ), 0);
+      const totalShares = cumShares || (sumShares > 0 ? sumShares : null);
 
-      const totalShares = cumShares || sumShares;
-      // When we have both programMax and spentCumul, use them; otherwise show sum
-      const displaySpent = spentCumul || sumValue;
-      // Weighted avg price from latest execution
-      const avgPrice = Number(latest?.avg_price || 0) || null;
+      // Avg price from latest execution that has one
+      const avgPrice = Number(latest?.avg_price) || null;
 
       const dates = g.executions.map(r => r.execution_date || r.announced_date).filter(Boolean).sort();
       const lastDate  = dates[dates.length - 1];
       const firstDate = dates[0];
 
-      const completionPct = latest?.completion_pct ?? (
-        programMax && spentCumul ? Math.round((spentCumul / programMax) * 1000) / 10 : null
+      // completion_pct: use enriched value; derive from spent/max if both available
+      const completionPct = enriched?.completion_pct ?? (
+        programMax && spentCumul && programMax > 0
+          ? Math.round((spentCumul / programMax) * 1000) / 10
+          : null
       );
 
       const isStale = lastDate < cutoffDate;
@@ -1034,7 +1036,7 @@ function BuybackPrograms({ rows, loading }) {
 
       return {
         ...g,
-        programMax, spentCumul: displaySpent, cumShares: totalShares, avgPrice,
+        programMax, spentCumul, cumShares: totalShares, avgPrice,
         firstDate, lastDate, executionCount: execRows.length,
         completionPct, status, isStale,
         executions: sorted,
@@ -1128,27 +1130,25 @@ function BuybackPrograms({ rows, loading }) {
                 </div>
               </div>
 
-              {/* Row 2: progress bar */}
-              {(pct != null || (p.spentCumul && p.programMax)) && (
+              {/* Row 2: progress bar — only when completion_pct is known */}
+              {pct != null && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <span style={{ fontSize: 12, color: '#6B7280' }}>
-                      {p.programMax
+                      {p.spentCumul && p.programMax
                         ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
-                        : <>{formatValue(p.spentCumul, p.currency)} spent</>}
+                        : p.programMax
+                          ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span>
+                          : null}
                     </span>
-                    {pct != null && (
-                      <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'DM Mono', monospace" }}>
-                        {pct.toFixed(1)}%
-                      </span>
-                    )}
+                    <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'DM Mono', monospace" }}>
+                      {pct.toFixed(1)}% complete
+                    </span>
                   </div>
-                  {pct != null && (
-                    <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
-                        background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
-                    </div>
-                  )}
+                  <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
+                      background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
+                  </div>
                 </div>
               )}
 
@@ -1173,7 +1173,9 @@ function BuybackPrograms({ rows, loading }) {
                 <div>
                   <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Period</div>
                   <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>
-                    {p.firstDate ? `${formatDateShort(p.firstDate)} → ${formatDateShort(p.lastDate)}` : '—'}
+                    {p.firstDate
+                      ? `${formatDateShort(p.firstDate)} → ${p.lastDate ? formatDateShort(p.lastDate) : 'Ongoing'}`
+                      : '—'}
                   </div>
                 </div>
                 {p.executionCount > 0 && (
