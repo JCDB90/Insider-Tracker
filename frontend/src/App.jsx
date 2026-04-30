@@ -1017,9 +1017,12 @@ function BuybackPrograms({ rows, loading }) {
       // Avg price from latest execution that has one
       const avgPrice = Number(latest?.avg_price) || null;
 
-      const dates = g.executions.map(r => r.execution_date || r.announced_date).filter(Boolean).sort();
-      const lastDate  = dates[dates.length - 1];
-      const firstDate = dates[0];
+      // Programme start = earliest announced_date (set to program_start by scraper)
+      // Programme latest = most recent execution_date
+      const announcedDates = g.executions.map(r => r.announced_date).filter(Boolean).sort();
+      const execDates      = g.executions.map(r => r.execution_date).filter(Boolean).sort();
+      const firstDate = announcedDates[0] || execDates[0];
+      const lastDate  = execDates[execDates.length - 1] || announcedDates[announcedDates.length - 1];
 
       // completion_pct: use enriched value; derive from spent/max if both available
       const rawPct = enriched?.completion_pct ?? (
