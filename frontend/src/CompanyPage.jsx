@@ -143,6 +143,10 @@ function fmtDateShort(s) {
 function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
   if (yahooTicker) return [yahooTicker];
 
+  // ISINs stored as tickers (12-char alphanumeric) will never resolve on Yahoo
+  const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
+  if (ticker && ISIN_RE.test(ticker)) return [];
+
   const sfx = COUNTRY_YAHOO_SUFFIX[countryCode] || '';
 
   // When scraper stored no ticker, derive from first word of company name
@@ -170,6 +174,21 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
       root + '-B' + sfx,     // ELAN-B.ST
       root + 'B' + sfx,      // ELANB.ST
       root.slice(0, 4) + '-B' + sfx, // ELAN-B.ST from truncated root
+    );
+  }
+
+  // NL-registered companies are often cross-listed on Paris, Milan, Brussels, or
+  // Nasdaq rather than Amsterdam. Try all common EU exchanges + bare (NYSE/Nasdaq).
+  if (countryCode === 'NL') {
+    candidates.push(
+      base + '.PA',           // Euronext Paris (STMicro STMPA.PA, Euronext ENX.PA)
+      base + '.MI',           // Borsa Milan (Ferrari RACE.MI, Campari CPR.MI)
+      base + '.BR',           // Euronext Brussels (argenx ARGX.BR)
+      base,                   // Nasdaq/NYSE bare (argenx ARGX, Ferrari RACE)
+      bare + '.PA',
+      bare + '.MI',
+      bare + '.BR',
+      bare,
     );
   }
 
@@ -230,7 +249,7 @@ function findChartPrice(chartData, dateStr) {
 
 // ─── StockChart ───────────────────────────────────────────────────────────────
 
-function StockChart({ data, trades, earningsDates }) {
+function StockChart({ data, trades, earningsDates, triedSymbols }) {
   const containerRef = useRef(null);
   const chartRef     = useRef(null);
 
@@ -329,11 +348,15 @@ function StockChart({ data, trades, earningsDates }) {
   if (data.length === 0) {
     return (
       <div ref={containerRef} style={{
-        height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#F9FAFB', borderRadius: 10, border: '1px solid #E8E9EE',
-        color: '#9CA3AF', fontSize: 13,
+        height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: '#F9FAFB', borderRadius: 10, border: '1px solid #E8E9EE', gap: 6,
       }}>
-        Chart data unavailable for this ticker
+        <span style={{ color: '#9CA3AF', fontSize: 13 }}>Chart data unavailable</span>
+        {triedSymbols?.length > 0 && (
+          <span style={{ color: '#D1D5DB', fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+            Tried: {triedSymbols.slice(0, 4).join(', ')}
+          </span>
+        )}
       </div>
     );
   }
@@ -376,6 +399,7 @@ export default function CompanyPage({
   const [priceChange,   setPriceChange]   = useState(null);
   const [priceCurrency, setPriceCurrency] = useState('EUR');
   const [chartError,    setChartError]    = useState(false);
+  const [resolvedSymbol, setResolvedSymbol] = useState(null);
 
   // earnings_calendar rows from Supabase — null = not yet loaded, [] = loaded but empty
   const [earningsDates,  setEarningsDates]  = useState(null);
@@ -429,11 +453,17 @@ export default function CompanyPage({
 
     setPriceLoading(true);
     setChartError(false);
+    setResolvedSymbol(null);
 
     // Pass all candidates; proxy tries them in order and returns first with data
     const symbolsParam = yahooSymbols.map(encodeURIComponent).join(',');
     fetch(`/api/yahoo-chart?symbols=${symbolsParam}&range=${chartRange}&interval=1d`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(r => {
+        if (!r.ok) return Promise.reject(r.status);
+        const sym = r.headers.get('X-Resolved-Symbol');
+        if (sym) setResolvedSymbol(sym);
+        return r.json();
+      })
       .then(json => {
         const result = json?.chart?.result?.[0];
         if (!result) { setChartError(true); return; }
@@ -580,7 +610,7 @@ export default function CompanyPage({
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111318', marginBottom: 2 }}>Stock Price</h2>
             <p style={{ fontSize: 12, color: '#9CA3AF' }}>
               {chartData.length > 0
-                ? `${chartData.length} trading days · ▲▼ insider trades${earningsDates?.length ? ' · 📅 earnings dates' : ''}`
+                ? `${chartData.length} trading days · ▲▼ insider trades${earningsDates?.length ? ' · 📅 earnings dates' : ''}${resolvedSymbol && resolvedSymbol !== yahooSymbols[0] ? ` · ${resolvedSymbol}` : ''}`
                 : 'Historical price chart'}
             </p>
           </div>
@@ -611,6 +641,7 @@ export default function CompanyPage({
             data={chartData}
             trades={companyTrades}
             earningsDates={earningsDates || []}
+            triedSymbols={chartData.length === 0 ? yahooSymbols : null}
           />
         )}
 

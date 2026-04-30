@@ -98,8 +98,12 @@ const TICKER_MAP = {
   'digi communications':'DIGI',
   // Extended — companies registered in NL but sometimes on other exchanges
   'magnum ice cream':   'MICC',
+  // Campari / Ferrari / Cementir are Italian companies registered in NL.
+  // Their primary listing is on Borsa Milan (.MI), not Euronext Amsterdam (.AS).
+  // CompanyPage.jsx buildYahooSymbolCandidates now also tries .MI for NL.
   'campari':            'CPR',
   'oci n.v':            'OCI',
+  // argenx is on Euronext Brussels (.BR) + Nasdaq; buildYahooSymbolCandidates tries both
   'argenx':             'ARGX',
   'nepi rockcastle':    'NRP',
   'cementir':           'CEM',
@@ -119,6 +123,7 @@ const TICKER_MAP = {
   'kendrion':           'KENDR',
   'ease2pay':           'EAS2P',
   'amg critical':       'AMG',
+  // Qiagen delisted from Nasdaq/NYSE; now only on XETRA as QGEN.DE
   'qiagen':             'QGEN',
   'ebusco':             'EBUS',
   'envipco':            'ENVI',

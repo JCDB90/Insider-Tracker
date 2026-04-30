@@ -97,6 +97,24 @@ const TICKERS = {
   'nolato': 'NOLA-B',
   'troax': 'TROAX',
   'vitec': 'VIT-B',
+  // Extended — companies that hit 6-char truncation bug or have special tickers
+  'indutrade': 'INDT',
+  'dometic': 'DOMETIC',
+  'eeducation albert': 'ALBER',
+  'medicover': 'MCOV-B',
+  'avanza bank': 'AZA',
+  'avanza': 'AZA',
+  'scandic hotels': 'SCAND',
+  'diös fastigheter': 'DIOS',
+  'dios fastigheter': 'DIOS',
+  'cellavision': 'CEVI',
+  'fabege': 'FABG',
+  'bonava': 'BONA-B',
+  'platzer fastigheter': 'PLAZ',
+  'swedencare': 'SWED-B',
+  'humana ab': 'HUMA',
+  'nordnet': 'NORDNET',
+  'flowscape': 'FLOW-B',
 };
 function getTicker(n) {
   if (!n) return null;

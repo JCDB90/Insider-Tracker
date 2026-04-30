@@ -301,7 +301,7 @@ async function scrapeBE() {
       continue;
     }
 
-    const ticker = d.isin ? (await isinToTicker(d.isin, COUNTRY_CODE) || d.isin) : '';
+    const ticker = d.isin ? (await isinToTicker(d.isin, COUNTRY_CODE) || '') : '';
 
     dbRows.push({
       filing_id:        fid,
