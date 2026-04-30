@@ -121,14 +121,15 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
              || text.match(/\b(NOK|EUR|USD|GBP|SEK|DKK|CHF)\b/);
   const currency = currM ? currM[1].toUpperCase() : 'NOK';
 
-  // ── Program authorization (max value) ─────────────────────────────────────
+  // ── Program authorization (max VALUE, not share count) ────────────────────
   // "total consideration of up to NOK 300 million"
-  // "repurchase up to NOK 100,000,000"
+  // "repurchase shares for a total consideration of up to NOK 100,000,000"
+  // Requires an explicit currency code to distinguish value from share count.
   let programMax = null;
-  const maxM = text.match(/(?:total\s+consideration\s+of\s+up\s+to|up\s+to\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?|repurchase\s+(?:shares\s+)?for\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?)\s*(?:NOK|EUR|USD|GBP|SEK|DKK|CHF)?\s*([\d,. ]+)\s*(million|billion|mn|bn)?/i);
+  const maxM = text.match(/(?:total\s+consideration\s+of\s+up\s+to|up\s+to\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?|repurchase\s+(?:shares\s+)?for\s+(?:a\s+total\s+(?:consideration\s+)?of\s+)?)\s*(NOK|EUR|USD|GBP|SEK|DKK|CHF)\s*([\d,. ]+)\s*(million|billion|mn|bn)?/i);
   if (maxM) {
-    const mult = /billion|bn/i.test(maxM[2]||'') ? 1e9 : /million|mn/i.test(maxM[2]||'') ? 1e6 : 1;
-    const v = parseNum(maxM[1]);
+    const mult = /billion|bn/i.test(maxM[3]||'') ? 1e9 : /million|mn/i.test(maxM[3]||'') ? 1e6 : 1;
+    const v = parseNum(maxM[2]);
     if (v) programMax = Math.round(v * mult);
   }
 

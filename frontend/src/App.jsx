@@ -1022,11 +1022,13 @@ function BuybackPrograms({ rows, loading }) {
       const firstDate = dates[0];
 
       // completion_pct: use enriched value; derive from spent/max if both available
-      const completionPct = enriched?.completion_pct ?? (
+      const rawPct = enriched?.completion_pct ?? (
         programMax && spentCumul && programMax > 0
           ? Math.round((spentCumul / programMax) * 1000) / 10
           : null
       );
+      // Discard bogus completion values (>150% = programme max was extracted wrong)
+      const completionPct = rawPct != null && rawPct <= 150 ? rawPct : null;
 
       const isStale = lastDate < cutoffDate;
       const status  = completionPct >= 95  ? 'Completed'
