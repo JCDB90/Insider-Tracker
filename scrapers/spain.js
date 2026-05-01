@@ -209,14 +209,16 @@ function hasNextPage(html, currentPage) {
 
 async function fetchAllFilings(fechad, fechah) {
   const all = [];
-  let page = 1;
+  // CNMV pagination is 0-indexed: page=0 → "Página 1 de N" (most recent entries).
+  // Starting at page=1 silently skips all filings on the first (newest) page.
+  let page = 0;
 
   while (page <= 300) {
     const path = `/portal/Consultas/Directivos-Resultado?fechad=${fechad}&fechah=${fechah}&page=${page}`;
     const res = await httpGet('www.cnmv.es', path);
 
     if (!res || res.status !== 200) {
-      if (page === 1) console.log(`  ⚠  Results page: HTTP ${res?.status ?? 'error'}`);
+      if (page === 0) console.log(`  ⚠  Results page: HTTP ${res?.status ?? 'error'}`);
       break;
     }
 
@@ -359,7 +361,12 @@ async function scrapeES() {
     );
 
     for (const { f, pdf } of results) {
-      if (!pdf.txType) { pdfFailed++; continue; }
+      if (!pdf.txType) {
+        pdfFailed++;
+        // Log first few failures to help diagnose PDF format issues
+        if (pdfFailed <= 3) console.log(`  ⚠  PDF parse failed (no txType): ${f.company} ${f.txDate} — ${f.docUrl}`);
+        continue;
+      }
 
       const shares = pdf.shares ?? null;
       const price  = pdf.price  ?? null;
