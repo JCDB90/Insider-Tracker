@@ -25,7 +25,8 @@ const COUNTRY_CODE   = 'DK';
 const SOURCE         = 'Nasdaq Copenhagen / MAR';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'DKK';
-const MARKET         = 'Main Market, Copenhagen';
+// Include both the main market and First North Denmark (SME market) to capture all Danish companies.
+const MARKETS        = new Set(['Main Market, Copenhagen', 'First North Denmark']);
 const CONCURRENCY    = 4;  // reduced: each notification may also fetch a PDF attachment
 
 function isoDate(d) {
@@ -421,7 +422,6 @@ async function fetchNasdaqPage(fromDate, toDate, start) {
     dir: 'DESC',
     globalName: 'NordicAllMarkets',
     cnsCategory: "Managers' Transactions",
-    market: MARKET,
     fromDate,
     toDate,
     callback: 'handleResponse',
@@ -525,10 +525,9 @@ async function scrapeDK() {
   const co   = cutoff();
   const from = isoDate(co);
   const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to} (market: ${MARKET})…`);
+  console.log(`  Fetching ${from} → ${to} (markets: ${[...MARKETS].join(', ')})…`);
 
-  // Paginate newest-first; API ignores fromDate/toDate so we stop by item date.
-  // Items include multiple Nordic markets — filter by item.market === MARKET.
+  // Paginate newest-first; API returns all Nordic markets — filter client-side by MARKETS set.
   const allItems = [];
   const seenIds = new Set();
   let start = 0;
@@ -554,7 +553,7 @@ async function scrapeDK() {
       const itemDate = (item.releaseTime || item.published || '').slice(0, 10);
       if (itemDate >= from) allBefore = false;
       if (itemDate < from) continue;
-      if (item.market !== MARKET) continue;
+      if (!MARKETS.has(item.market)) continue;
       const id = String(item.disclosureId || item.id || '');
       if (id && seenIds.has(id)) continue;
       seenIds.add(id);

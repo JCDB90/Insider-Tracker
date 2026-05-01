@@ -10,7 +10,7 @@ const COUNTRY_FLAGS = {
   AT: '🇦🇹', BE: '🇧🇪', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
   DE: '🇩🇪', DK: '🇩🇰', ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
   HK: '🇭🇰', IE: '🇮🇪', IT: '🇮🇹', JP: '🇯🇵', KR: '🇰🇷',
-  LU: '🇱🇺', NL: '🇳🇱', NO: '🇳🇴', PL: '🇵🇱', PT: '🇵🇹',
+  LU: '🇱🇺', NL: '🇳🇱', NO: '🇳🇴',
   SE: '🇸🇪', SG: '🇸🇬', ZA: '🇿🇦',
 };
 
@@ -21,7 +21,7 @@ const COUNTRY_NAMES = {
   FR: 'France',       GB: 'United Kingdom', HK: 'Hong Kong',
   IE: 'Ireland',      IT: 'Italy',          JP: 'Japan',
   KR: 'South Korea',  LU: 'Luxembourg',     NL: 'Netherlands',
-  NO: 'Norway',       PL: 'Poland',         PT: 'Portugal',
+  NO: 'Norway',
   SE: 'Sweden',       SG: 'Singapore',      ZA: 'South Africa',
 };
 
@@ -396,7 +396,7 @@ function computePeriodStats(perfRows, capReturn = null) {
 // Minimum trade size per currency — filters grants/awards; ~€1,500 equivalent
 const LEADERBOARD_THRESH = {
   EUR: 1500, GBP: 1300, USD: 1650, SEK: 17000, DKK: 11000,
-  CHF: 1500, NOK: 17000, PLN:  6500, KRW: 2200000,
+  CHF: 1500, NOK: 17000, KRW: 2200000,
   CAD: 2200, HKD: 13000, SGD:  2200, ZAR: 30000,
 };
 

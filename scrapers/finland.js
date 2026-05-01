@@ -20,7 +20,8 @@ const COUNTRY_CODE   = 'FI';
 const SOURCE         = 'Nasdaq Helsinki / MAR';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
-const MARKET         = 'Main Market, Helsinki';
+// Include both the main market and First North Finland to capture all Finnish listed companies.
+const MARKETS        = new Set(['Main Market, Helsinki', 'First North Finland']);
 const CONCURRENCY    = 8;
 
 function isoDate(d) {
@@ -172,7 +173,6 @@ async function fetchNasdaqPage(fromDate, toDate, start) {
     dir: 'DESC',
     globalName: 'NordicAllMarkets',
     cnsCategory: "Managers' Transactions",
-    market: MARKET,
     fromDate,
     toDate,
     callback: 'handleResponse',
@@ -225,10 +225,9 @@ async function scrapeFI() {
   const co   = cutoff();
   const from = isoDate(co);
   const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to} (market: ${MARKET})…`);
+  console.log(`  Fetching ${from} → ${to} (markets: ${[...MARKETS].join(', ')})…`);
 
-  // Paginate newest-first; API ignores fromDate/toDate so we stop by item date.
-  // Items also include other Nordic markets — filter by item.market === MARKET.
+  // Paginate newest-first; API returns all Nordic markets — filter client-side by MARKETS set.
   const allItems = [];
   const seenIds = new Set();
   let start = 0;
@@ -254,9 +253,8 @@ async function scrapeFI() {
       const itemDate = (item.releaseTime || item.published || '').slice(0, 10);
       if (itemDate >= from) allBefore = false;
 
-      // Skip items outside our date window or wrong market
       if (itemDate < from) continue;
-      if (item.market !== MARKET) continue;
+      if (!MARKETS.has(item.market)) continue;
 
       const id = String(item.disclosureId || item.id || '');
       if (id && seenIds.has(id)) continue;
