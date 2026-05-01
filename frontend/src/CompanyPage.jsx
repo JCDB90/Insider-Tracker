@@ -77,7 +77,7 @@ function TxSignalBadges({ t, blackout }) {
     key: 'earn', icon: <IcoCalendar />,
     title: blackout?.isNear
       ? `Purchased ${blackout.daysBefore} days before earnings (${fmtDateShort(blackout.earningsDate)})`
-      : 'Purchased 30–60 days before earnings',
+      : 'Purchased 30–45 days before a typical earnings blackout period',
     color: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
   });
 
@@ -202,8 +202,8 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
 /**
  * Check whether txDate falls in the 30-60 day window before any known earnings date.
  * This captures insiders buying just BEFORE the pre-earnings blackout begins.
- *   < 30 days before: too close — likely during the blackout period (suspicious)
- *  30–60 days before: ideal signal — insider buying before blackout starts ✓
+ *   < 30 days before: too close — likely already inside the blackout period
+ *  30–45 days before: prime signal window — insider buying before blackout starts ✓
  *   > 60 days before: too early — not meaningfully close to earnings
  *
  * Only fires when earningsDates is non-empty so companies with no data
@@ -839,7 +839,7 @@ export default function CompanyPage({
           background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
           fontSize: 12, color: '#92400E', lineHeight: 1.6,
         }}>
-          📅 <strong>{preEarningsBuys.length} insider buy{preEarningsBuys.length > 1 ? 's' : ''} occurred 30–60 days before a real earnings date</strong> — just before the typical pre-earnings blackout begins.
+          📅 <strong>{preEarningsBuys.length} insider buy{preEarningsBuys.length > 1 ? 's' : ''} occurred 30–60 days before a known earnings date</strong> — inside the typical pre-earnings blackout window.
           Research (Seyhun 1998, Lakonishok &amp; Lee 2001) shows CEO/CFO purchases in this window carry
           2–3× stronger predictive power than purchases at other times.
         </div>

@@ -39,7 +39,7 @@ function mapType(s) {
   // SELL first: "tilbagekøb" (buyback) contains "køb" (buy) — check disposal/salg before køb/buy
   if (l.includes('dispos') || l.includes('sale') || l.includes('sell') ||
       l.includes('salg') || l.includes('afstå') || l.includes('tilbagekøb')) return 'SELL';
-  if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
+  if (l.includes('acqui') || l.includes('purchas') || l.includes('receipt') || l.includes('grant') ||
       l.includes('subscribe') || l.includes('exercise') ||
       /\bbuy\b/.test(l) || /\bkøb\b/.test(l) ||
       l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
@@ -160,15 +160,19 @@ function parseNotificationText(text) {
     /4\.3\b[^\n]*?([A-Z]{2}[A-Z0-9]{10})\b/im,   // ESMA section 4.3 ISIN
     /\bISIN\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
     /ISIN\s+code\s*[:|]\s*([A-Z]{2}[A-Z0-9]{10})/i,
-    /\b(DK[A-Z0-9]{10})\b/,  // DK ISIN without label
+    /\bISIN\s+([A-Z]{2}[A-Z0-9]{10})\b/i,         // "ISIN DK..." without colon
+    /\b(DK[A-Z0-9]{10})\b/,                        // DK ISIN without label
   );
 
   const nature = grabAfter(text,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]+?)(?=\s+Transaction\s+details|\s+Volume|\s*$)/i,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]{2,120})/i,
-    // Tabular ESMA form: "Nature of the            Sale"
-    /Nature\s+of\s+the\b[^\n]*(Sale|Acquisition|Disposal|Subscription|Exercise|Grant|Award)\b/im,
-    /\bNature\s+of\s+the\b[^\n]*?([A-Z][a-z]{2,}(?:ition|al|ion|ise|ize|ase|ent)?)\s*$/im,
+    // Single-line tabular: "b)  Nature of the transaction    Purchase"  (spaces between, no colon)
+    /\bb\)\s+Nature\s+of\s+the\s+transaction\s{3,}([A-Za-z]+)\s*$/im,
+    // Tabular ESMA form: "Nature of the ... Buy/Purchase/Sale/..." on same line
+    /Nature\s+of\s+the\b[^\n]*(Buy|Purchase|Sale|Sell|Acquisition|Disposal|Subscription|Exercise|Grant|Award)\b/im,
+    // Two-column data row: ISIN code on left column, nature on right column (separated by spaces)
+    /\b[A-Z]{2}[A-Z0-9]{10}\b[ \t]{4,}(Buy|Purchase|Sale|Sell|Acquisition|Disposal|Subscription|Exercise|Award|Grant)\b/i,
     // Danish: "b)   Transaktionens art\n                      Salg af aktier..."
     /\bb\)\s+Transaktionens\s+art\s*\n\s+([^\n]{2,120})/im,
     // Danish: "b)   Transaction type\n                      Sale..."
@@ -178,8 +182,10 @@ function parseNotificationText(text) {
   const txDateRaw = grabAfter(text,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{4}-\d{2}-\d{2})/i,
     /(?:Transaction date|Date of (?:the )?transaction)\s*[:|]\s*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/i,
-    // Tabular ESMA form: "Date of the              2026-04-13"
+    // Tabular ESMA form single-line: "e) Date of the transaction    2026-04-24"
     /Date\s+of\s+the\b[^\n]*(\d{4}-\d{2}-\d{2})/im,
+    // Two-column: "e) Date of the transaction\n  28-04-2026" (value on next line)
+    /\be\)\s+Date\s+of\s+the\s+transaction\b[^\n]*\n[ \t]*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/im,
     // Danish: "e)   Dato for transaktionen\n                      2026-04-16"
     /\be\)\s+Dato\s+for\s+transaktionen\s*\n\s*(\d{4}-\d{2}-\d{2})/im,
     /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,
@@ -218,9 +224,10 @@ function parseNotificationText(text) {
     }
   }
 
-  // Aggregated volume fallback: "— Aggregated\n      volume\n                 2,160"
+  // Aggregated volume fallback: "Aggregated volumes  2,000" or "Aggregated volume  2,160"
   if (!shares) {
-    const aggVol = text.match(/Aggregated\s+volume\s+([\d,]+)/im);
+    const aggVol = text.match(/Aggregated\s+volumes?\s+([\d,]+)/im)
+                || text.match(/-\s+Aggregated\s+volumes?\s+([\d,]+)/im);
     if (!aggVol) {
       // Split across lines: "— Aggregated" then "volume" on next line, then value
       const aggSplit = text.match(/Aggregated\b[^\n]*\n[^\n]*volume\b[^\n]*\n\s*([\d,]+)/im);
@@ -231,6 +238,17 @@ function parseNotificationText(text) {
     } else {
       const sv = parseFloat(aggVol[1].replace(/,/g, ''));
       if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    }
+  }
+
+  // "N @ price" format used in aggregated section: "138 @ 881,0372"
+  if (!shares) {
+    const aggAt = text.match(/\b(\d[\d,.]*)\s*@\s*([\d,.]+)\b/);
+    if (aggAt) {
+      const sv = parseFloat(aggAt[1].replace(/[,\s]/g, ''));
+      const pv = parseNum(aggAt[2]);
+      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+      if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
     }
   }
 
@@ -424,17 +442,18 @@ async function fetchNasdaqPage(fromDate, toDate, start) {
   }
 }
 
+// Returns an array of parsed transaction objects (one per person/PDF when multi-person notification).
 async function fetchNotificationDetails(messageUrl) {
   try {
     const url = new URL(messageUrl);
     const res = await get(url.hostname, url.pathname + url.search, { 'Accept': 'text/html' });
-    if (!res || res.status !== 200) return null;
+    if (!res || res.status !== 200) return [];
 
     const rawHtml = res.body;
     const inline  = parseNotificationText(stripHtml(rawHtml));
 
     // If we already have shares and price from inline HTML, return immediately
-    if (inline.shares && inline.price) return inline;
+    if (inline.shares && inline.price) return [inline];
 
     // Extract PDF attachment URLs from raw HTML
     // Nasdaq viewer embeds links like: https://attachment.news.eu.nasdaq.com/abc123
@@ -445,40 +464,45 @@ async function fetchNotificationDetails(messageUrl) {
       if (!pdfUrls.includes(m[0])) pdfUrls.push(m[0]);
     }
 
+    // Parse all PDFs; collect those that are structured data forms (one per insider)
+    const dataForms = [];
     for (const pdfUrl of pdfUrls) {
       const buf  = await getBinary(pdfUrl);
       const text = pdfBufToText(buf);
       if (!text) continue;
-
       const fromPdf = parseNotificationText(text);
-
-      // Determine if this PDF is a structured data form (vs. a cover letter).
-      // Only a data form provides reliable ISIN, shares, or transaction date.
       const isDataForm = !!(fromPdf.isin || fromPdf.shares || fromPdf.txDate);
-
-      // Merge: PDF values fill nulls from inline; don't overwrite existing values
-      if (!inline.isin        && fromPdf.isin)        inline.isin        = fromPdf.isin;
-      if (!inline.txDate      && fromPdf.txDate)      inline.txDate      = fromPdf.txDate;
-      if (!inline.shares      && fromPdf.shares)      inline.shares      = fromPdf.shares;
-      if (!inline.price       && fromPdf.price)       inline.price       = fromPdf.price;
-      if (!inline.totalValue  && fromPdf.totalValue)  inline.totalValue  = fromPdf.totalValue;
-      if (inline.transactionType === 'UNKNOWN' && fromPdf.transactionType !== 'UNKNOWN')
-        inline.transactionType = fromPdf.transactionType;
-
-      // Only take name/role from a data form PDF (not cover letters which may have
-      // the signing CFO/CEO's name/title at the bottom, unrelated to the actual filer)
-      if (isDataForm) {
-        if (!inline.insiderName && fromPdf.insiderName) inline.insiderName = fromPdf.insiderName;
-        if (!inline.insiderRole && fromPdf.insiderRole) inline.insiderRole = fromPdf.insiderRole;
-      }
-
-      // Stop after first PDF that gives us shares
-      if (inline.shares) break;
+      if (isDataForm) dataForms.push(fromPdf);
     }
 
-    return inline;
+    if (dataForms.length === 0) return [inline]; // nothing useful in PDFs, return inline as-is
+
+    // Multiple data-form PDFs = multiple insiders in one notification (e.g. Jyske Bank filing
+    // for 3 managers). Return each PDF as a separate transaction.
+    if (dataForms.length > 1) {
+      return dataForms.map(pdf => {
+        // Fill any missing fields from inline (company etc. come from API, not PDFs)
+        if (!pdf.insiderName && inline.insiderName) pdf.insiderName = inline.insiderName;
+        if (!pdf.insiderRole && inline.insiderRole) pdf.insiderRole = inline.insiderRole;
+        return pdf;
+      });
+    }
+
+    // Single data-form PDF: merge into inline (existing behaviour)
+    const fromPdf = dataForms[0];
+    if (!inline.isin        && fromPdf.isin)        inline.isin        = fromPdf.isin;
+    if (!inline.txDate      && fromPdf.txDate)      inline.txDate      = fromPdf.txDate;
+    if (!inline.shares      && fromPdf.shares)      inline.shares      = fromPdf.shares;
+    if (!inline.price       && fromPdf.price)       inline.price       = fromPdf.price;
+    if (!inline.totalValue  && fromPdf.totalValue)  inline.totalValue  = fromPdf.totalValue;
+    if (inline.transactionType === 'UNKNOWN' && fromPdf.transactionType !== 'UNKNOWN')
+      inline.transactionType = fromPdf.transactionType;
+    if (!inline.insiderName && fromPdf.insiderName) inline.insiderName = fromPdf.insiderName;
+    if (!inline.insiderRole && fromPdf.insiderRole) inline.insiderRole = fromPdf.insiderRole;
+
+    return [inline];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -559,43 +583,51 @@ async function scrapeDK() {
   const seen = new Set();
   const dbRows = [];
   for (let i = 0; i < allItems.length; i++) {
-    const r   = allItems[i];
-    const det = details[i];
+    const r    = allItems[i];
+    const dets = details[i] || [];  // fetchNotificationDetails now returns an array
 
     const publishIso = (r.releaseTime || r.published || '').slice(0, 10) || from;
-    const txIso      = (det && det.txDate) || publishIso;
-    const fid        = `DK-${r.disclosureId || r.id || i}`;
-    if (seen.has(fid)) continue; seen.add(fid);
+    const baseDisclosureId = r.disclosureId || r.id || i;
+    const companyKey = (r.company || '').toLowerCase().replace(/\s+a\/s$|\s+plc$|\s+se$|\s+nv$|\s+sa$/i, '').trim().slice(0, 12);
 
-    // Skip company-buyback disclosures (issuer reporting its own share purchases under MAR Art. 5).
-    // These appear in the "Managers' Transactions" feed but the "insider" is the company itself.
-    // Detect: insiderName starts with or contains the company name, or contains "LEI" boilerplate.
-    const companyKey  = (r.company || '').toLowerCase().replace(/\s+a\/s$|\s+plc$|\s+se$|\s+nv$|\s+sa$/i, '').trim().slice(0, 12);
-    const insiderKey  = (det && det.insiderName || '').toLowerCase().slice(0, 12);
-    const isBuyback   = (companyKey && insiderKey && insiderKey.startsWith(companyKey))
-                     || /\blei\b/i.test(det && det.insiderName || '');
-    if (isBuyback) {
-      console.log(`  ℹ  Skipping company-buyback row: ${r.company} (insider="${det && det.insiderName}")`);
-      continue;
+    // Multi-person notifications produce multiple det objects (one per PDF/insider).
+    // Use index suffix for filing_id when there are multiple: DK-12345, DK-12345-2, DK-12345-3...
+    for (let j = 0; j < Math.max(dets.length, 1); j++) {
+      const det = dets[j] || null;
+      const fid = j === 0
+        ? `DK-${baseDisclosureId}`
+        : `DK-${baseDisclosureId}-${j + 1}`;
+      if (seen.has(fid)) continue; seen.add(fid);
+
+      const txIso = (det && det.txDate) || publishIso;
+
+      // Skip company-buyback disclosures (issuer reporting its own share purchases under MAR Art. 5).
+      const insiderKey = (det && det.insiderName || '').toLowerCase().slice(0, 12);
+      const isBuyback  = (companyKey && insiderKey && insiderKey.startsWith(companyKey))
+                      || /\blei\b/i.test(det && det.insiderName || '');
+      if (isBuyback) {
+        console.log(`  ℹ  Skipping company-buyback row: ${r.company} (insider="${det && det.insiderName}")`);
+        continue;
+      }
+
+      dbRows.push({
+        filing_id:        fid,
+        country_code:     COUNTRY_CODE,
+        ticker:           (det && det.isin) ? (await isinToTicker(det.isin, COUNTRY_CODE) || '') : '',
+        company:          r.company || null,
+        insider_name:     det && det.insiderName ? det.insiderName : null,
+        via_entity:       det && det.viaEntity   ? det.viaEntity  : null,
+        insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
+        transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
+        transaction_date: txIso,
+        shares:           det ? det.shares : null,
+        price_per_share:  det ? det.price : null,
+        total_value:      det ? (det.totalValue || ((det.shares && det.price) ? Math.round(det.shares * det.price) : null)) : null,
+        currency:         CURRENCY,
+        filing_url:       r.messageUrl || `https://view.news.eu.nasdaq.com/`,
+        source:           SOURCE,
+      });
     }
-
-    dbRows.push({
-      filing_id:        fid,
-      country_code:     COUNTRY_CODE,
-      ticker:           (det && det.isin) ? (await isinToTicker(det.isin, COUNTRY_CODE) || '') : '',
-      company:          r.company || null,
-      insider_name:     det && det.insiderName ? det.insiderName : null,
-      via_entity:       det && det.viaEntity   ? det.viaEntity  : null,
-      insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
-      transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
-      transaction_date: txIso,
-      shares:           det ? det.shares : null,
-      price_per_share:  det ? det.price : null,
-      total_value:      det ? (det.totalValue || ((det.shares && det.price) ? Math.round(det.shares * det.price) : null)) : null,
-      currency:         CURRENCY,
-      filing_url:       r.messageUrl || `https://view.news.eu.nasdaq.com/`,
-      source:           SOURCE,
-    });
   }
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }

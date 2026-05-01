@@ -214,7 +214,7 @@ function SignalBadges({ t, inline = true }) {
   if (t.is_pre_earnings) badges.push({
     key: 'earn',
     icon: <IcoCalendar />,
-    title: 'Purchased 30–60 days before earnings',
+    title: 'Purchased 30–45 days before a typical earnings blackout period',
     color: '#D97706',
     bg: '#FFFBEB',
     border: '#FDE68A',
@@ -269,7 +269,7 @@ function SignalBadgesFull({ t }) {
     key: 'earn',
     icon: <IcoCalendar />,
     label: 'Pre-earnings buy',
-    title: 'Purchased 30–60 days before earnings',
+    title: 'Purchased 30–45 days before a typical earnings blackout period',
     color: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
   });
 
