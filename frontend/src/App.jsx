@@ -7,22 +7,18 @@ const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COUNTRY_FLAGS = {
-  AT: '🇦🇹', BE: '🇧🇪', CA: '🇨🇦', CH: '🇨🇭', CZ: '🇨🇿',
-  DE: '🇩🇪', DK: '🇩🇰', ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
-  HK: '🇭🇰', IE: '🇮🇪', IT: '🇮🇹', JP: '🇯🇵', KR: '🇰🇷',
-  LU: '🇱🇺', NL: '🇳🇱', NO: '🇳🇴',
-  SE: '🇸🇪', SG: '🇸🇬', ZA: '🇿🇦',
+  BE: '🇧🇪', CH: '🇨🇭', DE: '🇩🇪', DK: '🇩🇰',
+  ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
+  IT: '🇮🇹', KR: '🇰🇷', NL: '🇳🇱', NO: '🇳🇴',
+  SE: '🇸🇪',
 };
 
 const COUNTRY_NAMES = {
-  AT: 'Austria',      BE: 'Belgium',        CA: 'Canada',
-  CH: 'Switzerland',  CZ: 'Czech Republic', DE: 'Germany',
-  DK: 'Denmark',      ES: 'Spain',          FI: 'Finland',
-  FR: 'France',       GB: 'United Kingdom', HK: 'Hong Kong',
-  IE: 'Ireland',      IT: 'Italy',          JP: 'Japan',
-  KR: 'South Korea',  LU: 'Luxembourg',     NL: 'Netherlands',
-  NO: 'Norway',
-  SE: 'Sweden',       SG: 'Singapore',      ZA: 'South Africa',
+  BE: 'Belgium',        CH: 'Switzerland',  DE: 'Germany',
+  DK: 'Denmark',        ES: 'Spain',        FI: 'Finland',
+  FR: 'France',         GB: 'United Kingdom', IT: 'Italy',
+  KR: 'South Korea',    NL: 'Netherlands',  NO: 'Norway',
+  SE: 'Sweden',
 };
 
 const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
@@ -61,10 +57,8 @@ function applyFilters(rows, searchKeys, selectedCountries, search) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const CURRENCY_SYMBOLS = {
-  EUR: '€', USD: '$', GBP: '£', JPY: '¥', KRW: '₩',
-  AUD: 'A$', CAD: 'C$', HKD: 'HK$', SGD: 'S$', ZAR: 'R',
-  CHF: 'CHF\u00a0', SEK: 'SEK\u00a0', DKK: 'DKK\u00a0', NOK: 'NOK\u00a0',
-  PLN: 'PLN\u00a0', CZK: 'CZK\u00a0',
+  EUR: '€', USD: '$', GBP: '£', KRW: '₩',
+  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ',
 };
 
 function currencySymbol(currency) {
@@ -397,7 +391,6 @@ function computePeriodStats(perfRows, capReturn = null) {
 const LEADERBOARD_THRESH = {
   EUR: 1500, GBP: 1300, USD: 1650, SEK: 17000, DKK: 11000,
   CHF: 1500, NOK: 17000, KRW: 2200000,
-  CAD: 2200, HKD: 13000, SGD:  2200, ZAR: 30000,
 };
 
 function meetsLeaderboardThreshold(trade) {

@@ -65,16 +65,6 @@ jobs:
         continue-on-error: true
         run: node scrapers/germany.js
 
-      - name: 🇮🇪 Ireland (CBI)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'IE' }}
-        continue-on-error: true
-        run: node scrapers/ireland.js
-
-      - name: 🇦🇹 Austria (FMA)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AT' }}
-        continue-on-error: true
-        run: node scrapers/austria.js
-
       - name: 🇩🇰 Denmark (Finanstilsynet)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'DK' }}
         continue-on-error: true
@@ -89,16 +79,6 @@ jobs:
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FR' }}
         continue-on-error: true
         run: node scrapers/france.js
-
-      - name: 🇨🇿 Czech Republic (CNB)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CZ' }}
-        continue-on-error: true
-        run: node scrapers/czech.js
-
-      - name: 🇱🇺 Luxembourg (CSSF)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'LU' }}
-        continue-on-error: true
-        run: node scrapers/luxembourg.js
 
       - name: 🇫🇮 Finland (FIN-FSA)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FI' }}
@@ -136,40 +116,10 @@ jobs:
         run: node scrapers/norway.js
 
       # ── Asia-Pacific ────────────────────────────────────────────────────────
-      # AU disabled: ASX metadata has no price/shares/name data (all null rows)
-      # - name: 🇦🇺 Australia (ASIC)
-
-      - name: 🇭🇰 Hong Kong (SFC)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'HK' }}
-        continue-on-error: true
-        run: node scrapers/hongkong.js
-
-      - name: 🇯🇵 Japan (FSA)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'JP' }}
-        continue-on-error: true
-        run: node scrapers/japan.js
-
       - name: 🇰🇷 South Korea (FSS)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'KR' }}
         continue-on-error: true
         run: node scrapers/southkorea.js
-
-      - name: 🇸🇬 Singapore (MAS)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SG' }}
-        continue-on-error: true
-        run: node scrapers/singapore.js
-
-      # ── Americas ────────────────────────────────────────────────────────────
-      - name: 🇨🇦 Canada (SEDAR)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CA' }}
-        continue-on-error: true
-        run: node scrapers/canada.js
-
-      # ── Africa ──────────────────────────────────────────────────────────────
-      - name: 🇿🇦 South Africa (FSCA)
-        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'ZA' }}
-        continue-on-error: true
-        run: node scrapers/southafrica.js
 
       # ── Maintenance ─────────────────────────────────────────────────────────
       - name: 🧹 Cleanup records older than 90 days

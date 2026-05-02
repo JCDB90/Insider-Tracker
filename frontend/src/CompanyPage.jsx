@@ -7,23 +7,21 @@ import { supabase } from './supabase.js';
 const ACCENT = '#1B2CC1';
 
 const CURRENCY_SYMBOLS = {
-  EUR: '€', USD: '$', GBP: '£', JPY: '¥', KRW: '₩',
-  AUD: 'A$', CAD: 'C$', HKD: 'HK$', SGD: 'S$', ZAR: 'R',
-  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ',
-  PLN: 'PLN ', CZK: 'CZK ',
+  EUR: '€', USD: '$', GBP: '£', KRW: '₩',
+  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ',
 };
 
 const COUNTRY_FLAGS = {
-  AT:'🇦🇹',BE:'🇧🇪',CA:'🇨🇦',CH:'🇨🇭',CZ:'🇨🇿',DE:'🇩🇪',DK:'🇩🇰',
-  ES:'🇪🇸',FI:'🇫🇮',FR:'🇫🇷',GB:'🇬🇧',HK:'🇭🇰',IE:'🇮🇪',IT:'🇮🇹',
-  JP:'🇯🇵',KR:'🇰🇷',LU:'🇱🇺',NL:'🇳🇱',NO:'🇳🇴',PL:'🇵🇱',PT:'🇵🇹',
-  SE:'🇸🇪',SG:'🇸🇬',ZA:'🇿🇦',AU:'🇦🇺',
+  BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',
+  ES:'🇪🇸',FI:'🇫🇮',FR:'🇫🇷',GB:'🇬🇧',
+  IT:'🇮🇹',KR:'🇰🇷',NL:'🇳🇱',NO:'🇳🇴',
+  SE:'🇸🇪',
 };
 
 const COUNTRY_YAHOO_SUFFIX = {
   SE:'.ST', DK:'.CO', FI:'.HE', NO:'.OL', DE:'.DE', FR:'.PA',
-  NL:'.AS', BE:'.BR', PT:'.LS', IT:'.MI', ES:'.MC', AT:'.VI',
-  CH:'.SW', GB:'.L',  PL:'.WA', IE:'.IR', LU:'.LU', CZ:'.PR',
+  NL:'.AS', BE:'.BR', IT:'.MI', ES:'.MC',
+  CH:'.SW', GB:'.L',
 };
 
 // ─── Signal icon helpers (shared with App.jsx concept, inlined here) ─────────
