@@ -121,6 +121,12 @@ function mapType(description) {
   return 'UNKNOWN';
 }
 
+// Note: LuxSE GraphQL API does not expose PDF download URLs (discovered via introspection
+// and endpoint probing 2026-05-02). Description field is also null in current documents.
+// Luxembourg equity insider transaction volume is very low (~2 docs/2 weeks) — mostly
+// Eurobond issuers. PDF parsing is blocked until LuxSE exposes a download URL.
+// This scraper saves company + date metadata only; transaction details remain null.
+
 function parseCompany(complement) {
   if (!complement) return null;
   // "ALVOTECH"
