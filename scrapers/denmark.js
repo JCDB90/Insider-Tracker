@@ -196,8 +196,16 @@ function parseNotificationText(text) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(txDateRaw)) {
       txDate = txDateRaw;
     } else {
-      const parts = txDateRaw.split(/[.\/-]/);
-      if (parts.length === 3) txDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+      let parts = txDateRaw.split(/[.\/-]/);
+      if (parts.length === 3) {
+        let [d, m, y] = parts;
+        // If month > 12 the format is MM/DD/YYYY not DD/MM/YYYY — swap
+        if (parseInt(m, 10) > 12) [d, m] = [m, d];
+        // If first part is 4-digit year it's YYYY/MM/DD
+        if (d.length === 4) [d, m, y] = [parts[2], parts[1], parts[0]];
+        const mm = m.padStart(2, '0'), dd = d.padStart(2, '0');
+        if (parseInt(mm, 10) >= 1 && parseInt(mm, 10) <= 12) txDate = `${y}-${mm}-${dd}`;
+      }
     }
   }
 
