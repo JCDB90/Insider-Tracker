@@ -235,7 +235,8 @@ function parsePdfMarBlock(text) {
   const name1M = t.match(/\ba\)\s*Name\b\s*\n+(?:\d+\s*\n+\s*)?([\w(][^\n]{1,80})/i);
   if (name1M) {
     const c = name1M[1].trim();
-    if (!/^(?:Reason for|Details of|Initial notification|\d+$)/i.test(c)) name = c;
+    // Reject section markers (b), c), 2), 1a)) and known section headings
+    if (!/^(?:Reason for|Details of|Initial notification|\d+$|[a-z0-9]{0,2}\))/i.test(c)) name = c;
   }
 
   // Strategy 2: position/status block — first line may be entity name (e.g. "Glimt Invest AS")
@@ -403,22 +404,37 @@ function parseBody(raw) {
       const rolePart = afterName.match(/^([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
       role = rolePart ? rolePart[1].trim() : personRoleM[2].trim();
     } else {
-      // ② "close associate of [Mr./Mrs./Ms.] Name, Role" — the PDMR is the insider;
+      // ② "close associate of [Mr./Mrs./Ms.] Name" OR "closely associated with Name"
       //    the entity filing on their behalf may appear at the start of the prose.
       const closeAssocM = text.match(
-        /close\s+associate\s+of\s+(?:Mr\.?\s*|Mrs\.?\s*|Ms\.?\s*)?([A-ZÆØÅ][a-zA-ZÆØÅæøå\- \.]{2,50}(?:\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\-\.]{1,20}){0,3})(?:,|\s+(?:Director|CEO|CFO|Chair|Board|President|Managing|Officer))/i
+        /close(?:ly)?\s+associate[d]?\s+(?:of|with)\s+(?:Mr\.?\s*|Mrs\.?\s*|Ms\.?\s*)?([A-ZÆØÅ][a-zA-ZÆØÅæøå\- \.]{2,50}(?:\s+[A-ZÆØÅ][a-zA-ZÆØÅæøå\-\.]{1,20}){0,3})(?:,|\s+(?:Director|CEO|CFO|Chair|Board|President|Managing|Officer))/i
       );
       if (closeAssocM) {
         insiderName = closeAssocM[1].trim();
-        // Capture entity name from prose start: "Kaldvik AS, close associate of..."
-        const entityM = prose.match(/^([A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{1,50}?(?:AS|ASA|Ltd|LLC|NV|BV|AB|Holding|Invest|Capital|Fund|Trust))\b/);
-        if (entityM) viaEntity = entityM[1].trim();
-      } else {
-        // ③ "controlled by / in which / related party to / primary insider / informed that / published by NAME"
-        const controlledByM = text.match(
-          new RegExp(`(?:controlled\\s+by|in\\s+which|related\\s+party\\s+(?:to|of)|primary\\s+insider|informed\\s+that|published\\s+by|allocated\\s+to|exercised\\s+by)\\s+(?:Mr\\.?\\s*|Mrs\\.?\\s*|Ms\\.?\\s*)?(${WORD}(?:\\s+${WORD}){0,4})(?:,|\\b)`, 'i')
+        // Prefer entity that explicitly purchased/sold over entity at prose start
+        // "AS Master Trading has today bought..." → AS Master Trading is via_entity
+        const entityActionM = text.match(
+          /([A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{1,50}?(?:AS|ASA|Ltd|LLC|NV|BV|AB|Holding|Invest|Capital|Fund|Trust))\b\s+(?:has|have)\s+(?:today\s+|now\s+)?(?:bought|sold|purchased|acquired)\s+[\d,]/i
         );
-        if (controlledByM) insiderName = controlledByM[1].trim();
+        if (entityActionM) {
+          viaEntity = entityActionM[1].trim();
+        } else {
+          // Fallback: entity at prose start: "Kaldvik AS, close associate of..."
+          const entityM = prose.match(/^([A-ZÆØÅ][a-zA-ZÆØÅæøå\s\.]{1,50}?(?:AS|ASA|Ltd|LLC|NV|BV|AB|Holding|Invest|Capital|Fund|Trust))\b/);
+          if (entityM) viaEntity = entityM[1].trim();
+        }
+      } else {
+        // ③ "controlled by / primary insider / informed that / published by NAME"
+        // No 'i' flag on the regex — WORD requires uppercase start; prevents lowercase
+        // words like "in", "of", "by" from being captured as name start.
+        const controlledByM = text.match(
+          new RegExp(`(?:controlled\\s+by|in\\s+which|related\\s+party\\s+(?:to|of)|primary\\s+insider\\s+(?:is\\s+)?|informed\\s+that|published\\s+by|allocated\\s+to|exercised\\s+by)\\s+(?:Mr\\.?\\s*|Mrs\\.?\\s*|Ms\\.?\\s*)?(${WORD}(?:\\s+${WORD}){0,4})(?:,|\\b)`)
+        );
+        if (controlledByM) {
+          const n = controlledByM[1].trim();
+          // Only accept if name starts with uppercase (rejects lowercase artifacts like "in Company AS")
+          if (/^[A-ZÆØÅ]/.test(n)) insiderName = n;
+        }
       }
       if (!insiderName) {
         // ④ Fallback: first 2-4 capitalised words before a comma (no space in char class)
@@ -431,6 +447,13 @@ function parseBody(raw) {
   }
 
   // ── Post-processing: clean up name parse artifacts ───────────────────────────
+
+  if (insiderName) {
+    // 0. Reject obvious parse artifacts: section markers (b), 2)), too short, starts lowercase
+    if (/^[a-z0-9]{0,2}\)/.test(insiderName) || insiderName.length < 3 || /^[a-zæøå]/.test(insiderName)) {
+      insiderName = null;
+    }
+  }
 
   if (insiderName) {
     // 1. "This notification concerns NAME, who is..." → extract the real name

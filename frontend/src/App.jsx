@@ -45,13 +45,18 @@ function matchesWatchlist(watchlist, t) {
 // ─── Pure filter function (no closure capture) ────────────────────────────────
 
 function applyFilters(rows, searchKeys, selectedCountries, search) {
-  let result = rows;
-  if (selectedCountries.size > 0) result = result.filter(r => selectedCountries.has(r.country_code));
-  if (search.trim()) {
-    const q = search.trim().toLowerCase();
-    result = result.filter(r => searchKeys.some(k => (r[k] || '').toLowerCase().includes(q)));
+  const q = search.trim().toLowerCase();
+  // When a search query is active it searches GLOBALLY across all countries —
+  // the country sidebar filter is ignored so typing "Vidrala" always returns
+  // results even if only Sweden is selected.
+  if (q) {
+    return rows.filter(r => searchKeys.some(k => (r[k] || '').toLowerCase().includes(q)));
   }
-  return result;
+  // No search → apply country filter only
+  if (selectedCountries.size > 0) {
+    return rows.filter(r => selectedCountries.has(r.country_code));
+  }
+  return rows;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1909,6 +1914,7 @@ function DashboardPage({
 
           {activeTab === 'trades' ? (
             <TradesTable
+              key={[...selectedCountries].sort().join(',') + '|' + search}
               rows={filteredTrades}
               loading={tradesLoading}
               sortBy={tradeSort.by}
