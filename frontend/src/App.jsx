@@ -1914,7 +1914,7 @@ function DashboardPage({
 
           {activeTab === 'trades' ? (
             <TradesTable
-              key={[...selectedCountries].sort().join(',') + '|' + search}
+              key={[...selectedCountries].sort().join(',')}
               rows={filteredTrades}
               loading={tradesLoading}
               sortBy={tradeSort.by}
