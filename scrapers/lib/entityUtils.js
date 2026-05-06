@@ -1,7 +1,7 @@
 'use strict';
 
 // Legal suffixes that indicate a corporate entity (end of name)
-const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|L\.?L\.?C\.?|GmbH|A\.?G\.?|Inc\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|SCA|SCS|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
+const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|GmbH|A\.?G\.?|Inc\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|SCA|SCS|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
 
 // Corporate keywords appearing anywhere in the name
 const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Participations?|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA))\b/i;

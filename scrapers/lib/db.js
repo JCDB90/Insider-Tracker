@@ -83,6 +83,14 @@ async function saveInsiderTransactions(rows) {
   }
   if (complete.length === 0) return { inserted: 0 };
 
+  // Warn about rows that pass all filters but still lack an insider name
+  // This helps track filings where the source genuinely doesn't expose names
+  for (const r of complete) {
+    if (!r.insider_name) {
+      console.warn(`  ⚠️  Missing insider name: ${r.company || '?'} (${r.country_code}) — filing ${r.filing_id}`);
+    }
+  }
+
   // Strip via_entity from rows if the column doesn't exist yet (avoids DB errors)
   const viaExists = await hasViaEntityColumn();
   const upsertRows = viaExists

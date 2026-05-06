@@ -388,7 +388,9 @@ function parseBody(raw) {
     // Strip "Company – " prefix before the person's name (e.g., "Endúr ASA – Jeppe Raaholt...")
     prose = prose.replace(/^[A-Z][a-zA-ZÆØÅ\s\.]{2,40}\s*[–—-]+\s*/u, '');
 
-    const roleKW = 'CEO|CFO|COO|CTO|Chair(?:man)?|Vice|Board|Chief|President|Managing|Senior|General|Member|Director|Officer|Founder|Advisor|Partner|Head|EVP|SVP|VP|Controller|Secretary';
+    // Both upper and lower case — Oslo Bors prose often uses lowercase role titles
+    // (e.g. "Frank Gundersen, board member" not "Frank Gundersen, Board Member")
+    const roleKW = 'CEO|CFO|COO|CTO|[Cc]hair(?:man)?|[Vv]ice|[Bb]oard|[Cc]hief|[Pp]resident|[Mm]anaging|[Ss]enior|[Gg]eneral|[Mm]ember|[Dd]irector|[Oo]fficer|[Ff]ounder|[Aa]dvisor|[Pp]artner|[Hh]ead|EVP|SVP|VP|[Cc]ontroller|[Ss]ecretary';
 
     // ① "Name, ROLE of/in Company..."
     // WORD: single capitalised word, no space within the first char class (prevents matching sentence fragments)
