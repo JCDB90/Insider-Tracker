@@ -145,6 +145,11 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
   const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
   if (ticker && ISIN_RE.test(ticker)) return [];
 
+  // Korean stocks use 6-digit KRX codes; Yahoo requires .KS (KOSPI) or .KQ (KOSDAQ)
+  if (countryCode === 'KR' && ticker) {
+    return [ticker + '.KS', ticker + '.KQ'];
+  }
+
   const sfx = COUNTRY_YAHOO_SUFFIX[countryCode] || '';
 
   // When scraper stored no ticker, derive from first word of company name

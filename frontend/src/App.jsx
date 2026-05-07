@@ -1550,14 +1550,14 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div>
-                  <button onClick={() => onCompanyClick && onCompanyClick(w.ticker, w.company, w.country)} style={{
+                  <button onClick={() => onCompanyClick && onCompanyClick(w.ticker, w.company, w.country_code)} style={{
                     background: 'none', border: 'none', padding: 0, cursor: onCompanyClick ? 'pointer' : 'default',
                     fontWeight: 700, fontSize: 14, color: onCompanyClick ? ACCENT : '#111318',
                     textAlign: 'left', fontFamily: "'Inter', sans-serif",
                   }}>{w.company}</button>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{w.ticker}</span>
-                    <Flag code={w.country} />
+                    <Flag code={w.country_code} />
                   </div>
                 </div>
                 {hasCluster && (
