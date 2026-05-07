@@ -1776,9 +1776,33 @@ function DashboardPage({
 }) {
   const [activeTab, setActiveTab] = useState('trades');
   const [tradePage, setTradePage] = useState(1);
+  const [avgReturn30d, setAvgReturn30d] = useState(null);
 
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
   useEffect(() => { setTradePage(1); }, [filteredTrades]);
+
+  // Fetch avg 30d return from insider_performance (profitable trades only)
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let sum = 0, count = 0, from = 0;
+      while (true) {
+        const { data } = await supabase
+          .from('insider_performance')
+          .select('return_30d')
+          .not('return_30d', 'is', null)
+          .eq('hit_rate_30d', true)
+          .range(from, from + 999);
+        if (!data || data.length === 0) break;
+        for (const r of data) { sum += Math.min(Number(r.return_30d), 2.0); count++; }
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      if (!cancelled) setAvgReturn30d(count > 0 ? sum / count : null);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   function handleTradeSort(col) {
     setTradePage(1);
@@ -1788,28 +1812,52 @@ function DashboardPage({
     setBuybackSort(s => ({ by: col, dir: s.by === col ? (s.dir === 'asc' ? 'desc' : 'asc') : 'desc' }));
   }
 
-  const stats = [
+  // Signal KPIs — last 14 days only
+  const cutoff14d = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10);
+  }, []);
+  const last14 = useMemo(
+    () => trades.filter(t => t.transaction_date >= cutoff14d),
+    [trades, cutoff14d],
+  );
+  const highConvictionBuys = useMemo(
+    () => last14.filter(t => (t.transaction_type === 'BUY' || t.transaction_type === 'PURCHASE') && t.conviction_label === 'High Conviction').length,
+    [last14],
+  );
+  const clusterSignals = useMemo(
+    () => new Set(last14.filter(t => t.is_cluster_buy).map(t => t.company)).size,
+    [last14],
+  );
+  const repeatBuyers = useMemo(
+    () => new Set(last14.filter(t => t.is_repetitive_buy && t.insider_name).map(t => t.insider_name)).size,
+    [last14],
+  );
+
+  const kpis = [
     {
-      label: 'Total Trades',
-      value: tradesLoading ? '…' : tradeStats.total.toLocaleString(),
-      sub: 'All tracked transactions',
+      icon: '🔥',
+      label: 'High Conviction Buys',
+      value: tradesLoading ? '…' : highConvictionBuys.toLocaleString(),
+      sub: 'Last 14 days',
     },
     {
-      label: 'Insider Buys',
-      value: tradesLoading ? '…' : tradeStats.buys.toLocaleString(),
-      sub: 'Purchase transactions',
-      color: '#16A34A',
+      icon: '🔄',
+      label: 'Cluster Signals',
+      value: tradesLoading ? '…' : clusterSignals.toLocaleString(),
+      sub: 'Companies with cluster buying',
     },
     {
-      label: 'Insider Sells',
-      value: tradesLoading ? '…' : tradeStats.sells.toLocaleString(),
-      sub: 'Sale transactions',
-      color: '#DC2626',
+      icon: '🔁',
+      label: 'Repeat Buyers',
+      value: tradesLoading ? '…' : repeatBuyers.toLocaleString(),
+      sub: 'Active repeat buyers',
     },
     {
-      label: 'Total Value',
-      value: tradesLoading ? '…' : formatValue(tradeStats.totalVal, 'EUR'),
-      sub: 'Aggregate value (EUR equiv.)',
+      icon: '📈',
+      label: 'Avg Insider Return',
+      value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
+      sub: '30d avg (profitable trades)',
+      color: '#15803D',
     },
   ];
 
@@ -1832,24 +1880,26 @@ function DashboardPage({
       />
       <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
 
-        {/* Stats row */}
+        {/* Signal KPI row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
-          {stats.map((s, i) => (
+          {kpis.map((k, i) => (
             <div key={i} style={{
               background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
-              padding: '12px 16px', boxShadow: 'none',
-              display: 'flex', flexDirection: 'column', gap: 2,
+              padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 2,
             }}>
-              <div style={{
-                fontSize: 10, color: '#9CA3AF', fontWeight: 600,
-                textTransform: 'uppercase', letterSpacing: '0.07em',
-              }}>{s.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{k.icon}</span>
+                <span style={{
+                  fontSize: 10, color: '#9CA3AF', fontWeight: 600,
+                  textTransform: 'uppercase', letterSpacing: '0.07em',
+                }}>{k.label}</span>
+              </div>
               <span style={{
                 fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
-                color: s.color || '#111318',
+                color: k.color || '#111318',
                 fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.1,
-              }}>{s.value}</span>
-              <div style={{ fontSize: 11, color: '#9CA3AF' }}>{s.sub}</div>
+              }}>{k.value}</span>
+              <div style={{ fontSize: 11, color: '#9CA3AF' }}>{k.sub}</div>
             </div>
           ))}
         </div>
