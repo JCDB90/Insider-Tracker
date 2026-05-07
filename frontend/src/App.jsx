@@ -488,6 +488,7 @@ function TopBar({ page, setPage, search, setSearch, alertCount }) {
     { label: 'Watchlist',    key: 'watchlist'  },
     { label: 'Top Insiders', key: 'insiders'   },
     { label: 'Alerts',       key: 'alerts', badge: alertCount || null },
+    { label: 'Insights',     key: 'insights'   },
     { label: 'Pricing',      key: 'pricing'    },
   ];
 
@@ -2803,6 +2804,339 @@ function useAlertCount(trades, watchlistTickers) {
   }, [trades, watchlistTickers]);
 }
 
+// ─── InsightsPage ─────────────────────────────────────────────────────────────
+
+const EDUCATION_ITEMS = [
+  {
+    title: 'What Is Insider Trading? (The Legal Kind)',
+    body: 'MAR Article 19 requires company executives, directors, and closely associated persons to disclose their personal trades within 3 business days. This is the legal, regulated form of insider reporting — distinct from illegal insider trading.',
+    tag: 'Basics',
+  },
+  {
+    title: 'How to Read Conviction Signals',
+    body: 'High Conviction scores combine four factors: purchase size relative to the insider\'s history, role seniority (CEO/CFO outweigh board members), clustering with peers, and proximity to pre-earnings blackout windows.',
+    tag: 'Signals',
+  },
+  {
+    title: 'Understanding Cluster Buying',
+    body: 'A cluster signal fires when 2 or more insiders at the same company buy within a 14-day window. Academic research shows cluster buys outperform single-insider buys by ~4% on a 90-day horizon.',
+    tag: 'Signals',
+  },
+  {
+    title: 'Pre-Earnings Blackout Periods',
+    body: 'Most European companies impose a self-imposed trading blackout in the 30 days before earnings. Insiders buying 30–60 days before a likely earnings date are acting just before the window closes — a meaningful timing signal.',
+    tag: 'Context',
+  },
+  {
+    title: 'Why Sells Are Harder to Interpret',
+    body: 'Insider sells happen for many reasons unrelated to outlook: diversification, tax planning, liquidity needs. Academic literature shows buys carry roughly 3× more information content than sells.',
+    tag: 'Context',
+  },
+  {
+    title: 'MAR Article 19 Across Markets',
+    body: 'Each EU country\'s regulator publishes filings separately: AFM (Netherlands), AMF (France), BaFin (Germany), CNMV (Spain), FSMA (Belgium), Finanstilsynet (Denmark/Norway). We aggregate all of them daily.',
+    tag: 'Data',
+  },
+];
+
+const BROKER_GUIDES = [
+  {
+    title: 'Best Brokers for European Stocks 2026',
+    desc: 'Compare Interactive Brokers, DEGIRO, Saxo, and eToro on fees, market access, and execution quality for EU-listed equities.',
+    tag: 'Brokers',
+  },
+  {
+    title: 'How to Buy French Stocks as a Non-Resident',
+    desc: 'Euronext Paris, PEA accounts, withholding tax treaties, and which brokers give direct SRD access — a practical walkthrough.',
+    tag: 'France',
+  },
+  {
+    title: 'Low-Cost Brokers for Nordic Markets',
+    desc: 'Nasdaq Helsinki, Stockholm, Copenhagen, and Oslo coverage varies widely by broker. We benchmark fees and access for each exchange.',
+    tag: 'Nordics',
+  },
+  {
+    title: 'German Stock Investing for Non-EU Residents',
+    desc: 'XETRA access, Kapitalertragsteuer withholding, broker requirements, and the cheapest routes to Dax and SDAX exposure.',
+    tag: 'Germany',
+  },
+];
+
+function InsightsPage({ trades, tradesLoading }) {
+  const [filter, setFilter] = useState('all');
+  const [openEdu, setOpenEdu] = useState(null);
+
+  const FILTERS = [
+    { key: 'all',      label: 'All' },
+    { key: 'overview', label: 'Market Overview' },
+    { key: 'brokers',  label: 'Broker Guides' },
+    { key: 'education',label: 'Education' },
+  ];
+
+  // ── Market overview stats from loaded trades ────────────────────────────
+  const overview = useMemo(() => {
+    if (!trades.length) return null;
+    const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const isBuy = t => ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase());
+
+    const recent  = trades.filter(t => t.transaction_date >= cutoff7d);
+    const recentB = recent.filter(isBuy);
+
+    // Most active market
+    const byCc = {};
+    for (const t of recentB) { byCc[t.country_code] = (byCc[t.country_code] || 0) + 1; }
+    const topCc = Object.entries(byCc).sort((a, b) => b[1] - a[1])[0];
+
+    // Largest single buy
+    const largest = recentB.reduce((best, t) =>
+      Number(t.total_value || 0) > Number(best?.total_value || 0) ? t : best, null);
+
+    // High conviction this week
+    const hcCount = recentB.filter(t => t.conviction_label === 'High Conviction').length;
+
+    // Cluster companies
+    const clusterCos = new Set(recent.filter(t => t.is_cluster_buy).map(t => t.company)).size;
+
+    // Markets with activity
+    const activeMarkets = new Set(recentB.map(t => t.country_code)).size;
+
+    return { recentBCount: recentB.length, hcCount, clusterCos, topCc, largest, activeMarkets };
+  }, [trades]);
+
+  const COUNTRY_NAMES_MAP = {
+    BE:'Belgium', CH:'Switzerland', DE:'Germany', DK:'Denmark', ES:'Spain',
+    FI:'Finland', FR:'France', GB:'United Kingdom', IT:'Italy', KR:'South Korea',
+    NL:'Netherlands', NO:'Norway', SE:'Sweden',
+  };
+
+  const showOverview  = filter === 'all' || filter === 'overview';
+  const showBrokers   = filter === 'all' || filter === 'brokers';
+  const showEducation = filter === 'all' || filter === 'education';
+
+  function SectionLabel({ children }) {
+    return (
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+        color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace",
+        marginBottom: 12, marginTop: 0,
+      }}>{children}</div>
+    );
+  }
+
+  function StatRow({ label, value, mono = true }) {
+    return (
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        padding: '9px 0', borderBottom: '1px solid #f0f0f0',
+      }}>
+        <span style={{ fontSize: 13, color: '#374151' }}>{label}</span>
+        <span style={{
+          fontSize: 13, fontWeight: 600, color: '#111318',
+          fontFamily: mono ? "'JetBrains Mono', monospace" : "'Inter', sans-serif",
+        }}>{value}</span>
+      </div>
+    );
+  }
+
+  return (
+    <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
+      <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 32px' }}>
+
+        {/* Header */}
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>
+            Insights & Research
+          </h1>
+          <p style={{ fontSize: 13, color: '#6B7280' }}>
+            Data-driven analysis of insider trading activity across European markets.
+          </p>
+        </div>
+
+        {/* Filter tabs */}
+        <div style={{
+          display: 'flex', gap: 4, marginBottom: 28,
+          background: '#f8f8f8', border: '1px solid #f0f0f0',
+          borderRadius: 8, padding: 3, width: 'fit-content',
+        }}>
+          {FILTERS.map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)} style={{
+              padding: '5px 14px', borderRadius: 6, border: 'none',
+              background: filter === f.key ? '#fff' : 'transparent',
+              color: filter === f.key ? '#111318' : '#9CA3AF',
+              fontWeight: filter === f.key ? 600 : 400,
+              fontSize: 12, fontFamily: "'Inter', sans-serif", cursor: 'pointer',
+              boxShadow: filter === f.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.12s', whiteSpace: 'nowrap',
+            }}>{f.label}</button>
+          ))}
+        </div>
+
+        {/* ── Section 1: Market Overview ───────────────────────────────── */}
+        {showOverview && (
+          <div style={{ marginBottom: 36 }}>
+            <SectionLabel>Market Overview · Last 7 days</SectionLabel>
+            {tradesLoading || !overview ? (
+              <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '20px 24px' }}>
+                {[120, 160, 140, 100].map((w, i) => (
+                  <div key={i} style={{ height: 14, background: '#f0f0f0', borderRadius: 4, width: w, marginBottom: 12 }} />
+                ))}
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '0 24px' }}>
+                  <StatRow
+                    label="BUY transactions this week"
+                    value={overview.recentBCount.toLocaleString()}
+                  />
+                  <StatRow
+                    label="High conviction buys"
+                    value={overview.hcCount.toLocaleString()}
+                  />
+                  <StatRow
+                    label="Companies with cluster buying"
+                    value={overview.clusterCos.toLocaleString()}
+                  />
+                  <StatRow
+                    label="Active markets"
+                    value={`${overview.activeMarkets} countries`}
+                    mono={false}
+                  />
+                  {overview.topCc && (
+                    <StatRow
+                      label="Most active market"
+                      value={`${COUNTRY_NAMES_MAP[overview.topCc[0]] || overview.topCc[0]} (${overview.topCc[1]})`}
+                      mono={false}
+                    />
+                  )}
+                  {overview.largest && (
+                    <StatRow
+                      label="Largest single buy"
+                      value={
+                        `${overview.largest.company} — ` +
+                        formatValue(overview.largest.total_value, overview.largest.currency)
+                      }
+                      mono={false}
+                    />
+                  )}
+                </div>
+                <div style={{
+                  padding: '10px 24px', background: '#fafafa',
+                  borderTop: '1px solid #f0f0f0',
+                  fontSize: 11, color: '#9CA3AF',
+                }}>
+                  Calculated from {trades.length.toLocaleString()} transactions in database · Updated daily via GitHub Actions
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Section 2: Broker Guides ─────────────────────────────────── */}
+        {showBrokers && (
+          <div style={{ marginBottom: 36 }}>
+            <SectionLabel>Broker Guides</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {BROKER_GUIDES.map((g, i) => (
+                <div key={i} style={{
+                  background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+                  padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8,
+                  position: 'relative',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 12, right: 12,
+                    fontSize: 9, color: '#9CA3AF', background: '#f8f8f8',
+                    border: '1px solid #f0f0f0', borderRadius: 3,
+                    padding: '1px 5px', fontWeight: 600, letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                  }}>Affiliate</div>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: '#6B7280',
+                    textTransform: 'uppercase', letterSpacing: '0.07em',
+                  }}>{g.tag}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111318', lineHeight: 1.4, paddingRight: 48 }}>
+                    {g.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, flex: 1 }}>
+                    {g.desc}
+                  </div>
+                  <a href="#" onClick={e => e.preventDefault()} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 12, fontWeight: 600, color: ACCENT,
+                    textDecoration: 'none', marginTop: 4,
+                    fontFamily: "'Inter', sans-serif",
+                  }}>
+                    Read Guide
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                    </svg>
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Section 3: Education ─────────────────────────────────────── */}
+        {showEducation && (
+          <div style={{ marginBottom: 20 }}>
+            <SectionLabel>Education</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {EDUCATION_ITEMS.map((item, i) => {
+                const isOpen = openEdu === i;
+                return (
+                  <div key={i} style={{
+                    background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+                    overflow: 'hidden', transition: 'border-color 0.12s',
+                  }}>
+                    <button
+                      onClick={() => setOpenEdu(isOpen ? null : i)}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '13px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                        textAlign: 'left', gap: 12,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, color: '#6B7280',
+                          textTransform: 'uppercase', letterSpacing: '0.07em',
+                          background: '#f8f8f8', border: '1px solid #f0f0f0',
+                          borderRadius: 3, padding: '2px 6px', flexShrink: 0,
+                        }}>{item.tag}</span>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#111318' }}>
+                          {item.title}
+                        </span>
+                      </div>
+                      <svg
+                        width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round"
+                        style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {isOpen && (
+                      <div style={{
+                        padding: '0 18px 14px 18px',
+                        fontSize: 13, color: '#6B7280', lineHeight: 1.65,
+                        borderTop: '1px solid #f0f0f0',
+                        paddingTop: 12,
+                      }}>
+                        {item.body}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </main>
+  );
+}
+
 // ─── PricingPage ──────────────────────────────────────────────────────────────
 
 const PLAN_FEATURES_GRID = [
@@ -3343,6 +3677,9 @@ export default function App() {
             watchlist={watchlist} watchlistTickers={watchlistTickers}
             onCompanyClick={handleCompanyClick} onInsiderClick={handleInsiderClick}
           />
+        )}
+        {page === 'insights' && (
+          <InsightsPage trades={trades} tradesLoading={tradesLoading} />
         )}
         {page === 'pricing' && <PricingPage />}
         {page === 'company' && selectedCompany && (
