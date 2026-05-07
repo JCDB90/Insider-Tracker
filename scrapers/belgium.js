@@ -40,6 +40,7 @@ const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { isinToTicker }            = require('./lib/isinToTicker');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'BE';
 const SOURCE         = 'FSMA Belgium';
@@ -130,8 +131,24 @@ function parseDetailPage(html, slug) {
   const txDate     = $('.field--name-field-ct-transaction-date time').first().attr('datetime')?.slice(0, 10)
                    || pubDate;
   const company    = extractField($, 'field-ct-issuer');
-  const insiderName = extractField($, 'field-ct-declarer-name');
+  const notifyingPerson = extractField($, 'field-ct-declarer-name');
   const roleRaw    = extractField($, 'field-ct-declarer-type');
+  // "Declarer Related Persons" lists the PDMR(s) that the notifying person is associated with
+  const relatedPersonsRaw = $('.field--name-field-ct-description .field__item').first().text().trim();
+
+  // If the notifying party is a company (e.g. a holding vehicle), use the PDMR name as
+  // insider_name and the company as via_entity.  If it's a person, use it directly.
+  let insiderName = notifyingPerson;
+  let viaEntity   = null;
+  if (notifyingPerson && looksLikeCorp(notifyingPerson)) {
+    viaEntity   = notifyingPerson;
+    insiderName = null;
+    // Use the PDMR name when it's a single unambiguous person
+    const parts = relatedPersonsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    if (parts.length === 1 && parts[0] && !looksLikeCorp(parts[0])) {
+      insiderName = parts[0];
+    }
+  }
   const isin       = extractField($, 'field-ct-instrument-isin-code');
   const txTypeRaw  = extractField($, 'field-ct-transaction-type');
   const currency   = extractField($, 'field-ct-transaction-currency') || CURRENCY;
@@ -188,6 +205,7 @@ function parseDetailPage(html, slug) {
     txDate:      txDate || parseDate(pubDate),
     company,
     insiderName,
+    viaEntity,
     role:        translateRole(roleRaw),
     isin,
     txType,
@@ -309,6 +327,7 @@ async function scrapeBE() {
       ticker,
       company:          d.company || null,
       insider_name:     d.insiderName || null,
+      via_entity:       d.viaEntity   || null,
       insider_role:     d.role || null,
       transaction_type: d.txType,
       transaction_date: d.txDate || d.pubDate,

@@ -620,11 +620,6 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
                 }}>
                   {COUNTRY_NAMES[code] || code}
                 </span>
-                {count > 0 && (
-                  <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
-                    {count >= 1000 ? (count / 1000).toFixed(1) + 'k' : count}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -1842,23 +1837,19 @@ function DashboardPage({
           {stats.map((s, i) => (
             <div key={i} style={{
               background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10,
-              padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-              display: 'flex', flexDirection: 'column',
+              padding: '12px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              display: 'flex', flexDirection: 'column', gap: 2,
             }}>
               <div style={{
-                fontSize: 11, color: '#9CA3AF', fontWeight: 600,
-                textTransform: 'uppercase', letterSpacing: '0.06em',
-                marginBottom: 10, height: 28,
-                display: 'flex', alignItems: 'flex-start',
+                fontSize: 10, color: '#9CA3AF', fontWeight: 600,
+                textTransform: 'uppercase', letterSpacing: '0.07em',
               }}>{s.label}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                <span style={{
-                  fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em',
-                  color: s.color || '#111318',
-                  fontFamily: "'DM Mono', monospace", lineHeight: 1,
-                }}>{s.value}</span>
-              </div>
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>{s.sub}</div>
+              <span style={{
+                fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
+                color: s.color || '#111318',
+                fontFamily: "'DM Mono', monospace", lineHeight: 1.1,
+              }}>{s.value}</span>
+              <div style={{ fontSize: 11, color: '#9CA3AF' }}>{s.sub}</div>
             </div>
           ))}
         </div>

@@ -283,10 +283,10 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
     series.setData(data);
 
     // Build markers with price-aware positioning:
-    //   • Transaction price within 5% of market → 'inBar' (dot ON the line)
-    //   • Transaction price < 95% of market     → 'belowBar' (option exercise / discount)
-    //   • Transaction price > 105% of market    → 'aboveBar'
-    //   • No price data available               → default below/above by side
+    //   • Transaction price within 15% of market → 'inBar' (dot ON the line)
+    //   • Transaction price < 85% of market      → 'belowBar' (option exercise / deep discount)
+    //   • Transaction price > 115% of market     → 'aboveBar'
+    //   • No price data available                → default below/above by side
     const minTime = data[0]?.time;
     const maxTime = data[data.length - 1]?.time;
 
@@ -299,8 +299,8 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
         const marketPrice = findChartPrice(data, t.transaction_date);
         if (marketPrice && t.price_per_share && t.price_per_share > 0) {
           const ratio = Number(t.price_per_share) / marketPrice;
-          if (ratio >= 0.95 && ratio <= 1.05) position = 'inBar';
-          else if (ratio < 0.95)              position = 'belowBar';
+          if (ratio >= 0.85 && ratio <= 1.15) position = 'inBar';
+          else if (ratio < 0.85)              position = 'belowBar';
           else                                position = 'aboveBar';
         }
 

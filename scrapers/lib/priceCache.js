@@ -121,7 +121,12 @@ class PriceCache {
     return data;
   }
 
-  /** Return cached prices between fromStr and toStr if we have any, null if none. */
+  /** Return cached prices between fromStr and toStr if we have any, null if none.
+   *
+   * Returns null (cache miss) if the earliest cached date is more than 7 days
+   * after fromStr — ensures a gap at the start of the range triggers a fresh
+   * Yahoo fetch rather than silently returning incomplete data.
+   */
   _getFromCache(ticker, fromStr, toStr) {
     const result = [];
     for (const [key, price] of this._prices) {
@@ -130,7 +135,12 @@ class PriceCache {
       if (date >= fromStr && date <= toStr) result.push({ date, price });
     }
     if (result.length === 0) return null;
-    return result.sort((a, b) => a.date.localeCompare(b.date));
+    result.sort((a, b) => a.date.localeCompare(b.date));
+    // If cached data starts more than 7 days after the requested range start,
+    // the cache doesn't cover the early horizons — force a Yahoo re-fetch.
+    const gapDays = (new Date(result[0].date) - new Date(fromStr)) / 86400000;
+    if (gapDays > 7) return null;
+    return result;
   }
 
   _recordMiss(ticker) {
