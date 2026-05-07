@@ -2910,54 +2910,480 @@ const BROKER_GUIDES = [
   },
 ];
 
+// ── Shared SVG line chart (no external deps) ─────────────────────────────────
+
+function TaxLineChart({ series, years, fmtY }) {
+  const W = 560, H = 230;
+  const pad = { t: 12, r: 16, b: 28, l: 62 };
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+
+  const allVals = series.flatMap(s => s.data).filter(v => v != null && isFinite(v));
+  if (!allVals.length) return null;
+  const maxV = Math.max(...allVals);
+  const minV = 0;
+  const range = maxV - minV || 1;
+
+  const xs = i => pad.l + (i / years) * cw;
+  const ys = v => pad.t + ch - ((v - minV) / range) * ch;
+
+  const niceMax = Math.ceil(maxV / Math.pow(10, Math.floor(Math.log10(maxV)))) * Math.pow(10, Math.floor(Math.log10(maxV)));
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => minV + f * maxV);
+
+  const xTickStep = years <= 15 ? 5 : years <= 25 ? 5 : 10;
+  const xTicks = [];
+  for (let y = 0; y <= years; y += xTickStep) xTicks.push(y);
+  if (xTicks[xTicks.length - 1] !== years) xTicks.push(years);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+      {yTicks.map((v, i) => (
+        <g key={i}>
+          <line x1={pad.l} x2={W - pad.r} y1={ys(v)} y2={ys(v)}
+            stroke={i === 0 ? '#e0e0e0' : '#f0f0f0'} strokeWidth="1" />
+          <text x={pad.l - 5} y={ys(v) + 3.5} textAnchor="end"
+            fontSize="9" fill="#9CA3AF" fontFamily="JetBrains Mono, monospace">
+            {fmtY(v)}
+          </text>
+        </g>
+      ))}
+      {xTicks.map(y => (
+        <text key={y} x={xs(y)} y={H - 6} textAnchor="middle"
+          fontSize="9" fill="#9CA3AF" fontFamily="JetBrains Mono, monospace">
+          {y === 0 ? 'Now' : `${y}y`}
+        </text>
+      ))}
+      {series.map(s => {
+        const pts = s.data
+          .map((v, i) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`)
+          .join(' ');
+        return (
+          <polyline key={s.key} points={pts} fill="none"
+            stroke={s.color} strokeWidth={s.bold ? 2.2 : 1.5}
+            strokeLinejoin="round" strokeLinecap="round"
+            strokeDasharray={s.dashed ? '5 3' : undefined}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function ChartLegend({ series }) {
+  return (
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
+      {series.map(s => (
+        <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <svg width="20" height="2" style={{ overflow: 'visible' }}>
+            <line x1="0" y1="1" x2="20" y2="1" stroke={s.color} strokeWidth="2"
+              strokeDasharray={s.dashed ? '4 2' : undefined} />
+          </svg>
+          <span style={{ fontSize: 11, color: '#6B7280' }}>{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Danish compound interest calculator ──────────────────────────────────────
+
+function DKCalculator() {
+  const [initial,  setInitial]  = useState(100000);
+  const [monthly,  setMonthly]  = useState(3000);
+  const [ret,      setRet]      = useState(7);
+  const [years,    setYears]    = useState(20);
+  const [lagerRate,setLagerRate]= useState(17);  // % annual on unrealized gain
+  const [exitRate, setExitRate] = useState(42);  // % at exit (realised)
+
+  const fmtDKK = v => {
+    if (v >= 1e6) return 'DKK ' + (v / 1e6).toFixed(2) + 'm';
+    if (v >= 1e3) return 'DKK ' + (v / 1e3).toFixed(0) + 'k';
+    return 'DKK ' + Math.round(v).toLocaleString();
+  };
+
+  const results = useMemo(() => {
+    const mr = Math.pow(1 + ret / 100, 1 / 12) - 1;
+
+    // Helper: grow one year with monthly contributions
+    function growYear(start) {
+      let p = start;
+      for (let m = 0; m < 12; m++) p = p * (1 + mr) + monthly;
+      return p;
+    }
+
+    const noTax = [initial];
+    const lager = [initial];       // ETF on positivliste — lagerbeskatning
+    const realised = [initial];    // ETF off positivliste — 42% at exit
+    const indiv = [initial];       // Individual stocks — progressive at exit
+
+    let pNoTax = initial, pLager = initial, pReal = initial, pIndiv = initial;
+    let totalInvested = initial;
+    let totalLagerTax = 0;
+    const tableRows = [];
+
+    for (let y = 1; y <= years; y++) {
+      totalInvested += monthly * 12;
+
+      // No tax
+      pNoTax = growYear(pNoTax);
+
+      // Lagerbeskatning: pay lagerRate% of unrealised gain each year
+      const lagerStart = pLager;
+      pLager = growYear(pLager);
+      const yearGain = pLager - lagerStart - monthly * 12;
+      if (yearGain > 0) {
+        const tax = yearGain * (lagerRate / 100);
+        pLager -= tax;
+        totalLagerTax += tax;
+      }
+
+      // Realised (exitRate% on total gain at exit)
+      pReal = growYear(pReal);
+      const gainReal = pReal - totalInvested;
+      const taxReal = gainReal > 0 ? gainReal * (exitRate / 100) : 0;
+
+      // Individual stocks (27% on first 61k DKK, exitRate% above)
+      pIndiv = growYear(pIndiv);
+      const gainIndiv = pIndiv - totalInvested;
+      let taxIndiv = 0;
+      if (gainIndiv > 0) {
+        const bracket = 61000;
+        taxIndiv = gainIndiv <= bracket
+          ? gainIndiv * 0.27
+          : bracket * 0.27 + (gainIndiv - bracket) * (exitRate / 100);
+      }
+
+      noTax.push(pNoTax);
+      lager.push(pLager);
+      realised.push(pReal - taxReal);
+      indiv.push(pIndiv - taxIndiv);
+
+      if (y % 5 === 0 || y === years) {
+        tableRows.push({
+          year: y,
+          noTax: pNoTax,
+          lagerVal: pLager,
+          lagerTax: totalLagerTax,
+          realisedNet: pReal - taxReal,
+          taxReal,
+          indivNet: pIndiv - taxIndiv,
+        });
+      }
+    }
+
+    return { noTax, lager, realised, indiv, tableRows };
+  }, [initial, monthly, ret, years, lagerRate, exitRate]);
+
+  const series = [
+    { key: 'notax',    label: 'No tax (theoretical)',              color: '#9CA3AF', data: results.noTax,    dashed: true  },
+    { key: 'lager',    label: `ETF Positivliste (${lagerRate}% annual)`, color: '#0f1117', data: results.lager,    bold: true    },
+    { key: 'real',     label: `ETF off-list (${exitRate}% at exit)`,     color: '#EA580C', data: results.realised },
+    { key: 'indiv',    label: 'Individual stocks (27/42% at exit)', color: '#4338CA', data: results.indiv    },
+  ];
+
+  const InputRow = ({ label, children }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6B7280',
+        textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>{label}</label>
+      {children}
+    </div>
+  );
+
+  const numStyle = {
+    width: '100%', padding: '7px 10px', border: '1px solid #f0f0f0', borderRadius: 6,
+    fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: '#111318',
+    background: '#fafafa', outline: 'none', boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+      {/* Header */}
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🇩🇰</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#111318' }}>
+              Danish ETF Tax Calculator — Lagerbeskatning vs Realisationsbeskatning
+            </div>
+            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+              ETFs on the <a href="https://www.skat.dk" target="_blank" rel="noopener" style={{ color: '#4338CA' }}>SKAT investeringsoversigt</a> (formerly positivliste) are taxed annually on unrealised gains.
+              ETFs outside it pay tax only when sold. This calculator shows the compound effect.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
+        {/* Inputs */}
+        <div>
+          <InputRow label="Initial investment (DKK)">
+            <input type="number" value={initial} min="0" step="10000"
+              onChange={e => setInitial(Number(e.target.value))} style={numStyle} />
+          </InputRow>
+          <InputRow label="Monthly contribution (DKK)">
+            <input type="number" value={monthly} min="0" step="500"
+              onChange={e => setMonthly(Number(e.target.value))} style={numStyle} />
+          </InputRow>
+          <InputRow label={`Annual return: ${ret}%`}>
+            <input type="range" value={ret} min="1" max="15" step="0.5"
+              onChange={e => setRet(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#0f1117' }} />
+          </InputRow>
+          <InputRow label={`Investment horizon: ${years} years`}>
+            <input type="range" value={years} min="1" max="40" step="1"
+              onChange={e => setYears(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#0f1117' }} />
+          </InputRow>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <InputRow label={`Lager rate: ${lagerRate}%`}>
+              <input type="number" value={lagerRate} min="1" max="50" step="1"
+                onChange={e => setLagerRate(Number(e.target.value))} style={numStyle} />
+            </InputRow>
+            <InputRow label={`Exit rate: ${exitRate}%`}>
+              <input type="number" value={exitRate} min="1" max="60" step="1"
+                onChange={e => setExitRate(Number(e.target.value))} style={numStyle} />
+            </InputRow>
+          </div>
+          <div style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 1.5, marginTop: 4 }}>
+            Adjust lager rate (currently 17% aktieindkomst / 42% kapitalindkomst depending on your bracket).
+            Individual stocks use 27% on first DKK 61,000 gain, then exit rate above.
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div>
+          <TaxLineChart series={series} years={years} fmtY={fmtDKK} />
+          <ChartLegend series={series} />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ borderTop: '1px solid #f0f0f0', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+              {['Year','No-tax value','ETF Positivliste','Tax paid (lager)','ETF Off-list (net)','Individual stocks (net)'].map(h => (
+                <th key={h} style={{ padding: '8px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700,
+                  color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em',
+                  whiteSpace: 'nowrap', '&:first-child': { textAlign: 'left' } }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {results.tableRows.map((r, i) => (
+              <tr key={r.year} style={{ borderBottom: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                <td style={{ padding: '8px 14px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>{r.year}</td>
+                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{fmtDKK(r.noTax)}</td>
+                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>{fmtDKK(r.lagerVal)}</td>
+                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#DC2626' }}>−{fmtDKK(r.lagerTax)}</td>
+                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#374151' }}>{fmtDKK(r.realisedNet)}</td>
+                <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#4338CA' }}>{fmtDKK(r.indivNet)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Swedish ISK calculator ────────────────────────────────────────────────────
+
+function SEKCalculator() {
+  const [initial,  setInitial]  = useState(100000);
+  const [monthly,  setMonthly]  = useState(3000);
+  const [ret,      setRet]      = useState(7);
+  const [years,    setYears]    = useState(20);
+  const [slr,      setSlr]      = useState(2.5);   // statslåneräntan %
+
+  const fmtSEK = v => {
+    if (v >= 1e6) return 'SEK ' + (v / 1e6).toFixed(2) + 'm';
+    if (v >= 1e3) return 'SEK ' + (v / 1e3).toFixed(0) + 'k';
+    return 'SEK ' + Math.round(v).toLocaleString();
+  };
+
+  const results = useMemo(() => {
+    const mr = Math.pow(1 + ret / 100, 1 / 12) - 1;
+    const effectiveISKRate = (slr / 100) * 0.30; // schablonintäkt × 30% kapitalskatt
+
+    const noTax = [initial], isk = [initial], depot = [initial];
+    let pNoTax = initial, pISK = initial, pDepot = initial;
+    let totalInvested = initial;
+    const tableRows = [];
+
+    for (let y = 1; y <= years; y++) {
+      totalInvested += monthly * 12;
+
+      const isStart = pISK;
+      pNoTax = initial;
+      // Recompute no-tax from scratch each year end (already accumulated above)
+      // Simpler: just grow each portfolio forward
+      let p = pNoTax;
+      pNoTax = 0; // reset — we'll just push the accumulated value
+
+      // Actually grow each independently each year
+      let ntmp = noTax[y - 1];
+      for (let m = 0; m < 12; m++) ntmp = ntmp * (1 + mr) + monthly;
+      noTax.push(ntmp);
+      pNoTax = ntmp;
+
+      // ISK: annual flat tax on average balance (approx: (start+end)/2 × effectiveISKRate)
+      let itmp = isk[y - 1];
+      const iskStart = itmp;
+      for (let m = 0; m < 12; m++) itmp = itmp * (1 + mr) + monthly;
+      const avgISK = (iskStart + itmp) / 2;
+      const iskTax = avgISK * effectiveISKRate;
+      itmp -= iskTax;
+      isk.push(itmp);
+
+      // Regular depot: 30% on total gain at exit
+      let dtmp = depot[y - 1];
+      for (let m = 0; m < 12; m++) dtmp = dtmp * (1 + mr) + monthly;
+      depot.push(dtmp);
+      const gainD = dtmp - totalInvested;
+      const netDepot = dtmp - (gainD > 0 ? gainD * 0.30 : 0);
+
+      if (y % 5 === 0 || y === years) {
+        tableRows.push({ year: y, noTax: ntmp, iskVal: itmp, depotNet: netDepot });
+      }
+    }
+
+    return { noTax, isk, depot: depot.map((v, y) => {
+      const inv = initial + monthly * 12 * y;
+      const g = v - inv;
+      return v - (g > 0 ? g * 0.30 : 0);
+    }), tableRows };
+  }, [initial, monthly, ret, years, slr]);
+
+  const series = [
+    { key: 'notax', label: 'No tax (theoretical)', color: '#9CA3AF', data: results.noTax, dashed: true },
+    { key: 'isk',   label: `ISK (${slr}% statslåneränta × 30%)`, color: '#0f1117', data: results.isk, bold: true },
+    { key: 'depot', label: 'Regular depot (30% at exit)', color: '#EA580C', data: results.depot },
+  ];
+
+  const numStyle = {
+    width: '100%', padding: '7px 10px', border: '1px solid #f0f0f0', borderRadius: 6,
+    fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: '#111318',
+    background: '#fafafa', outline: 'none', boxSizing: 'border-box',
+  };
+
+  const InputRow = ({ label, children }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6B7280',
+        textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>{label}</label>
+      {children}
+    </div>
+  );
+
+  const effectiveRate = ((slr / 100) * 0.30 * 100).toFixed(2);
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🇸🇪</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#111318' }}>
+              Swedish ISK Calculator — Investeringssparkonto vs Regular Depot
+            </div>
+            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+              ISK tax = average account value × <a href="https://www.skatteverket.se" target="_blank" rel="noopener" style={{ color: '#4338CA' }}>statslåneräntan</a> × 30%.
+              Current statslåneränta ≈ {slr}% → effective rate ≈ {effectiveRate}% per year on balance.
+              Regular depot pays 30% capital gains tax only when you sell.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
+        <div>
+          <InputRow label="Initial investment (SEK)">
+            <input type="number" value={initial} min="0" step="10000"
+              onChange={e => setInitial(Number(e.target.value))} style={numStyle} />
+          </InputRow>
+          <InputRow label="Monthly contribution (SEK)">
+            <input type="number" value={monthly} min="0" step="500"
+              onChange={e => setMonthly(Number(e.target.value))} style={numStyle} />
+          </InputRow>
+          <InputRow label={`Annual return: ${ret}%`}>
+            <input type="range" value={ret} min="1" max="15" step="0.5"
+              onChange={e => setRet(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#0f1117' }} />
+          </InputRow>
+          <InputRow label={`Investment horizon: ${years} years`}>
+            <input type="range" value={years} min="1" max="40" step="1"
+              onChange={e => setYears(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#0f1117' }} />
+          </InputRow>
+          <InputRow label={`Statslåneränta: ${slr}%`}>
+            <input type="range" value={slr} min="0.25" max="6" step="0.25"
+              onChange={e => setSlr(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#0f1117' }} />
+          </InputRow>
+          <div style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 1.5 }}>
+            Effective ISK rate = {slr}% × 30% = {effectiveRate}% on balance/year.
+            ISK is better when returns are high; depot wins at low returns or when you hold long without selling.
+          </div>
+        </div>
+
+        <div>
+          <TaxLineChart series={series} years={years} fmtY={fmtSEK} />
+          <ChartLegend series={series} />
+        </div>
+      </div>
+
+      <div style={{ borderTop: '1px solid #f0f0f0', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+              {['Year','No-tax value','ISK value','Regular depot (net)','ISK vs depot'].map(h => (
+                <th key={h} style={{ padding: '8px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700,
+                  color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {results.tableRows.map((r, i) => {
+              const diff = r.iskVal - r.depotNet;
+              const isISKBetter = diff > 0;
+              return (
+                <tr key={r.year} style={{ borderBottom: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                  <td style={{ padding: '8px 14px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>{r.year}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{fmtSEK(r.noTax)}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#0f1117' }}>{fmtSEK(r.iskVal)}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: '#EA580C' }}>{fmtSEK(r.depotNet)}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace",
+                    color: isISKBetter ? '#15803D' : '#DC2626', fontWeight: 500 }}>
+                    {isISKBetter ? '+' : ''}{fmtSEK(diff)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── InsightsPage ──────────────────────────────────────────────────────────────
+
 function InsightsPage({ trades, tradesLoading }) {
   const [filter, setFilter] = useState('all');
   const [openEdu, setOpenEdu] = useState(null);
 
   const FILTERS = [
-    { key: 'all',      label: 'All' },
-    { key: 'overview', label: 'Market Overview' },
-    { key: 'brokers',  label: 'Broker Guides' },
-    { key: 'education',label: 'Education' },
+    { key: 'all',       label: 'All' },
+    { key: 'tools',     label: 'Tools' },
+    { key: 'brokers',   label: 'Broker Guides' },
+    { key: 'education', label: 'Education' },
   ];
 
-  // ── Market overview stats from loaded trades ────────────────────────────
-  const overview = useMemo(() => {
-    if (!trades.length) return null;
-    const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const isBuy = t => ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase());
-
-    const recent  = trades.filter(t => t.transaction_date >= cutoff7d);
-    const recentB = recent.filter(isBuy);
-
-    // Most active market
-    const byCc = {};
-    for (const t of recentB) { byCc[t.country_code] = (byCc[t.country_code] || 0) + 1; }
-    const topCc = Object.entries(byCc).sort((a, b) => b[1] - a[1])[0];
-
-    // Largest single buy
-    const largest = recentB.reduce((best, t) =>
-      Number(t.total_value || 0) > Number(best?.total_value || 0) ? t : best, null);
-
-    // High conviction this week
-    const hcCount = recentB.filter(t => t.conviction_label === 'High Conviction').length;
-
-    // Cluster companies
-    const clusterCos = new Set(recent.filter(t => t.is_cluster_buy).map(t => t.company)).size;
-
-    // Markets with activity
-    const activeMarkets = new Set(recentB.map(t => t.country_code)).size;
-
-    return { recentBCount: recentB.length, hcCount, clusterCos, topCc, largest, activeMarkets };
-  }, [trades]);
-
-  const COUNTRY_NAMES_MAP = {
-    BE:'Belgium', CH:'Switzerland', DE:'Germany', DK:'Denmark', ES:'Spain',
-    FI:'Finland', FR:'France', GB:'United Kingdom', IT:'Italy', KR:'South Korea',
-    NL:'Netherlands', NO:'Norway', SE:'Sweden',
-  };
-
-  const showOverview  = filter === 'all' || filter === 'overview';
+  const showTools     = filter === 'all' || filter === 'tools';
   const showBrokers   = filter === 'all' || filter === 'brokers';
   const showEducation = filter === 'all' || filter === 'education';
 
@@ -2966,29 +3392,14 @@ function InsightsPage({ trades, tradesLoading }) {
       <div style={{
         fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
         color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace",
-        marginBottom: 12, marginTop: 0,
+        marginBottom: 12,
       }}>{children}</div>
-    );
-  }
-
-  function StatRow({ label, value, mono = true }) {
-    return (
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        padding: '9px 0', borderBottom: '1px solid #f0f0f0',
-      }}>
-        <span style={{ fontSize: 13, color: '#374151' }}>{label}</span>
-        <span style={{
-          fontSize: 13, fontWeight: 600, color: '#111318',
-          fontFamily: mono ? "'JetBrains Mono', monospace" : "'Inter', sans-serif",
-        }}>{value}</span>
-      </div>
     );
   }
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
-      <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 32px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 32px' }}>
 
         {/* Header */}
         <div style={{ marginBottom: 20 }}>
@@ -2996,7 +3407,7 @@ function InsightsPage({ trades, tradesLoading }) {
             Insights & Research
           </h1>
           <p style={{ fontSize: 13, color: '#6B7280' }}>
-            Data-driven analysis of insider trading activity across European markets.
+            Tax calculators, broker guides, and educational content for European investors.
           </p>
         </div>
 
@@ -3019,67 +3430,16 @@ function InsightsPage({ trades, tradesLoading }) {
           ))}
         </div>
 
-        {/* ── Section 1: Market Overview ───────────────────────────────── */}
-        {showOverview && (
+        {/* ── Tools ─────────────────────────────────────────────────────── */}
+        {showTools && (
           <div style={{ marginBottom: 36 }}>
-            <SectionLabel>Market Overview · Last 7 days</SectionLabel>
-            {tradesLoading || !overview ? (
-              <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '20px 24px' }}>
-                {[120, 160, 140, 100].map((w, i) => (
-                  <div key={i} style={{ height: 14, background: '#f0f0f0', borderRadius: 4, width: w, marginBottom: 12 }} />
-                ))}
-              </div>
-            ) : (
-              <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
-                <div style={{ padding: '0 24px' }}>
-                  <StatRow
-                    label="BUY transactions this week"
-                    value={overview.recentBCount.toLocaleString()}
-                  />
-                  <StatRow
-                    label="High conviction buys"
-                    value={overview.hcCount.toLocaleString()}
-                  />
-                  <StatRow
-                    label="Companies with cluster buying"
-                    value={overview.clusterCos.toLocaleString()}
-                  />
-                  <StatRow
-                    label="Active markets"
-                    value={`${overview.activeMarkets} countries`}
-                    mono={false}
-                  />
-                  {overview.topCc && (
-                    <StatRow
-                      label="Most active market"
-                      value={`${COUNTRY_NAMES_MAP[overview.topCc[0]] || overview.topCc[0]} (${overview.topCc[1]})`}
-                      mono={false}
-                    />
-                  )}
-                  {overview.largest && (
-                    <StatRow
-                      label="Largest single buy"
-                      value={
-                        `${overview.largest.company} — ` +
-                        formatValue(overview.largest.total_value, overview.largest.currency)
-                      }
-                      mono={false}
-                    />
-                  )}
-                </div>
-                <div style={{
-                  padding: '10px 24px', background: '#fafafa',
-                  borderTop: '1px solid #f0f0f0',
-                  fontSize: 11, color: '#9CA3AF',
-                }}>
-                  Calculated from {trades.length.toLocaleString()} transactions in database · Updated daily via GitHub Actions
-                </div>
-              </div>
-            )}
+            <SectionLabel>Tax Calculators</SectionLabel>
+            <DKCalculator />
+            <SEKCalculator />
           </div>
         )}
 
-        {/* ── Section 2: Broker Guides ─────────────────────────────────── */}
+        {/* ── Broker Guides ─────────────────────────────────────────────── */}
         {showBrokers && (
           <div style={{ marginBottom: 36 }}>
             <SectionLabel>Broker Guides</SectionLabel>
@@ -3097,21 +3457,14 @@ function InsightsPage({ trades, tradesLoading }) {
                     padding: '1px 5px', fontWeight: 600, letterSpacing: '0.05em',
                     textTransform: 'uppercase',
                   }}>Affiliate</div>
-                  <div style={{
-                    fontSize: 10, fontWeight: 700, color: '#6B7280',
-                    textTransform: 'uppercase', letterSpacing: '0.07em',
-                  }}>{g.tag}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111318', lineHeight: 1.4, paddingRight: 48 }}>
-                    {g.title}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, flex: 1 }}>
-                    {g.desc}
-                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280',
+                    textTransform: 'uppercase', letterSpacing: '0.07em' }}>{g.tag}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111318', lineHeight: 1.4, paddingRight: 48 }}>{g.title}</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, flex: 1 }}>{g.desc}</div>
                   <a href="#" onClick={e => e.preventDefault()} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     fontSize: 12, fontWeight: 600, color: ACCENT,
-                    textDecoration: 'none', marginTop: 4,
-                    fontFamily: "'Inter', sans-serif",
+                    textDecoration: 'none', marginTop: 4, fontFamily: "'Inter', sans-serif",
                   }}>
                     Read Guide
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -3124,7 +3477,7 @@ function InsightsPage({ trades, tradesLoading }) {
           </div>
         )}
 
-        {/* ── Section 3: Education ─────────────────────────────────────── */}
+        {/* ── Education ─────────────────────────────────────────────────── */}
         {showEducation && (
           <div style={{ marginBottom: 20 }}>
             <SectionLabel>Education</SectionLabel>
@@ -3133,17 +3486,13 @@ function InsightsPage({ trades, tradesLoading }) {
                 const isOpen = openEdu === i;
                 return (
                   <div key={i} style={{
-                    background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
-                    overflow: 'hidden', transition: 'border-color 0.12s',
+                    background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden',
                   }}>
-                    <button
-                      onClick={() => setOpenEdu(isOpen ? null : i)}
-                      style={{
-                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '13px 18px', background: 'none', border: 'none', cursor: 'pointer',
-                        textAlign: 'left', gap: 12,
-                      }}
-                    >
+                    <button onClick={() => setOpenEdu(isOpen ? null : i)} style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '13px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                      textAlign: 'left', gap: 12,
+                    }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                         <span style={{
                           fontSize: 9, fontWeight: 700, color: '#6B7280',
@@ -3151,25 +3500,17 @@ function InsightsPage({ trades, tradesLoading }) {
                           background: '#f8f8f8', border: '1px solid #f0f0f0',
                           borderRadius: 3, padding: '2px 6px', flexShrink: 0,
                         }}>{item.tag}</span>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: '#111318' }}>
-                          {item.title}
-                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#111318' }}>{item.title}</span>
                       </div>
-                      <svg
-                        width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                         stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round"
-                        style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-                      >
+                        style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
                     {isOpen && (
-                      <div style={{
-                        padding: '0 18px 14px 18px',
-                        fontSize: 13, color: '#6B7280', lineHeight: 1.65,
-                        borderTop: '1px solid #f0f0f0',
-                        paddingTop: 12,
-                      }}>
+                      <div style={{ padding: '0 18px 14px', fontSize: 13, color: '#6B7280',
+                        lineHeight: 1.65, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
                         {item.body}
                       </div>
                     )}
