@@ -408,12 +408,19 @@ export default function CompanyPage({
   const [earningsDates,  setEarningsDates]  = useState(null);
   const [earningsNoData, setEarningsNoData] = useState(false); // true once fetch complete + empty
 
-  // Filter all transactions for this company
+  // Filter all transactions for this company.
+  // When both ticker and countryCode are known, require both to match — prevents
+  // cross-listing collisions (e.g. VID = Vidrala ES AND Videndum GB).
   const companyTrades = useMemo(() =>
     trades
-      .filter(t => (t.ticker && t.ticker === ticker) || t.company === company)
+      .filter(t => {
+        if (ticker && countryCode) {
+          return t.ticker === ticker && t.country_code === countryCode;
+        }
+        return (t.ticker && t.ticker === ticker) || t.company === company;
+      })
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
-    [trades, ticker, company]
+    [trades, ticker, company, countryCode]
   );
 
   // Build ordered list of Yahoo Finance symbol candidates (proxy tries each in sequence)

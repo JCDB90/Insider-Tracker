@@ -64,6 +64,15 @@ async function saveInsiderTransactions(rows) {
   // price=null or price=0 means no real market transaction (vesting, award, or missing data) → skip.
   // Also reject parse artifacts: "them.", single words ending in period under 6 chars.
   const GARBAGE_NAME_RE = /^them\.?$|^they\.?$|^he\.?$|^she\.?$|^it\.?$|^[a-z]{1,5}\.$|^-+$|^\?+$|^an?\s+(?:executive|officer|director|manager|member|person)\b|^the\s+(?:executive|officer|director|manager)\b|^testo\s+del\b|^comunicato\b/i;
+  // Strip U+FFFD replacement characters from names (encoding corruption artifact).
+  // These appear when the source API serves Latin-1 text decoded as UTF-8.
+  for (const r of withEntityResolved) {
+    if (r.insider_name && r.insider_name.includes('�')) {
+      console.warn(`  ⚠️  Encoding corruption in name: "${r.insider_name}" — ${r.company || '?'} (${r.filing_id})`);
+      r.insider_name = r.insider_name.replace(/�/g, '').trim() || null;
+    }
+  }
+
   const complete = withEntityResolved.filter(r => {
     if (r.insider_name && GARBAGE_NAME_RE.test(r.insider_name.trim())) {
       console.log(`  ℹ  Rejecting garbage name: "${r.insider_name}" — ${r.company || '?'}`);
