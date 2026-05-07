@@ -4,7 +4,7 @@ import { supabase } from './supabase.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ACCENT = '#1B2CC1';
+const ACCENT = '#0f1117';
 
 const CURRENCY_SYMBOLS = {
   EUR: '€', USD: '$', GBP: '£', KRW: '₩',
@@ -261,15 +261,15 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
       layout: {
         background: { color: '#ffffff' },
         textColor: '#6B7280',
-        fontFamily: "'DM Mono', monospace",
+        fontFamily: "'JetBrains Mono', monospace",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: '#F3F4F6', style: 1 },
-        horzLines: { color: '#F3F4F6', style: 1 },
+        vertLines: { color: '#f0f0f0', style: 1 },
+        horzLines: { color: '#f0f0f0', style: 1 },
       },
-      rightPriceScale: { borderColor: '#E8E9EE', scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: '#E8E9EE', fixLeftEdge: true, fixRightEdge: true, timeVisible: false, secondsVisible: false },
+      rightPriceScale: { borderColor: '#f0f0f0', scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale: { borderColor: '#f0f0f0', fixLeftEdge: true, fixRightEdge: true, timeVisible: false, secondsVisible: false },
       crosshair: { mode: 1 },
     });
 
@@ -347,11 +347,11 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
     return (
       <div ref={containerRef} style={{
         height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        background: '#F9FAFB', borderRadius: 10, border: '1px solid #E8E9EE', gap: 6,
+        background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0', gap: 6,
       }}>
         <span style={{ color: '#9CA3AF', fontSize: 13 }}>Chart data unavailable</span>
         {triedSymbols?.length > 0 && (
-          <span style={{ color: '#D1D5DB', fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
+          <span style={{ color: '#D1D5DB', fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
             Tried: {triedSymbols.slice(0, 4).join(', ')}
           </span>
         )}
@@ -359,7 +359,7 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
     );
   }
 
-  return <div ref={containerRef} style={{ width: '100%', borderRadius: 10, overflow: 'hidden', border: '1px solid #E8E9EE' }} />;
+  return <div ref={containerRef} style={{ width: '100%', borderRadius: 10, overflow: 'hidden', border: '1px solid #f0f0f0' }} />;
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
@@ -367,14 +367,14 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
 function KpiCard({ label, value, sub, color }) {
   return (
     <div style={{
-      background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10,
+      background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
       padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
     }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
         {label}
       </div>
       <div style={{
-        fontSize: 26, fontWeight: 700, fontFamily: "'DM Mono', monospace",
+        fontSize: 26, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
         letterSpacing: '-0.02em', color: color || '#111318', lineHeight: 1,
       }}>
         {value}
@@ -559,13 +559,13 @@ export default function CompanyPage({
   );
 
   return (
-    <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0, background: '#F7F8FA' }}>
+    <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0, background: '#ffffff' }}>
 
       {/* Back */}
       <button onClick={onBack} style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 20,
         background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
-        fontSize: 13, color: '#6B7280', fontFamily: "'DM Sans', sans-serif",
+        fontSize: 13, color: '#6B7280', fontFamily: "'Inter', sans-serif",
       }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -575,7 +575,7 @@ export default function CompanyPage({
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
+        background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
         padding: '20px 24px', marginBottom: 24,
         display: 'flex', alignItems: 'center', gap: 14,
       }}>
@@ -591,7 +591,7 @@ export default function CompanyPage({
             {company}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-            <span style={{ fontSize: 13, fontFamily: "'DM Mono', monospace", color: '#6B7280' }}>{ticker}</span>
+            <span style={{ fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: '#6B7280' }}>{ticker}</span>
             <span style={{ color: '#D1D5DB' }}>·</span>
             <span style={{ fontSize: 13, color: '#9CA3AF' }}>{countryCode}</span>
           </div>
@@ -600,7 +600,7 @@ export default function CompanyPage({
 
       {/* ── Section 1: Chart ──────────────────────────────────────────────── */}
       <div style={{
-        background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
+        background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
         padding: '20px 24px', marginBottom: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -613,7 +613,7 @@ export default function CompanyPage({
             </p>
           </div>
           {/* Range toggles */}
-          <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 7, padding: 3 }}>
+          <div style={{ display: 'flex', gap: 4, background: '#f8f8f8', borderRadius: 7, padding: 3 }}>
             {RANGES.map(r => (
               <button key={r.key} onClick={() => setChartRange(r.key)} style={{
                 padding: '5px 12px', borderRadius: 5, border: 'none', cursor: 'pointer',
@@ -621,7 +621,7 @@ export default function CompanyPage({
                 background: chartRange === r.key ? '#fff' : 'transparent',
                 color: chartRange === r.key ? '#111318' : '#9CA3AF',
                 boxShadow: chartRange === r.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
+                fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
               }}>{r.label}</button>
             ))}
           </div>
@@ -630,7 +630,7 @@ export default function CompanyPage({
         {priceLoading ? (
           <div style={{
             height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: '#F9FAFB', borderRadius: 10, border: '1px solid #E8E9EE',
+            background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0',
           }}>
             <div style={{ fontSize: 13, color: '#9CA3AF' }}>Loading chart…</div>
           </div>
@@ -686,8 +686,8 @@ export default function CompanyPage({
       </div>
 
       {/* ── Section 3–5: Transactions Table ──────────────────────────────── */}
-      <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid #F3F4F6' }}>
+      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid #f0f0f0' }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111318', marginBottom: 2 }}>
             All Insider Transactions
           </h2>
@@ -706,7 +706,7 @@ export default function CompanyPage({
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+                <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
                   {['Date','Insider','Role','Type','Shares','Price','Value','vs Market','Signal'].map(h => (
                     <th key={h} style={{
                       padding: '10px 14px',
@@ -736,12 +736,12 @@ export default function CompanyPage({
                   return (
                     <tr
                       key={t.id || i}
-                      style={{ borderBottom: i < companyTrades.length - 1 ? '1px solid #F9FAFB' : 'none' }}
+                      style={{ borderBottom: i < companyTrades.length - 1 ? '1px solid #f0f0f0' : 'none' }}
                       onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
                       {/* Date */}
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                         {fmtDateShort(t.transaction_date)}
                       </td>
 
@@ -752,7 +752,7 @@ export default function CompanyPage({
                             <button onClick={() => onInsiderClick(name)} style={{
                               background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                               fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
-                              fontFamily: "'DM Sans', sans-serif",
+                              fontFamily: "'Inter', sans-serif",
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                               maxWidth: '100%', display: 'block',
                             }}>{name}</button>
@@ -787,17 +787,17 @@ export default function CompanyPage({
                       </td>
 
                       {/* Shares */}
-                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {fmtShares(t.shares)}
                       </td>
 
                       {/* Price */}
-                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {fmtPrice(t.price_per_share, t.currency)}
                       </td>
 
                       {/* Value */}
-                      <td style={{ padding: '10px 14px', fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 14px', fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {fmtVal(t.total_value, t.currency)}
                       </td>
 

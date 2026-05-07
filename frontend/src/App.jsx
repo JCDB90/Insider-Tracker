@@ -23,7 +23,7 @@ const COUNTRY_NAMES = {
 
 const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
 
-const ACCENT = '#1B2CC1';
+const ACCENT = '#0f1117';
 
 // ─── Watchlist (personal stocks) ─────────────────────────────────────────────
 
@@ -133,7 +133,7 @@ function TypeChip({ type }) {
   const isSell = t === 'SELL' || t === 'SALE';
   if (isBuy)  return <span style={{ fontWeight: 600, fontSize: 12, color: '#15803D', background: '#F0FDF4', borderRadius: 4, padding: '2px 8px' }}>BUY</span>;
   if (isSell) return <span style={{ fontWeight: 600, fontSize: 12, color: '#B91C1C', background: '#FEF2F2', borderRadius: 4, padding: '2px 8px' }}>SELL</span>;
-  return <span style={{ fontSize: 12, color: '#6B7280', background: '#F3F4F6', borderRadius: 4, padding: '2px 8px' }}>{type || '—'}</span>;
+  return <span style={{ fontSize: 12, color: '#6B7280', background: '#f0f0f0', borderRadius: 4, padding: '2px 8px' }}>{type || '—'}</span>;
 }
 
 function Flag({ code }) {
@@ -308,7 +308,7 @@ function InsiderRatingBadge({ rating, large = false }) {
   if (large) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-        <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'DM Mono', monospace", color: text, lineHeight: 1 }}>{rating}</div>
+        <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: text, lineHeight: 1 }}>{rating}</div>
         <span style={{
           display: 'inline-flex', alignItems: 'center', padding: '2px 8px',
           borderRadius: 20, fontSize: 11, fontWeight: 700, background: bg, color: text,
@@ -329,7 +329,7 @@ function InsiderRatingBadge({ rating, large = false }) {
 // ─── ReturnCell — table cell for a post-trade return value ───────────────────
 
 function ReturnCell({ value, daysSince, horizon, style: extraStyle = {} }) {
-  const base = { padding: '10px 12px', textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap', ...extraStyle };
+  const base = { padding: '10px 12px', textAlign: 'right', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap', ...extraStyle };
   if (value !== null && value !== undefined) {
     const pct = (Number(value) * 100).toFixed(1);
     const pos = Number(value) > 0;
@@ -494,7 +494,7 @@ function TopBar({ page, setPage, search, setSearch }) {
   return (
     <header style={{
       position: 'sticky', top: 0, zIndex: 100,
-      background: '#fff', borderBottom: '1px solid #E8E9EE',
+      background: '#fff', borderBottom: '1px solid #f0f0f0',
       display: 'flex', alignItems: 'center', gap: 0,
       height: 56, padding: '0 24px',
     }}>
@@ -522,8 +522,8 @@ function TopBar({ page, setPage, search, setSearch }) {
           onChange={e => setSearch(e.target.value)}
           style={{
             width: '100%', padding: '7px 12px 7px 30px',
-            border: '1px solid #E2E4E9', borderRadius: 7, fontSize: 13,
-            fontFamily: "'DM Sans', sans-serif", color: '#111318', background: '#F7F8FA',
+            border: '1px solid #f0f0f0', borderRadius: 7, fontSize: 13,
+            fontFamily: "'Inter', sans-serif", color: '#111318', background: '#f8f8f8',
             outline: 'none',
           }}
         />
@@ -539,10 +539,10 @@ function TopBar({ page, setPage, search, setSearch }) {
               onClick={() => setPage(item.key)}
               style={{
                 padding: '6px 14px', borderRadius: 6, border: 'none',
-                background: isActive ? '#EEF2FF' : 'transparent',
+                background: isActive ? '#f0f0f0' : 'transparent',
                 color: isActive ? ACCENT : '#6B7280',
                 fontWeight: isActive ? 600 : 400, fontSize: 13,
-                cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                cursor: 'pointer', fontFamily: "'Inter', sans-serif",
                 transition: 'all 0.15s',
               }}
             >{item.label}</button>
@@ -567,7 +567,7 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
   return (
     <aside style={{
       width: 210, flexShrink: 0, padding: '20px 14px',
-      borderRight: '1px solid #E8E9EE', background: '#fff',
+      borderRight: '1px solid #f0f0f0', background: '#fff',
       minHeight: 'calc(100vh - 56px)', overflowY: 'auto',
     }}>
       {/* Country filter */}
@@ -579,7 +579,7 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
           {selectedCountries.size > 0 && (
             <button onClick={clearCountries} style={{
               fontSize: 11, color: ACCENT, background: 'none', border: 'none',
-              cursor: 'pointer', fontFamily: "'DM Sans'", padding: 0,
+              cursor: 'pointer', fontFamily: "'Inter'", padding: 0,
             }}>Clear</button>
           )}
         </div>
@@ -595,7 +595,7 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '5px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
                   background: checked ? ACCENT + '10' : 'transparent',
-                  fontFamily: "'DM Sans', sans-serif", textAlign: 'left',
+                  fontFamily: "'Inter', sans-serif", textAlign: 'left',
                   transition: 'background 0.1s', width: '100%',
                 }}
               >
@@ -627,7 +627,7 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
       </div>
 
       {/* Divider */}
-      <div style={{ height: 1, background: '#F3F4F6', margin: '16px 0' }} />
+      <div style={{ height: 1, background: '#f0f0f0', margin: '16px 0' }} />
 
       {/* Live data indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' }}>
@@ -652,9 +652,9 @@ function InsiderCard({ row }) {
       onMouseLeave={() => setHovered(false)}
       style={{
         background: '#fff',
-        border: '1px solid ' + (hovered ? '#C7D2FE' : '#E8E9EE'),
+        border: '1px solid ' + (hovered ? '#d0d0d0' : '#f0f0f0'),
         borderRadius: 10, padding: 16, cursor: 'default',
-        boxShadow: hovered ? '0 4px 16px rgba(27,44,193,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+        boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.06)' : 'none',
         transition: 'all 0.18s',
         transform: hovered ? 'translateY(-1px)' : 'none',
         display: 'flex', flexDirection: 'column', gap: 10,
@@ -671,7 +671,7 @@ function InsiderCard({ row }) {
             }}>{row.company}</div>
             {/* watchlist star rendered by parent if needed */}
           </div>
-          <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
+          <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
             {row.ticker || '—'} · {COUNTRY_NAMES[row.country_code] || row.country_code}
           </div>
         </div>
@@ -704,11 +704,11 @@ function InsiderCard({ row }) {
       {/* Footer */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        paddingTop: 8, borderTop: '1px solid #F3F4F6',
+        paddingTop: 8, borderTop: '1px solid #f0f0f0',
       }}>
         <span style={{
           fontWeight: 700, fontSize: 14,
-          fontFamily: "'DM Mono', monospace", color: '#111318',
+          fontFamily: "'JetBrains Mono', monospace", color: '#111318',
         }}>
           {formatValue(row.total_value, row.currency)}
         </span>
@@ -746,17 +746,17 @@ function Pagination({ page, totalRows, onChange }) {
 
   const btnBase = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: 28, height: 28, borderRadius: 5, border: '1px solid #E2E4E9',
-    background: '#fff', color: '#374151', fontSize: 12, fontFamily: "'DM Mono', monospace",
+    minWidth: 28, height: 28, borderRadius: 5, border: '1px solid #f0f0f0',
+    background: '#fff', color: '#374151', fontSize: 12, fontFamily: "'JetBrains Mono', monospace",
     cursor: 'pointer', fontWeight: 500, padding: '0 6px',
   };
   const activeBtn = { ...btnBase, background: ACCENT, color: '#fff', border: '1px solid ' + ACCENT, fontWeight: 700 };
-  const disabledBtn = { ...btnBase, color: '#D1D5DB', cursor: 'default', background: '#F9FAFB' };
+  const disabledBtn = { ...btnBase, color: '#D1D5DB', cursor: 'default', background: '#fafafa' };
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '10px 16px', borderTop: '1px solid #F3F4F6',
+      padding: '10px 16px', borderTop: '1px solid #f0f0f0',
     }}>
       <span style={{ fontSize: 12, color: '#9CA3AF' }}>
         Showing <span style={{ color: '#374151', fontWeight: 500 }}>{from.toLocaleString()}–{to.toLocaleString()}</span>
@@ -809,7 +809,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
   const truncCell = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: 95 }} />   {/* Date */}
@@ -821,7 +821,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
           <col style={{ width: 60 }} />   {/* Country */}
         </colgroup>
         <thead>
-          <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+          <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
             {cols.map(col => (
               <th
                 key={col.key}
@@ -843,11 +843,11 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
         <tbody>
           {loading ? (
             Array.from({ length: 12 }).map((_, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #F9FAFB' }}>
+              <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
                 {cols.map((col, j) => (
                   <td key={j} style={{ padding: rowPad }}>
                     <div style={{
-                      height: 14, borderRadius: 4, background: '#F3F4F6',
+                      height: 14, borderRadius: 4, background: '#f0f0f0',
                       width: j === 1 ? 120 : j === 2 ? 100 : 60,
                       animation: 'pulse 1.5s infinite',
                     }} />
@@ -872,12 +872,12 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
               return (
                 <tr
                   key={row.id ?? i}
-                  style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                  style={{ borderBottom: i < rows.length - 1 ? '1px solid #f0f0f0' : 'none', transition: 'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   {/* Date */}
-                  <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatDateShort(row.transaction_date)}
                   </td>
                   {/* Company */}
@@ -886,13 +886,13 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       <button onClick={() => onCompanyClick(row.ticker, row.company, row.country_code)} style={{
                         background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                         fontWeight: 600, fontSize: 13, color: '#111318', textAlign: 'left',
-                        fontFamily: "'DM Sans', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
+                        fontFamily: "'Inter', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
                       }} title={row.company}>{row.company}</button>
                     ) : (
                       <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', ...truncCell }}>{row.company}</div>
                     )}
                     {row.ticker && (
-                      <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{row.ticker}</div>
                     )}
                   </td>
                   {/* Insider */}
@@ -903,7 +903,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                           <button onClick={() => onInsiderClick(name)} style={{
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                             fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
-                            fontFamily: "'DM Sans', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
+                            fontFamily: "'Inter', sans-serif", ...truncCell, maxWidth: '100%', display: 'block',
                           }} title={name}>{name}</button>
                         ) : (
                           <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={name}>{name}</div>
@@ -936,11 +936,11 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                     </div>
                   </td>
                   {/* Price */}
-                  <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatPrice(row.price_per_share, row.currency)}
                   </td>
                   {/* Value */}
-                  <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatValue(row.total_value, row.currency)}
                   </td>
                   {/* Country */}
@@ -1053,10 +1053,10 @@ function BuybackPrograms({ rows, loading }) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '18px 20px' }}>
-            <div style={{ height: 14, width: 200, background: '#F3F4F6', borderRadius: 4, marginBottom: 10 }} />
-            <div style={{ height: 6, width: '60%', background: '#F3F4F6', borderRadius: 3, marginBottom: 8 }} />
-            <div style={{ height: 12, width: 280, background: '#F3F4F6', borderRadius: 4 }} />
+          <div key={i} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '18px 20px' }}>
+            <div style={{ height: 14, width: 200, background: '#f0f0f0', borderRadius: 4, marginBottom: 10 }} />
+            <div style={{ height: 6, width: '60%', background: '#f0f0f0', borderRadius: 3, marginBottom: 8 }} />
+            <div style={{ height: 12, width: 280, background: '#f0f0f0', borderRadius: 4 }} />
           </div>
         ))}
       </div>
@@ -1064,12 +1064,12 @@ function BuybackPrograms({ rows, loading }) {
   }
   if (programs.length === 0 && !loading) {
     return (
-      <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
+      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
         <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs</div>
         {hiddenCount > 0 && (
           <button onClick={() => setShowInactive(true)} style={{
             marginTop: 10, fontSize: 12, color: ACCENT, background: 'none', border: 'none',
-            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            cursor: 'pointer', fontFamily: "'Inter', sans-serif",
           }}>Show {hiddenCount} completed / expired programs</button>
         )}
       </div>
@@ -1082,8 +1082,8 @@ function BuybackPrograms({ rows, loading }) {
       {hiddenCount > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button onClick={() => setShowInactive(v => !v)} style={{
-            fontSize: 12, color: ACCENT, background: 'none', border: '1px solid #E2E4E9',
-            borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+            fontSize: 12, color: ACCENT, background: 'none', border: '1px solid #f0f0f0',
+            borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Inter', sans-serif",
           }}>
             {showInactive ? `Hide completed/expired` : `Show ${hiddenCount} completed/expired`}
           </button>
@@ -1100,12 +1100,12 @@ function BuybackPrograms({ rows, loading }) {
                                      { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' };
 
         return (
-          <div key={p.key} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+          <div key={p.key} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
             {/* ── Program card header ─────────────────────────────────── */}
             <div
               onClick={() => toggle(p.key)}
               style={{ padding: '16px 20px', cursor: 'pointer', userSelect: 'none' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+              onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
               onMouseLeave={e => e.currentTarget.style.background = ''}
             >
               {/* Row 1: flag + company + status */}
@@ -1116,7 +1116,7 @@ function BuybackPrograms({ rows, loading }) {
                     <span style={{ fontWeight: 700, fontSize: 14, color: '#111318', marginRight: 8 }}>
                       {p.company || '—'}
                     </span>
-                    {p.ticker && <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>({p.ticker})</span>}
+                    {p.ticker && <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>({p.ticker})</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1139,11 +1139,11 @@ function BuybackPrograms({ rows, loading }) {
                           ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span>
                           : null}
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'DM Mono', monospace" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'JetBrains Mono', monospace" }}>
                       {pct.toFixed(1)}% complete
                     </span>
                   </div>
-                  <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
                     <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
                       background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
                   </div>
@@ -1155,7 +1155,7 @@ function BuybackPrograms({ rows, loading }) {
                 {p.cumShares > 0 && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Total Shares</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
                       {p.cumShares.toLocaleString('en-US')}
                     </div>
                   </div>
@@ -1163,14 +1163,14 @@ function BuybackPrograms({ rows, loading }) {
                 {p.avgPrice != null && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Latest Avg Price</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
                       {formatPrice(p.avgPrice, p.currency)}
                     </div>
                   </div>
                 )}
                 <div>
                   <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Period</div>
-                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>
+                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
                     {p.firstDate
                       ? `${formatDateShort(p.firstDate)} → ${p.lastDate ? formatDateShort(p.lastDate) : 'Ongoing'}`
                       : '—'}
@@ -1179,7 +1179,7 @@ function BuybackPrograms({ rows, loading }) {
                 {p.executionCount > 0 && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Reports</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>{p.executionCount}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>{p.executionCount}</div>
                   </div>
                 )}
               </div>
@@ -1187,10 +1187,10 @@ function BuybackPrograms({ rows, loading }) {
 
             {/* ── Expanded execution rows ─────────────────────────────── */}
             {isExpanded && (
-              <div style={{ borderTop: '1px solid #F3F4F6' }}>
+              <div style={{ borderTop: '1px solid #f0f0f0' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #F3F4F6' }}>
+                    <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
                       {['Date', 'Shares', 'Avg Price', 'Daily Value', 'Progress'].map((h, i) => (
                         <th key={h} style={{
                           padding: '7px 16px', fontSize: 10, fontWeight: 600, color: '#9CA3AF',
@@ -1203,25 +1203,25 @@ function BuybackPrograms({ rows, loading }) {
                   <tbody>
                     {p.executions.map((ex, i) => (
                       <tr key={ex.id ?? i}
-                        style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #F9FAFB' : 'none' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                        style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}
                       >
-                        <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                           {formatDateShort(ex.execution_date || ex.announced_date)}
                         </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {ex.shares_bought != null ? Number(ex.shares_bought).toLocaleString('en-US') : '—'}
                         </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {ex.avg_price != null ? formatPrice(ex.avg_price, ex.currency) : '—'}
                         </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {formatValue(ex.total_value, ex.currency)}
                         </td>
                         <td style={{ padding: '7px 16px' }}>
                           {ex.completion_pct != null ? (
-                            <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: ACCENT, fontWeight: 600 }}>
+                            <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>
                               {Number(ex.completion_pct).toFixed(1)}%
                             </span>
                           ) : (
@@ -1233,7 +1233,7 @@ function BuybackPrograms({ rows, loading }) {
                   </tbody>
                 </table>
                 {p.executions[0]?.filing_url && (
-                  <div style={{ padding: '8px 16px', borderTop: '1px solid #F3F4F6' }}>
+                  <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f0f0' }}>
                     <a href={p.executions[0].filing_url} target="_blank" rel="noopener noreferrer"
                       style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}>
                       View latest filing ↗
@@ -1266,11 +1266,11 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
   const rowPad = '8px 14px';
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+            <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
               {cols.map(col => (
                 <th key={col.key} onClick={() => col.sortable && onSort(col.key)} style={{
                   padding: '10px 14px', textAlign: col.align,
@@ -1290,10 +1290,10 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
           <tbody>
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #F9FAFB' }}>
+                <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
                   {cols.map((_, j) => (
                     <td key={j} style={{ padding: rowPad }}>
-                      <div style={{ height: 13, borderRadius: 4, background: '#F3F4F6', width: j === 1 ? 120 : 60 }} />
+                      <div style={{ height: 13, borderRadius: 4, background: '#f0f0f0', width: j === 1 ? 120 : 60 }} />
                     </td>
                   ))}
                 </tr>
@@ -1311,19 +1311,19 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
                 const isAnn  = row.status === 'Announced';
                 return (
                   <tr key={row.id ?? i}
-                    style={{ borderBottom: i < rows.length - 1 ? '1px solid #F9FAFB' : 'none' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                    style={{ borderBottom: i < rows.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
                     {/* Date */}
-                    <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                       {formatDateShort(row.execution_date || row.announced_date)}
                     </td>
                     {/* Company */}
                     <td style={{ padding: rowPad, maxWidth: 200, overflow: 'hidden' }}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                         title={row.company}>{row.company || '—'}</div>
-                      {row.ticker && <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{row.ticker}</div>}
+                      {row.ticker && <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{row.ticker}</div>}
                     </td>
                     {/* Country */}
                     <td style={{ padding: rowPad }}>
@@ -1333,16 +1333,16 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
                       </div>
                     </td>
                     {/* Shares bought */}
-                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
                       {row.shares_bought != null ? Number(row.shares_bought).toLocaleString('en-US') : '—'}
                     </td>
                     {/* Avg price */}
-                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
                       {row.avg_price != null ? formatPrice(row.avg_price, row.currency) : '—'}
                     </td>
                     {/* Total value */}
                     <td style={{ padding: rowPad, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: '#111318' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
                         {formatValue(row.total_value, row.currency)}
                       </span>
                     </td>
@@ -1351,9 +1351,9 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
                       {pct != null ? (
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                            <span style={{ fontSize: 11, color: '#374151', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                            <span style={{ fontSize: 11, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{pct.toFixed(1)}%</span>
                           </div>
-                          <div style={{ height: 5, background: '#F3F4F6', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ height: 5, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
                             <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 3 }} />
                           </div>
                         </div>
@@ -1468,7 +1468,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                     placeholder={f.placeholder}
                     style={{
                       width: '100%', padding: '8px 12px', border: '1px solid #D1D5DB',
-                      borderRadius: 7, fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                      borderRadius: 7, fontSize: 13, fontFamily: "'Inter', sans-serif",
                       outline: 'none', boxSizing: 'border-box',
                     }}
                   />
@@ -1481,7 +1481,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                   onChange={e => setNewStock(s => ({ ...s, country_code: e.target.value }))}
                   style={{
                     width: '100%', padding: '8px 12px', border: '1px solid #D1D5DB',
-                    borderRadius: 7, fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                    borderRadius: 7, fontSize: 13, fontFamily: "'Inter', sans-serif",
                     background: '#fff', outline: 'none', boxSizing: 'border-box',
                   }}
                 >
@@ -1494,12 +1494,12 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowAddModal(false)} style={{
                   padding: '8px 18px', border: '1px solid #D1D5DB', borderRadius: 7,
-                  background: '#fff', cursor: 'pointer', fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                  background: '#fff', cursor: 'pointer', fontSize: 13, fontFamily: "'Inter', sans-serif",
                 }}>Cancel</button>
                 <button type="submit" disabled={saving} style={{
                   padding: '8px 18px', border: 'none', borderRadius: 7,
                   background: ACCENT, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
-                  fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+                  fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
                   opacity: saving ? 0.7 : 1,
                 }}>{saving ? 'Saving…' : 'Add to watchlist'}</button>
               </div>
@@ -1522,7 +1522,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '8px 14px', background: ACCENT, color: '#fff',
             border: 'none', borderRadius: 8, cursor: 'pointer',
-            fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+            fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
             marginTop: 2, flexShrink: 0,
           }}
         >
@@ -1543,20 +1543,20 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           return (
             <div key={w.ticker} style={{
               background: '#fff',
-              border: '1px solid ' + (hasCluster ? '#C7D2FE' : '#E8E9EE'),
-              borderTop: '3px solid ' + (hasCluster ? '#4338CA' : ACCENT + '40'),
+              border: '1px solid ' + (hasCluster ? '#C7D2FE' : '#f0f0f0'),
+              borderTop: '3px solid ' + (hasCluster ? '#4338CA' : '#e0e0e0'),
               borderRadius: 10, padding: 16,
-              boxShadow: hasCluster ? '0 4px 16px rgba(67,56,202,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+              boxShadow: hasCluster ? '0 4px 16px rgba(0,0,0,0.06)' : 'none',
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div>
                   <button onClick={() => onCompanyClick && onCompanyClick(w.ticker, w.company, w.country)} style={{
                     background: 'none', border: 'none', padding: 0, cursor: onCompanyClick ? 'pointer' : 'default',
                     fontWeight: 700, fontSize: 14, color: onCompanyClick ? ACCENT : '#111318',
-                    textAlign: 'left', fontFamily: "'DM Sans', sans-serif",
+                    textAlign: 'left', fontFamily: "'Inter', sans-serif",
                   }}>{w.company}</button>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                    <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>{w.ticker}</span>
+                    <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{w.ticker}</span>
                     <Flag code={w.country} />
                   </div>
                 </div>
@@ -1570,14 +1570,14 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
               <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
                 <div>
                   <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Buys (90d)</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: recentBuys90.length > 0 ? '#15803D' : '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: recentBuys90.length > 0 ? '#15803D' : '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>
                     {recentBuys90.length}
                   </div>
                 </div>
                 {latestBuy && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Last Buy</div>
-                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace" }}>{formatValue(latestBuy.total_value, latestBuy.currency)}</div>
+                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(latestBuy.total_value, latestBuy.currency)}</div>
                   </div>
                 )}
               </div>
@@ -1615,7 +1615,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
               const pct = b.completion_pct != null ? Number(b.completion_pct) : null;
               return (
                 <div key={b.id ?? i} style={{
-                  background: '#fff', border: '1px solid #E8E9EE', borderLeft: '3px solid ' + ACCENT,
+                  background: '#fff', border: '1px solid #f0f0f0', borderLeft: '3px solid ' + ACCENT,
                   borderRadius: 8, padding: '12px 16px',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
                 }}>
@@ -1623,7 +1623,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <Flag code={b.country_code} />
                       <span style={{ fontWeight: 600, fontSize: 13, color: '#111318' }}>{b.company}</span>
-                      {b.ticker && <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>{b.ticker}</span>}
+                      {b.ticker && <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{b.ticker}</span>}
                       <span style={{
                         fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
                         background: b.status === 'Announced' ? '#EEF2FF' : '#FFFBEB',
@@ -1632,10 +1632,10 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                     </div>
                     {pct != null && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 4, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
+                        <div style={{ flex: 1, height: 4, background: '#f0f0f0', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
                           <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 2 }} />
                         </div>
-                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: ACCENT, fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                        <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>{pct.toFixed(1)}%</span>
                         {b.spent_value && b.total_value && (
                           <span style={{ fontSize: 11, color: '#9CA3AF' }}>
                             {formatValue(b.spent_value, b.currency)} of {formatValue(b.total_value, b.currency)}
@@ -1645,7 +1645,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                     )}
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
+                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
                       {b.cumulative_shares ? Number(b.cumulative_shares).toLocaleString('en-US') + ' shares' : formatValue(b.total_value, b.currency)}
                     </div>
                     <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{formatDateShort(b.announced_date)}</div>
@@ -1665,7 +1665,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>All insider trades in your watchlist stocks</p>
           </div>
           {!tradesLoading && (
-            <span style={{ fontSize: 12, color: '#9CA3AF', background: '#F7F8FA', border: '1px solid #E8E9EE', borderRadius: 6, padding: '4px 10px' }}>
+            <span style={{ fontSize: 12, color: '#9CA3AF', background: '#f8f8f8', border: '1px solid #f0f0f0', borderRadius: 6, padding: '4px 10px' }}>
               {allWatchlistTrades.length} transactions
             </span>
           )}
@@ -1674,12 +1674,12 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
         {tradesLoading ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
         ) : allWatchlistTrades.length === 0 ? (
-          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '48px 20px', textAlign: 'center' }}>
+          <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '48px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 13, color: '#9CA3AF' }}>No insider transactions found for watchlist stocks</div>
             <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Transactions will appear here as they are filed</div>
           </div>
         ) : (
-          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={{ width: 100 }} />
@@ -1690,7 +1690,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                 <col style={{ width: 110 }} />
               </colgroup>
               <thead>
-                <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+                <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
                   {['Date', 'Stock', 'Insider', 'Type', 'Price', 'Value'].map((label, i) => (
                     <th key={label} style={{
                       padding: '10px 16px', textAlign: i >= 4 ? 'right' : 'left',
@@ -1705,24 +1705,24 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                   const name = t.insider_name && t.insider_name !== 'Not disclosed' ? t.insider_name : null;
                   return (
                     <tr key={t.id ?? i}
-                      style={{ borderBottom: i < allWatchlistTrades.length - 1 ? '1px solid #F9FAFB' : 'none' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                      style={{ borderBottom: i < allWatchlistTrades.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
-                      <td style={{ padding: '10px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                         {formatDateShort(t.transaction_date)}
                       </td>
                       <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
                         {onCompanyClick ? (
                           <button onClick={() => onCompanyClick(t.ticker, t.company, t.country_code)} style={{
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
-                            fontWeight: 600, fontSize: 13, color: '#111318', fontFamily: "'DM Sans', sans-serif",
+                            fontWeight: 600, fontSize: 13, color: '#111318', fontFamily: "'Inter', sans-serif",
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', display: 'block',
                           }}>{t.company}</button>
                         ) : (
                           <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.company}</div>
                         )}
-                        <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{t.ticker}</div>
+                        <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{t.ticker}</div>
                       </td>
                       <td style={{ padding: '10px 16px', overflow: 'hidden' }}>
                         {name ? (
@@ -1730,7 +1730,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                             <button onClick={() => onInsiderClick(name)} style={{
                               background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                               fontWeight: 500, fontSize: 13, color: ACCENT, textAlign: 'left',
-                              fontFamily: "'DM Sans', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis',
+                              fontFamily: "'Inter', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap', maxWidth: '100%', display: 'block',
                             }}>{name}</button>
                           ) : (
@@ -1744,10 +1744,10 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                         )}
                       </td>
                       <td style={{ padding: '10px 16px' }}><TypeChip type={t.transaction_type} /></td>
-                      <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {formatPrice(t.price_per_share, t.currency)}
                       </td>
-                      <td style={{ padding: '10px 16px', fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 16px', fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {formatValue(t.total_value, t.currency)}
                       </td>
                     </tr>
@@ -1836,8 +1836,8 @@ function DashboardPage({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
           {stats.map((s, i) => (
             <div key={i} style={{
-              background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10,
-              padding: '12px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+              padding: '12px 16px', boxShadow: 'none',
               display: 'flex', flexDirection: 'column', gap: 2,
             }}>
               <div style={{
@@ -1847,7 +1847,7 @@ function DashboardPage({
               <span style={{
                 fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
                 color: s.color || '#111318',
-                fontFamily: "'DM Mono', monospace", lineHeight: 1.1,
+                fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.1,
               }}>{s.value}</span>
               <div style={{ fontSize: 11, color: '#9CA3AF' }}>{s.sub}</div>
             </div>
@@ -1872,7 +1872,7 @@ function DashboardPage({
               {/* Tab toggle */}
               <div style={{
                 display: 'flex', alignItems: 'center',
-                background: '#F3F4F6', border: '1px solid #E2E4E9',
+                background: '#f8f8f8', border: '1px solid #f0f0f0',
                 borderRadius: 7, padding: 3, gap: 2,
               }}>
                 {[
@@ -1887,7 +1887,7 @@ function DashboardPage({
                       background: activeTab === tab.key ? '#fff' : 'transparent',
                       color: activeTab === tab.key ? '#111318' : '#9CA3AF',
                       fontWeight: activeTab === tab.key ? 600 : 400,
-                      fontSize: 12, fontFamily: "'DM Sans', sans-serif",
+                      fontSize: 12, fontFamily: "'Inter', sans-serif",
                       boxShadow: activeTab === tab.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       transition: 'all 0.15s',
                     }}
@@ -1896,8 +1896,8 @@ function DashboardPage({
               </div>
               {!isLoading && (
                 <span style={{
-                  fontSize: 12, color: '#9CA3AF', background: '#F7F8FA',
-                  border: '1px solid #E8E9EE', borderRadius: 6, padding: '4px 10px',
+                  fontSize: 12, color: '#9CA3AF', background: '#f8f8f8',
+                  border: '1px solid #f0f0f0', borderRadius: 6, padding: '4px 10px',
                 }}>
                   {activeTab === 'buybacks'
                     ? `${buybackProgramCount} programs`
@@ -1928,7 +1928,7 @@ function DashboardPage({
           {!isLoading && activeTab === 'buybacks' && activeCount > 0 && (
             <div style={{
               marginTop: 12, padding: '10px 16px',
-              background: '#fff', border: '1px solid #E8E9EE', borderRadius: '0 0 10px 10px',
+              background: '#fff', border: '1px solid #f0f0f0', borderRadius: '0 0 10px 10px',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               borderTop: 'none',
             }}>
@@ -2023,7 +2023,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
     if (value == null) return (
       <div>
         <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{label}</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: '#D1D5DB', fontFamily: "'DM Mono', monospace" }}>—</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#D1D5DB', fontFamily: "'JetBrains Mono', monospace" }}>—</div>
         <div style={{ fontSize: 10, color: '#D1D5DB', marginTop: 2 }}>pending</div>
       </div>
     );
@@ -2032,7 +2032,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
     return (
       <div>
         <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{label}</div>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'DM Mono', monospace", lineHeight: 1, color: pos ? '#15803D' : '#B91C1C' }}>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1, color: pos ? '#15803D' : '#B91C1C' }}>
           {pos ? '+' : ''}{pct}%
         </div>
         <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>weighted avg</div>
@@ -2047,7 +2047,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
         <button onClick={onBack} style={{
           display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none',
           cursor: 'pointer', color: '#6B7280', fontSize: 13, padding: '0 0 20px',
-          fontFamily: "'DM Sans', sans-serif",
+          fontFamily: "'Inter', sans-serif",
         }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <polyline points="15 18 9 12 15 6" />
@@ -2057,7 +2057,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
 
         {/* Profile header */}
         <div style={{
-          background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
+          background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
           padding: '24px 28px', marginBottom: 16, display: 'flex', gap: 20, alignItems: 'flex-start',
         }}>
           <div style={{
@@ -2073,21 +2073,21 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Total Buys</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{myBuys.length}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'JetBrains Mono', monospace" }}>{myBuys.length}</div>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Total Invested</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#16A34A', fontFamily: "'DM Mono', monospace" }}>{formatValue(totalInvested, currency)}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#16A34A', fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(totalInvested, currency)}</div>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Avg Buy Price</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'JetBrains Mono', monospace" }}>
                   {avgBuyPrice != null ? formatPrice(avgBuyPrice, currency) : '—'}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 2 }}>Tracked</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{myPerf.length}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111318', fontFamily: "'JetBrains Mono', monospace" }}>{myPerf.length}</div>
               </div>
             </div>
           </div>
@@ -2106,7 +2106,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
             { label: '6m Return (wtd)',   value: weighted180d },
             { label: '1y Return (wtd)',   value: weighted365d },
           ].map(card => (
-            <div key={card.label} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
+            <div key={card.label} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '16px 18px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>{card.label}</div>
               <ReturnKpi value={card.value} label="" />
             </div>
@@ -2116,7 +2116,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
         {/* Period win-rate cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
           {stats.map(s => (
-            <div key={s.key} style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, padding: '16px 18px' }}>
+            <div key={s.key} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '16px 18px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
                 {s.label} win rate
               </div>
@@ -2124,11 +2124,11 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
                 <>
                   <div style={{
                     fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em',
-                    fontFamily: "'DM Mono', monospace", lineHeight: 1, marginBottom: 4,
+                    fontFamily: "'JetBrains Mono', monospace", lineHeight: 1, marginBottom: 4,
                     color: s.successRate >= 60 ? '#16A34A' : s.successRate >= 40 ? '#D97706' : '#DC2626',
                   }}>{s.successRate}%</div>
                   <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>{s.count} trades resolved</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", color: s.avgReturn > 0 ? '#16A34A' : '#DC2626' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: s.avgReturn > 0 ? '#16A34A' : '#DC2626' }}>
                     {s.avgReturn > 0 ? '+' : ''}{s.avgReturn}% avg
                   </div>
                 </>
@@ -2142,15 +2142,15 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
         </div>
 
         {/* Transaction history */}
-        <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Transaction History</span>
             <span style={{ fontSize: 12, color: '#9CA3AF' }}>{myTrades.length} transactions</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+              <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
                 {[
                   { label: 'Date',       align: 'left'  },
                   { label: 'Shares',     align: 'right' },
@@ -2178,17 +2178,17 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
                   ? Math.floor((Date.now() - new Date(t.transaction_date)) / 86400000) : 0;
                 return (
                   <tr key={t.id}
-                    style={{ borderBottom: i < myTrades.length - 1 ? '1px solid #F9FAFB' : 'none' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                    style={{ borderBottom: i < myTrades.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{formatDateShort(t.transaction_date)}</div>
+                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>{formatDateShort(t.transaction_date)}</div>
                       {t.company && (
                         onCompanyClick ? (
                           <button onClick={() => onCompanyClick(t.ticker, t.company, t.country_code)} style={{
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
-                            fontSize: 10, color: ACCENT, fontFamily: "'DM Sans', sans-serif",
+                            fontSize: 10, color: ACCENT, fontFamily: "'Inter', sans-serif",
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120, display: 'block',
                           }} title={t.company}>{t.ticker || t.company}</button>
                         ) : (
@@ -2196,13 +2196,13 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
                         )
                       )}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', textAlign: 'right' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right' }}>
                       {t.shares != null ? formatShares(t.shares) : '—'}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {t.price_per_share != null ? formatPrice(t.price_per_share, t.currency) : '—'}
                     </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {formatValue(t.total_value, t.currency)}
                     </td>
                     {isBuy && perf ? (
@@ -2253,7 +2253,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
     const color = value >= 60 ? '#16A34A' : value >= 40 ? '#D97706' : '#DC2626';
     return (
       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: "'DM Mono', monospace" }}>{value}%</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: "'JetBrains Mono', monospace" }}>{value}%</div>
         {count > 0 && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>{count} trades</div>}
       </td>
     );
@@ -2276,15 +2276,15 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
         ) : leaderboard.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#9CA3AF', fontSize: 13 }}>No data available</div>
         ) : (
-          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>Leaderboard</span>
               <span style={{ fontSize: 12, color: '#9CA3AF' }}>Top {leaderboard.length} insiders · ranked by performance score</span>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #F3F4F6' }}>
+                  <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
                     {[
                       { label: '#',           align: 'center' },
                       { label: 'Insider',     align: 'left'   },
@@ -2310,8 +2310,8 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                     const avgReturn = ins.combinedAvgReturn;
                     return (
                       <tr key={ins.name}
-                        style={{ borderBottom: i < leaderboard.length - 1 ? '1px solid #F9FAFB' : 'none', transition: 'background 0.1s' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#FAFBFF'}
+                        style={{ borderBottom: i < leaderboard.length - 1 ? '1px solid #f0f0f0' : 'none', transition: 'background 0.1s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}
                       >
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
@@ -2336,7 +2336,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                               <button onClick={() => onInsiderClick(ins.name)} style={{
                                 background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                                 fontWeight: 600, fontSize: 13, color: ACCENT, textAlign: 'left',
-                                fontFamily: "'DM Sans', sans-serif", display: 'block',
+                                fontFamily: "'Inter', sans-serif", display: 'block',
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160,
                               }}>{ins.name}</button>
                               {ins.role && (
@@ -2351,7 +2351,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                             return (
                               <button onClick={() => onCompanyClick(t?.ticker || null, ins.company, ins.country_code)} style={{
                                 background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                                fontSize: 12, color: ACCENT, textAlign: 'left', fontFamily: "'DM Sans', sans-serif",
+                                fontSize: 12, color: ACCENT, textAlign: 'left', fontFamily: "'Inter', sans-serif",
                                 display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140,
                               }}>{ins.company}</button>
                             );
@@ -2363,12 +2363,12 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                             <span style={{ fontSize: 11, color: '#9CA3AF' }}>{ins.country_code}</span>
                           </div>
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#111318', fontFamily: "'DM Mono', monospace" }}>{ins.buys}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#111318', fontFamily: "'JetBrains Mono', monospace" }}>{ins.buys}</td>
                         {/* Avg Win Rate */}
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                           {winRate != null ? (
                             <>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: winRate >= 60 ? '#16A34A' : winRate >= 40 ? '#D97706' : '#DC2626', fontFamily: "'DM Mono', monospace" }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: winRate >= 60 ? '#16A34A' : winRate >= 40 ? '#D97706' : '#DC2626', fontFamily: "'JetBrains Mono', monospace" }}>
                                 {Math.round(winRate)}%
                               </div>
                               {totalTrades > 0 && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>{totalTrades} tracked</div>}
@@ -2380,14 +2380,14 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                         {/* Avg Return */}
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                           {avgReturn != null ? (
-                            <div style={{ fontSize: 13, fontWeight: 700, color: avgReturn > 0 ? '#16A34A' : '#DC2626', fontFamily: "'DM Mono', monospace" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: avgReturn > 0 ? '#16A34A' : '#DC2626', fontFamily: "'JetBrains Mono', monospace" }}>
                               {avgReturn > 0 ? '+' : ''}{avgReturn.toFixed(1)}%
                             </div>
                           ) : (
                             <span style={{ color: '#D1D5DB', fontSize: 12 }}>—</span>
                           )}
                         </td>
-                        <td style={{ padding: '12px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '12px 14px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                           {formatDateShort(ins.latestDate)}
                         </td>
                         <td style={{ padding: '12px 14px' }}>
@@ -2492,7 +2492,7 @@ function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
                       <strong>{name}</strong>
                       {row.insider_role ? ` (${row.insider_role})` : ''}
                       {' '}bought{' '}
-                      <strong style={{ fontFamily: "'DM Mono', monospace" }}>{formatValue(row.total_value, row.currency)}</strong>
+                      <strong style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(row.total_value, row.currency)}</strong>
                       {' '}in <strong>{row.company}</strong>
                     </div>
                   </div>
@@ -2547,7 +2547,7 @@ function Dash() {
 function FAQItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ borderBottom: '1px solid #E8E9EE', cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
+    <div style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 4px' }}>
         <span style={{ fontWeight: 500, fontSize: 14, color: '#111318' }}>{q}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round"
@@ -2595,14 +2595,14 @@ function PricingPage() {
   ];
 
   return (
-    <main style={{ flex: 1, overflowY: 'auto', background: '#F7F8FA' }}>
+    <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
       {/* Hero */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E8E9EE', padding: '72px 40px 60px', textAlign: 'center' }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '72px 40px 60px', textAlign: 'center' }}>
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 7,
           background: '#F0FDF4', border: '1px solid #BBF7D0',
           borderRadius: 20, padding: '4px 14px', fontSize: 11,
-          color: '#15803D', fontFamily: "'DM Mono', monospace",
+          color: '#15803D', fontFamily: "'JetBrains Mono', monospace",
           letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 28,
         }}>
           <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
@@ -2623,7 +2623,7 @@ function PricingPage() {
 
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 0,
-          background: '#F3F4F6', border: '1px solid #E2E4E9', borderRadius: 9, padding: 3,
+          background: '#f8f8f8', border: '1px solid #f0f0f0', borderRadius: 9, padding: 3,
         }}>
           {['monthly', 'annual'].map(b => (
             <button key={b} onClick={() => setBilling(b)} style={{
@@ -2631,7 +2631,7 @@ function PricingPage() {
               background: billing === b ? '#fff' : 'transparent',
               color: billing === b ? '#111318' : '#9CA3AF',
               fontWeight: billing === b ? 600 : 400, fontSize: 13,
-              fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
+              fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
               display: 'flex', alignItems: 'center', gap: 8,
               boxShadow: billing === b ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
             }}>
@@ -2660,11 +2660,11 @@ function PricingPage() {
                 onMouseLeave={() => setHoveredPlan(null)}
                 style={{
                   background: '#fff',
-                  border: '1.5px solid ' + (isH ? ACCENT + '55' : isHov ? '#D1D5DB' : '#E8E9EE'),
+                  border: '1.5px solid ' + (isH ? ACCENT + '55' : isHov ? '#d0d0d0' : '#f0f0f0'),
                   borderRadius: 14, overflow: 'hidden',
                   boxShadow: isH
-                    ? '0 0 0 4px ' + ACCENT + '0F, 0 16px 48px rgba(0,0,0,0.09)'
-                    : isHov ? '0 6px 20px rgba(0,0,0,0.07)' : '0 1px 4px rgba(0,0,0,0.04)',
+                    ? '0 0 0 3px ' + ACCENT + '0F, 0 16px 48px rgba(0,0,0,0.09)'
+                    : isHov ? '0 6px 20px rgba(0,0,0,0.07)' : 'none',
                   transition: 'all 0.2s',
                   transform: isH ? 'translateY(-6px)' : isHov ? 'translateY(-2px)' : 'none',
                   position: 'relative',
@@ -2682,14 +2682,14 @@ function PricingPage() {
                 <div style={{ padding: '24px 26px', display: 'flex', flexDirection: 'column', height: 'calc(100% - 3px)' }}>
                   <div style={{
                     fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-                    color: isH ? ACCENT : '#9CA3AF', marginBottom: 5, fontFamily: "'DM Mono', monospace",
+                    color: isH ? ACCENT : '#9CA3AF', marginBottom: 5, fontFamily: "'JetBrains Mono', monospace",
                   }}>{plan.tier}</div>
                   <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 24 }}>{plan.tagline}</div>
 
-                  <div style={{ marginBottom: 24, paddingBottom: 22, borderBottom: '1px solid #F3F4F6' }}>
+                  <div style={{ marginBottom: 24, paddingBottom: 22, borderBottom: '1px solid #f0f0f0' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, marginBottom: 4 }}>
-                      <span style={{ fontSize: 28, fontWeight: 700, color: '#6B7280', marginBottom: 6, lineHeight: 1, fontFamily: "'DM Mono', monospace" }}>€</span>
-                      <span style={{ fontSize: 46, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'DM Mono', monospace" }}>
+                      <span style={{ fontSize: 28, fontWeight: 700, color: '#6B7280', marginBottom: 6, lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>€</span>
+                      <span style={{ fontSize: 46, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>
                         {price.toFixed(2)}
                       </span>
                       <span style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>/mo</span>
@@ -2713,11 +2713,11 @@ function PricingPage() {
 
                   <button style={{
                     width: '100%', padding: '11px 0', borderRadius: 8,
-                    border: isH ? 'none' : '1.5px solid #E2E4E9',
+                    border: isH ? 'none' : '1.5px solid #f0f0f0',
                     background: isH ? ACCENT : '#fff',
                     color: isH ? '#fff' : '#111318',
                     fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                    fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
+                    fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
                     boxShadow: isH ? '0 4px 14px ' + ACCENT + '40' : 'none',
                   }}>UNLOCK</button>
                   <div style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>No card required</div>
@@ -2730,7 +2730,7 @@ function PricingPage() {
         {/* Proof of Performance */}
         <div style={{ marginBottom: 80 }}>
           <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 }}>
               Proof of Performance
             </div>
             <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.025em', color: '#0C0F1A' }}>The data speaks for itself.</h2>
@@ -2738,11 +2738,11 @@ function PricingPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
             {proofItems.map((item, i) => (
               <div key={i} style={{
-                background: '#fff', border: '1px solid #E8E9EE', borderRadius: 12,
-                padding: '22px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
+                padding: '22px 20px',
               }}>
                 <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>{item.label}</div>
-                <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', color: item.color, fontFamily: "'DM Mono', monospace", marginBottom: 4 }}>{item.value}</div>
+                <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', color: item.color, fontFamily: "'JetBrains Mono', monospace", marginBottom: 4 }}>{item.value}</div>
                 <div style={{ fontSize: 12, color: '#9CA3AF' }}>{item.sub}</div>
               </div>
             ))}
@@ -2752,41 +2752,41 @@ function PricingPage() {
         {/* Feature grid */}
         <div style={{ marginBottom: 64 }}>
           <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'DM Mono', monospace", marginBottom: 10 }}>Full Comparison</div>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 }}>Full Comparison</div>
             <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.025em', color: '#0C0F1A' }}>Everything, side by side.</h2>
           </div>
-          <div style={{ background: '#fff', border: '1px solid #E8E9EE', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '2px solid #F3F4F6' }}>
+          <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '2px solid #f0f0f0' }}>
               <div style={{ padding: '16px 20px' }} />
               {['The Analyst', 'The Strategist', 'The Terminal'].map((name, i) => (
                 <div key={i} style={{
                   padding: '16px 20px', textAlign: 'center',
-                  borderLeft: '1px solid #F3F4F6',
+                  borderLeft: '1px solid #f0f0f0',
                   background: i === 1 ? ACCENT + '06' : 'transparent',
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: i === 1 ? ACCENT : '#374151', fontFamily: "'DM Mono', monospace" }}>{name}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: i === 1 ? ACCENT : '#374151', fontFamily: "'JetBrains Mono', monospace" }}>{name}</div>
                   {i === 1 && <div style={{ fontSize: 10, color: ACCENT + 'AA', marginTop: 3 }}>Recommended</div>}
                 </div>
               ))}
             </div>
             {PLAN_FEATURES_GRID.map((section, si) => (
               <div key={si}>
-                <div style={{ padding: '10px 20px', background: '#F9FAFB', borderTop: si > 0 ? '2px solid #F3F4F6' : 'none', borderBottom: '1px solid #F3F4F6' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'DM Mono', monospace" }}>{section.category}</span>
+                <div style={{ padding: '10px 20px', background: '#fafafa', borderTop: si > 0 ? '2px solid #f0f0f0' : 'none', borderBottom: '1px solid #f0f0f0' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{section.category}</span>
                 </div>
                 {section.rows.map((row, ri) => (
-                  <div key={ri} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '1px solid #F9FAFB' }}>
+                  <div key={ri} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '1px solid #f0f0f0' }}>
                     <div style={{ padding: '11px 20px', fontSize: 13, color: '#374151' }}>{row.label}</div>
                     {[row.analyst, row.strategist, row.terminal].map((val, ci) => (
                       <div key={ci} style={{
                         padding: '11px 20px', textAlign: 'center',
-                        borderLeft: '1px solid #F9FAFB',
+                        borderLeft: '1px solid #f0f0f0',
                         background: ci === 1 ? ACCENT + '04' : 'transparent',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
                         {val === true ? <Check />
                           : val === false ? <Dash />
-                          : <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#374151', fontWeight: 500 }}>{val}</span>}
+                          : <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', fontWeight: 500 }}>{val}</span>}
                       </div>
                     ))}
                   </div>
@@ -2992,7 +2992,7 @@ export default function App() {
   function clearCountries() { setSelectedCountries(new Set()); }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F7F8FA' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>
       <TopBar page={page} setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }} search={search} setSearch={setSearch} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
