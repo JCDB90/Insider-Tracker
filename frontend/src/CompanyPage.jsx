@@ -269,7 +269,7 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
         horzLines: { color: '#F3F4F6', style: 1 },
       },
       rightPriceScale: { borderColor: '#E8E9EE', scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: '#E8E9EE', fixLeftEdge: true, fixRightEdge: true, timeVisible: true },
+      timeScale: { borderColor: '#E8E9EE', fixLeftEdge: true, fixRightEdge: true, timeVisible: false, secondsVisible: false },
       crosshair: { mode: 1 },
     });
 
@@ -388,7 +388,7 @@ function KpiCard({ label, value, sub, color }) {
 
 export default function CompanyPage({
   ticker, company, countryCode, yahooTicker,
-  trades, watchlist, onBack, onInsiderClick,
+  trades, watchlist, onBack, onInsiderClick, backLabel,
 }) {
   const [chartData,     setChartData]     = useState([]);
   const [chartRange,    setChartRange]    = useState('1y');
@@ -570,7 +570,7 @@ export default function CompanyPage({
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-        Back
+        {backLabel || 'Back'}
       </button>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
@@ -777,16 +777,11 @@ export default function CompanyPage({
                       {/* Type */}
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                         <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          display: 'inline-block',
                           fontWeight: 600, fontSize: 12, borderRadius: 4, padding: '2px 8px',
                           color:      isBuy ? '#15803D' : '#B91C1C',
                           background: isBuy ? '#F0FDF4' : '#FEF2F2',
                         }}>
-                          <svg width="7" height="7" viewBox="0 0 8 8" fill={isBuy ? '#15803D' : '#B91C1C'}>
-                            {isBuy
-                              ? <polygon points="4,1 7,6 1,6"/>
-                              : <polygon points="1,2 7,2 4,7"/>}
-                          </svg>
                           {t.transaction_type}
                         </span>
                       </td>

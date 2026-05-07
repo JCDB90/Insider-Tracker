@@ -1555,7 +1555,11 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#111318' }}>{w.company}</div>
+                  <button onClick={() => onCompanyClick && onCompanyClick(w.ticker, w.company, w.country)} style={{
+                    background: 'none', border: 'none', padding: 0, cursor: onCompanyClick ? 'pointer' : 'default',
+                    fontWeight: 700, fontSize: 14, color: onCompanyClick ? ACCENT : '#111318',
+                    textAlign: 'left', fontFamily: "'DM Sans', sans-serif",
+                  }}>{w.company}</button>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: '#9CA3AF' }}>{w.ticker}</span>
                     <Flag code={w.country} />
@@ -1951,7 +1955,7 @@ function DashboardPage({
 
 // ─── InsiderProfilePage ───────────────────────────────────────────────────────
 
-function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompanyClick }) {
+function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompanyClick, backLabel }) {
   const myTrades = useMemo(() =>
     trades.filter(t => t.insider_name === insiderName)
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
@@ -2057,7 +2061,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          Back to leaderboard
+          {backLabel || 'Back to leaderboard'}
         </button>
 
         {/* Profile header */}
@@ -2242,7 +2246,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
 
 // ─── InsidersPage ─────────────────────────────────────────────────────────────
 
-function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick }) {
+function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick, onCompanyClick }) {
   const leaderboard = useMemo(() =>
     tradesLoading ? [] : computeInsiderScorecard(trades, performance),
     [trades, performance, tradesLoading]
@@ -2351,7 +2355,18 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                           </div>
                         </td>
                         <td style={{ padding: '12px 14px' }}>
-                          <div style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{ins.company}</div>
+                          {onCompanyClick ? (() => {
+                            const t = trades.find(tr => tr.insider_name === ins.name && tr.company === ins.company);
+                            return (
+                              <button onClick={() => onCompanyClick(t?.ticker || null, ins.company, ins.country_code)} style={{
+                                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                fontSize: 12, color: ACCENT, textAlign: 'left', fontFamily: "'DM Sans', sans-serif",
+                                display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140,
+                              }}>{ins.company}</button>
+                            );
+                          })() : (
+                            <div style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{ins.company}</div>
+                          )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                             <Flag code={ins.country_code} />
                             <span style={{ fontSize: 11, color: '#9CA3AF' }}>{ins.country_code}</span>
@@ -2828,6 +2843,7 @@ export default function App() {
   const [perfLoading, setPerfLoading] = useState(false);
   const [perfLoaded, setPerfLoaded] = useState(false);
   const [selectedInsider, setSelectedInsider] = useState(null);
+  const [navStack, setNavStack] = useState([]); // { page, selectedInsider, selectedCompany, label }
 
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
@@ -2930,12 +2946,46 @@ export default function App() {
     });
   }, [page]);
 
+  // Build a human-readable back label for the CURRENT view (used when navigating away)
+  function currentNavLabel() {
+    if (page === 'company' && selectedCompany) return `Back to ${selectedCompany.company}`;
+    if (page === 'insiders' && selectedInsider) return `Back to ${selectedInsider}`;
+    if (page === 'insiders') return 'Back to leaderboard';
+    if (page === 'watchlist') return 'Back to watchlist';
+    return 'Back to dashboard';
+  }
+
+  function pushNav() {
+    const label = currentNavLabel();
+    setNavStack(prev => [...prev, { page, selectedInsider, selectedCompany, label }]);
+  }
+
+  function handleBack() {
+    setNavStack(prev => {
+      const last = prev[prev.length - 1];
+      if (last) {
+        setPage(last.page);
+        setSelectedInsider(last.selectedInsider);
+        setSelectedCompany(last.selectedCompany);
+      } else {
+        setPage('dashboard');
+        setSelectedInsider(null);
+        setSelectedCompany(null);
+      }
+      return prev.slice(0, -1);
+    });
+  }
+
+  const backLabel = navStack.length > 0 ? navStack[navStack.length - 1].label : 'Back to dashboard';
+
   function handleInsiderClick(name) {
+    pushNav();
     setSelectedInsider(name);
     setPage('insiders');
   }
 
   function handleCompanyClick(ticker, company, countryCode) {
+    pushNav();
     const wl = watchlist.find(w => w.ticker === ticker && w.country_code === countryCode);
     setSelectedCompany({ ticker, company, countryCode, yahooTicker: wl?.yahoo_ticker || null });
     setPage('company');
@@ -2952,7 +3002,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F7F8FA' }}>
-      <TopBar page={page} setPage={setPage} search={search} setSearch={setSearch} />
+      <TopBar page={page} setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }} search={search} setSearch={setSearch} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
           <DashboardPage
@@ -2987,7 +3037,8 @@ export default function App() {
             insiderName={selectedInsider}
             trades={trades}
             performance={performance}
-            onBack={() => setSelectedInsider(null)}
+            onBack={handleBack}
+            backLabel={backLabel}
             onCompanyClick={handleCompanyClick}
           />
         ) : page === 'insiders' && (
@@ -2997,6 +3048,7 @@ export default function App() {
             tradesLoading={tradesLoading}
             perfLoading={perfLoading}
             onInsiderClick={handleInsiderClick}
+            onCompanyClick={handleCompanyClick}
           />
         )}
         {page === 'alerts' && (
@@ -3016,7 +3068,8 @@ export default function App() {
               yahooTicker={selectedCompany.yahooTicker}
               trades={trades}
               watchlist={watchlist}
-              onBack={() => setPage('dashboard')}
+              onBack={handleBack}
+              backLabel={backLabel}
               onInsiderClick={handleInsiderClick}
             />
           </Suspense>
