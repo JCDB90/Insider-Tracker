@@ -253,19 +253,46 @@ function parseItNum(s) {
 function parsePdfText(text) {
   if (!text || text.length < 100) return {};
 
-  // ── Insider name (section 1.a — last substantive line before section 2) ──
+  // ── Insider name (section 1.a) ────────────────────────────────────────────
   let insiderName = null;
   const sec2Idx = text.search(/\n\s*2[.\s]+(?:Motivo|Reason)/i);
-  if (sec2Idx > 0) {
-    const sec1 = text.slice(0, sec2Idx);
+  const sec1 = sec2Idx > 0 ? text.slice(0, sec2Idx) : text.slice(0, 3000);
+
+  // PRIMARY: bilingual form (most common eMarket Storage layout)
+  // Two-column PDF produces: "First name:\nFIRSTNAME Cognome:\nLast name:\nSURNAME"
+  // The first name lands on the same line as the "Cognome:" label due to column merge.
+  const bilingualM = sec1.match(/First\s*[Nn]ame:\s*\n([A-ZÀ-Öa-zÀ-ÿ][^\n]+?)\s+Cognome:\s*\n(?:Last\s*[Nn]ame:\s*\n)?([A-ZÀ-Öa-zÀ-ÿ][^\n\r]+)/i);
+  if (bilingualM) {
+    const fn = bilingualM[1].trim();
+    const ln = bilingualM[2].trim();
+    if (fn.length > 0 && ln.length > 0 && !fn.match(/^(Per|For|Indicare|Including)/i)) {
+      insiderName = `${fn} ${ln}`;
+    }
+  }
+
+  // SECONDARY: Italian-only form — "Nome:\nFIRSTNAME Cognome:\nSURNAME" (no English labels)
+  if (!insiderName) {
+    const itOnlyM = sec1.match(/\bNome:\s*\n([A-ZÀ-Öa-zÀ-ÿ][^\n]+?)\s+Cognome:\s*\n([A-ZÀ-Öa-zÀ-ÿ][^\n\r]+)/i);
+    if (itOnlyM) {
+      const fn = itOnlyM[1].trim();
+      const ln = itOnlyM[2].trim();
+      if (!fn.match(/^(Per|For|Indicare|Including)/i) && fn.length > 1) {
+        insiderName = `${fn} ${ln}`;
+      }
+    }
+  }
+
+  // TERTIARY: last substantive line of section 1 (fallback for non-standard forms)
+  if (!insiderName && sec2Idx > 0) {
     const lines = sec1.split('\n')
       .map(l => l.trim())
       .filter(l => l.length > 2 && !/^(?:Full name|Denominazione|For legal|For natural|Indicare|Including|Legal form|Identification|Il nome|Nome:|cognome:|Last Name:|First Name:|Codice|code)/i.test(l));
     insiderName = lines[lines.length - 1] || null;
   }
-  // Fallback: extract from "Oggetto : Internal dealing [NAME]"
+
+  // FALLBACK: extract from "Oggetto : Internal dealing [NAME]"
   if (!insiderName) {
-    const subjMatch = text.match(/Oggetto\s*:\s*Internal\s+dealing\s+([^\n]+)/i);
+    const subjMatch = text.match(/Oggetto\s*:\s*(?:Comunicazione\s+di\s+)?[Ii]nternal\s+[Dd]ealing\s+([^\n]+)/i);
     if (subjMatch) insiderName = subjMatch[1].replace(/^-?\s*errata\s+corrige.*/i, '').trim() || null;
   }
 
