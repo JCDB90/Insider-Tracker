@@ -485,9 +485,8 @@ function computeInsiderScorecard(trades, performance) {
 function TopBar({ page, setPage, search, setSearch, alertCount }) {
   const navItems = [
     { label: 'Dashboard',    key: 'dashboard' },
-    { label: 'Watchlist',    key: 'watchlist'  },
+    { label: 'Watchlist',    key: 'watchlist', dot: alertCount > 0 },
     { label: 'Top Insiders', key: 'insiders'   },
-    { label: 'Alerts',       key: 'alerts', badge: alertCount || null },
     { label: 'Insights',     key: 'insights'   },
     { label: 'Pricing',      key: 'pricing'    },
   ];
@@ -549,12 +548,11 @@ function TopBar({ page, setPage, search, setSearch, alertCount }) {
               }}
             >
               {item.label}
-              {item.badge ? (
+              {item.dot ? (
                 <span style={{
-                  background: '#DC2626', color: '#fff', borderRadius: 10,
-                  fontSize: 10, fontWeight: 700, padding: '1px 5px',
-                  fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.4,
-                }}>{item.badge > 99 ? '99+' : item.badge}</span>
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: '#DC2626', flexShrink: 0, display: 'inline-block',
+                }} />
               ) : null}
             </button>
           );
@@ -1395,7 +1393,8 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick }) {
+function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab }) {
+  const [tab, setTab] = useState(initialTab || 'stocks');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
   const [saving, setSaving] = useState(false);
@@ -1519,13 +1518,38 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
         </div>
       )}
 
-      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ color: ACCENT }}>★</span> My Watchlist
-          </h1>
-          <p style={{ fontSize: 13, color: '#9CA3AF' }}>Insider activity in your personally tracked stocks</p>
+      {/* Tab pills */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{
+          display: 'flex', gap: 3,
+          background: '#f8f8f8', border: '1px solid #f0f0f0',
+          borderRadius: 8, padding: 3,
+        }}>
+          {[
+            { key: 'stocks', label: 'My Stocks' },
+            { key: 'alerts', label: 'Alerts', count: alertCount },
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '5px 14px', borderRadius: 6, border: 'none',
+              background: tab === t.key ? '#fff' : 'transparent',
+              color: tab === t.key ? '#111318' : '#9CA3AF',
+              fontWeight: tab === t.key ? 600 : 400,
+              fontSize: 12, fontFamily: "'Inter', sans-serif", cursor: 'pointer',
+              boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.12s',
+            }}>
+              {t.label}
+              {t.count > 0 && (
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: '#DC2626', display: 'inline-block', flexShrink: 0,
+                }} />
+              )}
+            </button>
+          ))}
         </div>
+        {tab === 'stocks' && (
         <button
           onClick={() => setShowAddModal(true)}
           title="Add stock to watchlist"
@@ -1534,7 +1558,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             padding: '8px 14px', background: ACCENT, color: '#fff',
             border: 'none', borderRadius: 8, cursor: 'pointer',
             fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
-            marginTop: 2, flexShrink: 0,
+            flexShrink: 0,
           }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -1542,6 +1566,28 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           </svg>
           Add stock
         </button>
+        )}
+      </div>
+
+      {/* ── Alerts tab ── */}
+      {tab === 'alerts' && (
+        <AlertsPage
+          trades={trades} tradesLoading={tradesLoading}
+          watchlist={watchlist} watchlistTickers={watchlistTickers}
+          onCompanyClick={onCompanyClick} onInsiderClick={onInsiderClick}
+          embedded
+        />
+      )}
+
+      {/* ── My Stocks tab ── */}
+      {tab === 'stocks' && <>
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', marginBottom: 4 }}>
+            My Watchlist
+          </h1>
+          <p style={{ fontSize: 13, color: '#9CA3AF' }}>Insider activity in your personally tracked stocks</p>
+        </div>
       </div>
 
       {/* Stock summary cards */}
@@ -1769,6 +1815,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           </div>
         )}
       </div>
+      </>}
     </main>
   );
 }
@@ -2477,7 +2524,7 @@ const ALERT_TYPES = [
   { key: 'large',          label: '💰 Large' },
 ];
 
-function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick }) {
+function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded }) {
   watchlistTickers = watchlistTickers || new Set();
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -2658,17 +2705,18 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
     (showLarge      && largeAlerts.length === 0)
   );
 
-  return (
-    <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '28px 32px' }}>
+  const inner = (
+    <div style={{ maxWidth: embedded ? '100%' : 760, margin: embedded ? 0 : '0 auto', padding: embedded ? 0 : '28px 32px' }}>
 
-        {/* Header */}
+        {/* Header — only show when standalone */}
+        {!embedded && (
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>Alerts</h1>
           <p style={{ fontSize: 13, color: '#6B7280' }}>
             Signal-driven insider activity — high conviction buys, cluster signals, watchlist moves.
           </p>
         </div>
+        )}
 
         {/* Filter tabs */}
         <div style={{
@@ -2781,8 +2829,8 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           </>
         )}
       </div>
-    </main>
   );
+  return embedded ? inner : <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>{inner}</main>;
 }
 
 // Compute alert count for nav badge (exported via prop from App)
@@ -3650,6 +3698,7 @@ export default function App() {
             addToWatchlist={addToWatchlist}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
+            alertCount={alertCount}
           />
         )}
         {page === 'insiders' && selectedInsider ? (
@@ -3669,13 +3718,6 @@ export default function App() {
             perfLoading={perfLoading}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
-          />
-        )}
-        {page === 'alerts' && (
-          <AlertsPage
-            trades={trades} tradesLoading={tradesLoading}
-            watchlist={watchlist} watchlistTickers={watchlistTickers}
-            onCompanyClick={handleCompanyClick} onInsiderClick={handleInsiderClick}
           />
         )}
         {page === 'insights' && (
