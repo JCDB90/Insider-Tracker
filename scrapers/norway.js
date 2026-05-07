@@ -393,8 +393,9 @@ function parseBody(raw) {
     const roleKW = 'CEO|CFO|COO|CTO|[Cc]hair(?:man)?|[Vv]ice|[Bb]oard|[Cc]hief|[Pp]resident|[Mm]anaging|[Ss]enior|[Gg]eneral|[Mm]ember|[Dd]irector|[Oo]fficer|[Ff]ounder|[Aa]dvisor|[Pp]artner|[Hh]ead|EVP|SVP|VP|[Cc]ontroller|[Ss]ecretary';
 
     // ① "Name, ROLE of/in Company..."
-    // WORD: single capitalised word, no space within the first char class (prevents matching sentence fragments)
-    const WORD = '[A-ZÆØÅ][a-zA-ZÆØÅæøå\\.\\-]{1,25}';
+    // WORD: capitalised word including single-letter initials (e.g. "Viktor E Jakobsen")
+    // {0,25} (not {1,25}) allows bare initials like "E" or "E." as middle-name tokens.
+    const WORD = '[A-ZÆØÅ][a-zA-ZÆØÅæøå\\.\\-]{0,25}';
     // No 'i' flag: WORD requires uppercase start, preventing lowercase words like "been",
     // "were", "primary", "informed" from being captured as part of the name.
     const personRoleM = prose.match(
