@@ -482,12 +482,12 @@ function computeInsiderScorecard(trades, performance) {
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
-function TopBar({ page, setPage, search, setSearch }) {
+function TopBar({ page, setPage, search, setSearch, alertCount }) {
   const navItems = [
     { label: 'Dashboard',    key: 'dashboard' },
     { label: 'Watchlist',    key: 'watchlist'  },
     { label: 'Top Insiders', key: 'insiders'   },
-    { label: 'Alerts',       key: 'alerts'     },
+    { label: 'Alerts',       key: 'alerts', badge: alertCount || null },
     { label: 'Pricing',      key: 'pricing'    },
   ];
 
@@ -544,8 +544,18 @@ function TopBar({ page, setPage, search, setSearch }) {
                 fontWeight: isActive ? 600 : 400, fontSize: 13,
                 cursor: 'pointer', fontFamily: "'Inter', sans-serif",
                 transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', gap: 5,
               }}
-            >{item.label}</button>
+            >
+              {item.label}
+              {item.badge ? (
+                <span style={{
+                  background: '#DC2626', color: '#fff', borderRadius: 10,
+                  fontSize: 10, fontWeight: 700, padding: '1px 5px',
+                  fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.4,
+                }}>{item.badge > 99 ? '99+' : item.badge}</span>
+              ) : null}
+            </button>
           );
         })}
       </nav>
@@ -2458,28 +2468,17 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
 
 // ─── AlertsPage ───────────────────────────────────────────────────────────────
 
-function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
+const ALERT_TYPES = [
+  { key: 'all',            label: 'All' },
+  { key: 'watchlist',      label: '⭐ Watchlist' },
+  { key: 'conviction',     label: '🔥 High Conviction' },
+  { key: 'cluster',        label: '🔄 Cluster' },
+  { key: 'large',          label: '💰 Large' },
+];
+
+function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick }) {
   watchlistTickers = watchlistTickers || new Set();
-  const recentAlerts = useMemo(() => {
-    return trades
-      .filter(t => {
-        const type = (t.transaction_type || '').toUpperCase();
-        return (type === 'BUY' || type === 'PURCHASE') && t.total_value;
-      })
-      .sort((a, b) => {
-        // Watchlist first, then cluster buys, then by date/value
-        const aWatch = watchlistTickers.has(a.ticker) ? 1 : 0;
-        const bWatch = watchlistTickers.has(b.ticker) ? 1 : 0;
-        if (bWatch !== aWatch) return bWatch - aWatch;
-        const aSignal = (a.is_cluster_buy || a.is_pre_earnings) ? 1 : 0;
-        const bSignal = (b.is_cluster_buy || b.is_pre_earnings) ? 1 : 0;
-        if (bSignal !== aSignal) return bSignal - aSignal;
-        if (b.transaction_date > a.transaction_date) return 1;
-        if (b.transaction_date < a.transaction_date) return -1;
-        return Number(b.total_value) - Number(a.total_value);
-      })
-      .slice(0, 30);
-  }, [trades, watchlistTickers]);
+  const [activeFilter, setActiveFilter] = useState('all');
 
   function timeAgo(dateStr) {
     if (!dateStr) return '';
@@ -2487,76 +2486,321 @@ function AlertsPage({ trades, tradesLoading, watchlistTickers }) {
     const days = Math.floor(diff / 86400000);
     if (days === 0) return 'Today';
     if (days === 1) return 'Yesterday';
-    return `${days} days ago`;
+    return `${days}d ago`;
   }
 
-  const isHighValue = (row) => row.total_value && Number(row.total_value) >= 500000;
+  const isBuy = t => { const tp = (t.transaction_type || '').toUpperCase(); return tp === 'BUY' || tp === 'PURCHASE'; };
+
+  const cutoff7d  = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 7);  return d.toISOString().slice(0, 10); }, []);
+  const cutoff30d = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); }, []);
+
+  // High Conviction Buys — last 7 days
+  const convictionAlerts = useMemo(() =>
+    trades
+      .filter(t => isBuy(t) && t.conviction_label === 'High Conviction' && t.transaction_date >= cutoff7d)
+      .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
+    [trades, cutoff7d],
+  );
+
+  // Watchlist Alerts — last 30 days (any direction)
+  const watchlistAlerts = useMemo(() =>
+    trades
+      .filter(t => watchlistTickers.has(t.ticker) && t.transaction_date >= cutoff30d)
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
+    [trades, watchlistTickers, cutoff30d],
+  );
+
+  // Cluster Signals — last 7 days, group by company, show where 2+ insiders bought
+  const clusterGroups = useMemo(() => {
+    const raw = trades.filter(t => t.is_cluster_buy && t.transaction_date >= cutoff7d);
+    const map = {};
+    for (const t of raw) {
+      const key = t.company || t.ticker || '';
+      if (!map[key]) map[key] = { company: t.company, ticker: t.ticker, country_code: t.country_code, trades: [] };
+      map[key].trades.push(t);
+    }
+    return Object.values(map)
+      .filter(g => g.trades.length >= 2)
+      .sort((a, b) => {
+        const av = a.trades.reduce((s, t) => s + Number(t.total_value || 0), 0);
+        const bv = b.trades.reduce((s, t) => s + Number(t.total_value || 0), 0);
+        return bv - av;
+      });
+  }, [trades, cutoff7d]);
+
+  // Large Purchases — BUY >= €500K, last 7 days
+  const largeAlerts = useMemo(() =>
+    trades
+      .filter(t => isBuy(t) && Number(t.total_value || 0) >= 500000 && t.transaction_date >= cutoff7d)
+      .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
+    [trades, cutoff7d],
+  );
+
+  // Total unique alert count for nav badge (deduped by id)
+  const alertIds = useMemo(() => {
+    const ids = new Set();
+    convictionAlerts.forEach(t => ids.add(t.id));
+    watchlistAlerts.forEach(t => ids.add(t.id));
+    clusterGroups.forEach(g => g.trades.forEach(t => ids.add(t.id)));
+    largeAlerts.forEach(t => ids.add(t.id));
+    return ids;
+  }, [convictionAlerts, watchlistAlerts, clusterGroups, largeAlerts]);
+
+  // ── Card renderers ────────────────────────────────────────────────────────
+
+  function ChevronRight() {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+        <polyline points="9 18 15 12 9 6" />
+      </svg>
+    );
+  }
+
+  function AlertCard({ icon, accentColor, borderColor, bgColor, tag, children, onClick }) {
+    const [hov, setHov] = useState(false);
+    return (
+      <div
+        onClick={onClick}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
+        style={{
+          background: hov ? '#fafafa' : '#fff',
+          border: '1px solid ' + (hov ? '#e0e0e0' : borderColor),
+          borderLeft: '3px solid ' + accentColor,
+          borderRadius: 8, padding: '12px 16px',
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+          cursor: onClick ? 'pointer' : 'default',
+          transition: 'all 0.12s',
+        }}
+      >
+        <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>{icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+              background: bgColor, color: accentColor, borderRadius: 3, padding: '1px 6px',
+            }}>{tag}</span>
+          </div>
+          {children}
+        </div>
+        {onClick && <ChevronRight />}
+      </div>
+    );
+  }
+
+  function TradeAlertCard({ t, icon, accentColor, borderColor, bgColor, tag }) {
+    const name = (t.insider_name && t.insider_name !== 'Not disclosed') ? t.insider_name : (t.via_entity || null);
+    const dir  = isBuy(t) ? 'bought' : 'sold';
+    return (
+      <AlertCard
+        icon={icon} accentColor={accentColor} borderColor={borderColor} bgColor={bgColor} tag={tag}
+        onClick={() => onCompanyClick && onCompanyClick(t.ticker, t.company, t.country_code)}
+      >
+        <div style={{ fontSize: 13, color: '#111318', marginBottom: 2 }}>
+          <span
+            style={{ fontWeight: 600, cursor: onCompanyClick ? 'pointer' : 'default', color: '#111318' }}
+          >{t.company}</span>
+          {t.country_code && <><span style={{ color: '#9CA3AF', margin: '0 4px' }}>·</span><Flag code={t.country_code} /></>}
+          {t.insider_role && <><span style={{ color: '#9CA3AF', margin: '0 4px' }}>·</span><span style={{ color: '#6B7280', fontSize: 12 }}>{t.insider_role}</span></>}
+        </div>
+        <div style={{ fontSize: 12, color: '#6B7280' }}>
+          {name ? (
+            <span
+              onClick={e => { e.stopPropagation(); onInsiderClick && onInsiderClick(name); }}
+              style={{ fontWeight: 500, color: '#374151', cursor: onInsiderClick ? 'pointer' : 'default' }}
+            >{name}</span>
+          ) : <span style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Insider</span>}
+          {' '}{dir}{' '}
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
+            {formatValue(t.total_value, t.currency)}
+          </span>
+          {t.price_per_share > 0 && (
+            <> @ <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatPrice(t.price_per_share, t.currency)}</span></>
+          )}
+          <span style={{ color: '#9CA3AF', marginLeft: 8 }}>{timeAgo(t.transaction_date)}</span>
+        </div>
+        {(t.is_cluster_buy || t.is_pre_earnings || t.is_repetitive_buy || t.is_price_dip) && (
+          <div style={{ marginTop: 4 }}><SignalBadges t={t} /></div>
+        )}
+      </AlertCard>
+    );
+  }
+
+  // ── Section renderer ──────────────────────────────────────────────────────
+
+  function Section({ title, count, children, emptyMsg }) {
+    if (count === 0) return null;
+    return (
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 700, color: '#111318', margin: 0 }}>{title}</h2>
+          <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{count}</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Filter logic ──────────────────────────────────────────────────────────
+
+  const showConviction = activeFilter === 'all' || activeFilter === 'conviction';
+  const showWatchlist  = activeFilter === 'all' || activeFilter === 'watchlist';
+  const showCluster    = activeFilter === 'all' || activeFilter === 'cluster';
+  const showLarge      = activeFilter === 'all' || activeFilter === 'large';
+
+  const isEmpty = !tradesLoading && (
+    (showConviction && convictionAlerts.length === 0) &&
+    (showWatchlist  && watchlistAlerts.length === 0) &&
+    (showCluster    && clusterGroups.length === 0) &&
+    (showLarge      && largeAlerts.length === 0)
+  );
 
   return (
-    <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
-      <div style={{ maxWidth: 700, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 6 }}>Alerts</h1>
-        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 28 }}>
-          Recent high-value insider buys from tracked markets.
-        </p>
+    <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: '28px 32px' }}>
+
+        {/* Header */}
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>Alerts</h1>
+          <p style={{ fontSize: 13, color: '#6B7280' }}>
+            Signal-driven insider activity — high conviction buys, cluster signals, watchlist moves.
+          </p>
+        </div>
+
+        {/* Filter tabs */}
+        <div style={{
+          display: 'flex', gap: 4, marginBottom: 20,
+          background: '#f8f8f8', border: '1px solid #f0f0f0',
+          borderRadius: 8, padding: 3, width: 'fit-content',
+        }}>
+          {ALERT_TYPES.map(at => (
+            <button
+              key={at.key}
+              onClick={() => setActiveFilter(at.key)}
+              style={{
+                padding: '5px 12px', borderRadius: 6, border: 'none',
+                background: activeFilter === at.key ? '#fff' : 'transparent',
+                color: activeFilter === at.key ? '#111318' : '#9CA3AF',
+                fontWeight: activeFilter === at.key ? 600 : 400,
+                fontSize: 12, fontFamily: "'Inter', sans-serif",
+                cursor: 'pointer',
+                boxShadow: activeFilter === at.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.12s', whiteSpace: 'nowrap',
+              }}
+            >{at.label}</button>
+          ))}
+        </div>
 
         {tradesLoading ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {recentAlerts.map((row, i) => {
-              const urgent    = isHighValue(row);
-              const isWatch   = watchlistTickers.has(row.ticker);
-              const isCluster = row.is_cluster_buy;
-              const name      = row.insider_name && row.insider_name !== 'Not disclosed'
-                ? row.insider_name : (row.via_entity || 'Insider');
-
-              const accentColor = isWatch ? '#F59E0B' : isCluster ? ACCENT : urgent ? '#F59E0B' : '#E2E4E9';
-              const borderColor = isWatch ? '#FDE68A' : isCluster ? '#C7D2FE' : urgent ? '#FDE68A' : '#E8E9EE';
-
-              return (
-                <div key={row.id ?? i} style={{
-                  background: '#fff',
-                  border: '1px solid ' + borderColor,
-                  borderLeft: '3px solid ' + accentColor,
-                  borderRadius: 8, padding: '14px 18px',
-                  display: 'flex', alignItems: 'center', gap: 16,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-                      {isWatch && (
-                        <span style={{ fontSize: 11, fontWeight: 700, background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 7px' }}>
-                          ★ Watchlist
-                        </span>
-                      )}
-                      {urgent && (
-                        <span style={{ fontSize: 11, fontWeight: 600, background: '#FEF9C3', color: '#92400E', borderRadius: 4, padding: '1px 7px' }}>
-                          High-Value Buy
-                        </span>
-                      )}
-                      <SignalBadges t={row} />
-                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>{timeAgo(row.transaction_date)}</span>
-                      <Flag code={row.country_code} />
-                    </div>
-                    <div style={{ fontSize: 13, color: '#374151' }}>
-                      <strong>{name}</strong>
-                      {row.insider_role ? ` (${row.insider_role})` : ''}
-                      {' '}bought{' '}
-                      <strong style={{ fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(row.total_value, row.currency)}</strong>
-                      {' '}in <strong>{row.company}</strong>
-                    </div>
-                  </div>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[1,2,3,4,5].map(i => (
+              <div key={i} style={{ height: 72, borderRadius: 8, background: '#f0f0f0', animation: 'pulse 1.5s infinite' }} />
+            ))}
           </div>
+        ) : isEmpty ? (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🔔</div>
+            <div style={{ fontSize: 14, color: '#6B7280', fontWeight: 500 }}>No alerts for this filter</div>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>
+              Try a different category or check back tomorrow.
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* ── Watchlist ── */}
+            {showWatchlist && watchlistAlerts.length > 0 && (
+              <Section title="Watchlist Activity" count={watchlistAlerts.length}>
+                {watchlistAlerts.map(t => (
+                  <TradeAlertCard key={t.id} t={t}
+                    icon="⭐" tag="Watchlist"
+                    accentColor="#D97706" borderColor="#FDE68A" bgColor="#FFFBEB"
+                  />
+                ))}
+              </Section>
+            )}
+
+            {/* ── High Conviction ── */}
+            {showConviction && convictionAlerts.length > 0 && (
+              <Section title="High Conviction Buys" count={convictionAlerts.length}>
+                {convictionAlerts.map(t => (
+                  <TradeAlertCard key={t.id} t={t}
+                    icon="🔥" tag="High Conviction"
+                    accentColor="#EA580C" borderColor="#FED7AA" bgColor="#FFF7ED"
+                  />
+                ))}
+              </Section>
+            )}
+
+            {/* ── Cluster ── */}
+            {showCluster && clusterGroups.length > 0 && (
+              <Section title="Cluster Signals" count={clusterGroups.length}>
+                {clusterGroups.map((g, i) => {
+                  const totalVal = g.trades.reduce((s, t) => s + Number(t.total_value || 0), 0);
+                  const insiders = [...new Set(g.trades.map(t => t.insider_name).filter(Boolean))];
+                  const currency = g.trades[0]?.currency || 'EUR';
+                  return (
+                    <AlertCard key={i}
+                      icon="🔄" tag="Cluster Signal"
+                      accentColor="#4338CA" borderColor="#C7D2FE" bgColor="#EEF2FF"
+                      onClick={() => onCompanyClick && onCompanyClick(g.ticker, g.company, g.country_code)}
+                    >
+                      <div style={{ fontSize: 13, color: '#111318', fontWeight: 600, marginBottom: 2 }}>
+                        {g.company}
+                        {g.country_code && <><span style={{ color: '#9CA3AF', margin: '0 4px' }}>·</span><Flag code={g.country_code} /></>}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6B7280' }}>
+                        <span style={{ fontWeight: 500, color: '#374151' }}>{g.trades.length} insiders</span>
+                        {' '}bought within 7 days
+                        {totalVal > 0 && <> · Total <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>{formatValue(totalVal, currency)}</span></>}
+                      </div>
+                      {insiders.length > 0 && (
+                        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                          {insiders.slice(0, 3).join(', ')}{insiders.length > 3 ? ` +${insiders.length - 3} more` : ''}
+                        </div>
+                      )}
+                    </AlertCard>
+                  );
+                })}
+              </Section>
+            )}
+
+            {/* ── Large Transactions ── */}
+            {showLarge && largeAlerts.length > 0 && (
+              <Section title="Large Purchases (≥€500K)" count={largeAlerts.length}>
+                {largeAlerts.map(t => (
+                  <TradeAlertCard key={t.id} t={t}
+                    icon="💰" tag="Large Purchase"
+                    accentColor="#15803D" borderColor="#A7F3D0" bgColor="#F0FDF4"
+                  />
+                ))}
+              </Section>
+            )}
+          </>
         )}
       </div>
     </main>
   );
+}
+
+// Compute alert count for nav badge (exported via prop from App)
+function useAlertCount(trades, watchlistTickers) {
+  return useMemo(() => {
+    if (!trades.length) return 0;
+    const cutoff7d  = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const cutoff30d = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const isBuy = t => { const tp = (t.transaction_type || '').toUpperCase(); return tp === 'BUY' || tp === 'PURCHASE'; };
+    const ids = new Set();
+    for (const t of trades) {
+      const d = t.transaction_date;
+      if (isBuy(t) && t.conviction_label === 'High Conviction' && d >= cutoff7d) ids.add(t.id);
+      if (watchlistTickers.has(t.ticker) && d >= cutoff30d) ids.add(t.id);
+      if (t.is_cluster_buy && d >= cutoff7d) ids.add(t.id);
+      if (isBuy(t) && Number(t.total_value || 0) >= 500000 && d >= cutoff7d) ids.add(t.id);
+    }
+    return ids.size;
+  }, [trades, watchlistTickers]);
 }
 
 // ─── PricingPage ──────────────────────────────────────────────────────────────
@@ -2935,6 +3179,7 @@ export default function App() {
   }
 
   const watchlistTickers = useMemo(() => new Set(watchlist.map(w => w.ticker)), [watchlist]);
+  const alertCount = useAlertCount(trades, watchlistTickers);
 
   const countryCounts = useMemo(() => {
     const counts = {};
@@ -3043,7 +3288,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>
-      <TopBar page={page} setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }} search={search} setSearch={setSearch} />
+      <TopBar page={page} setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }} search={search} setSearch={setSearch} alertCount={alertCount} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
           <DashboardPage
@@ -3093,7 +3338,11 @@ export default function App() {
           />
         )}
         {page === 'alerts' && (
-          <AlertsPage trades={trades} tradesLoading={tradesLoading} watchlistTickers={watchlistTickers} />
+          <AlertsPage
+            trades={trades} tradesLoading={tradesLoading}
+            watchlist={watchlist} watchlistTickers={watchlistTickers}
+            onCompanyClick={handleCompanyClick} onInsiderClick={handleInsiderClick}
+          />
         )}
         {page === 'pricing' && <PricingPage />}
         {page === 'company' && selectedCompany && (
