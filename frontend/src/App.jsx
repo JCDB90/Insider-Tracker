@@ -4,6 +4,12 @@ import { supabase } from './supabase.js';
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
 
+// ─── Analytics helpers ────────────────────────────────────────────────────────
+// Wraps window.gtag so events are silently dropped if GA hasn't loaded yet.
+function track(eventName, params) {
+  try { window.gtag?.('event', eventName, params); } catch {}
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COUNTRY_FLAGS = {
@@ -3898,6 +3904,7 @@ export default function App() {
     const { error } = await supabase.from('watchlist').insert([stock]);
     if (error) return false;
     setWatchlist(prev => [...prev, stock]);
+    track('add_to_watchlist', { ticker: stock.ticker, company: stock.company });
     return true;
   }
 
@@ -3991,6 +3998,7 @@ export default function App() {
     pushNav();
     setSelectedInsider(name);
     setPage('insiders');
+    track('view_insider', { insider_name: name });
   }
 
   function handleCompanyClick(ticker, company, countryCode) {
@@ -3998,12 +4006,15 @@ export default function App() {
     const wl = watchlist.find(w => w.ticker === ticker && w.country_code === countryCode);
     setSelectedCompany({ ticker, company, countryCode, yahooTicker: wl?.yahoo_ticker || null });
     setPage('company');
+    track('view_company', { company_name: company, ticker, country: countryCode });
   }
 
   function toggleCountry(code) {
     setSelectedCountries(prev => {
       const next = new Set(prev);
-      next.has(code) ? next.delete(code) : next.add(code);
+      const adding = !next.has(code);
+      adding ? next.add(code) : next.delete(code);
+      if (adding) track('filter_country', { country: code });
       return next;
     });
   }
