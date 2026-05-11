@@ -702,13 +702,19 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
       height: 56, padding: '0 24px',
     }}>
       {/* Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 32, flexShrink: 0 }}>
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <rect width="22" height="22" rx="5" fill={ACCENT} />
-          <path d="M6 16V10M11 16V6M16 16V12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 32, flexShrink: 0 }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: 6, background: '#0f1117',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <span style={{
+            color: '#fff', fontWeight: 800, fontSize: 11,
+            fontFamily: "'Inter', sans-serif", letterSpacing: '-0.5px', lineHeight: 1,
+          }}>IA</span>
+        </div>
         <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.02em', color: '#111318' }}>
-          Insiders<span style={{ color: ACCENT }}>Atlas</span>
+          InsidersAlpha
         </span>
       </div>
 
@@ -4017,17 +4023,6 @@ function PricingPage({ session, onLogin }) {
     <main style={{ flex: 1, overflowY: 'auto', background: '#ffffff' }}>
       {/* Hero */}
       <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '72px 40px 60px', textAlign: 'center' }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7,
-          background: '#F0FDF4', border: '1px solid #BBF7D0',
-          borderRadius: 20, padding: '4px 14px', fontSize: 11,
-          color: '#15803D', fontFamily: "'JetBrains Mono', monospace",
-          letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 28,
-        }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#16A34A', display: 'inline-block' }} />
-          Institutional-grade insider intelligence
-        </div>
-
         <h1 style={{
           fontSize: 54, fontWeight: 800, letterSpacing: '-0.04em',
           lineHeight: 1.05, color: '#0C0F1A', maxWidth: 700, margin: '0 auto 18px',
