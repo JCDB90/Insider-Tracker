@@ -3934,9 +3934,32 @@ function FAQItem({ q, a }) {
   );
 }
 
-function PricingPage() {
-  const [billing, setBilling] = useState('annual');
-  const [hoveredPlan, setHoveredPlan] = useState(null);
+function PricingPage({ session, onLogin }) {
+  const [billing,      setBilling]      = useState('annual');
+  const [hoveredPlan,  setHoveredPlan]  = useState(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(null); // planId being loaded
+
+  async function startCheckout(plan) {
+    if (!session) { onLogin?.(); return; }
+    setCheckoutLoading(plan.id);
+    const priceId = billing === 'annual'
+      ? (plan.id === 'elite' ? import.meta.env.VITE_STRIPE_PRICE_ELITE_ANNUAL   : import.meta.env.VITE_STRIPE_PRICE_PRO_ANNUAL)
+      : (plan.id === 'elite' ? import.meta.env.VITE_STRIPE_PRICE_ELITE_MONTHLY  : import.meta.env.VITE_STRIPE_PRICE_PRO_MONTHLY);
+
+    try {
+      const res  = await fetch('/api/create-checkout', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ priceId, userId: session.user.id, userEmail: session.user.email }),
+      });
+      const { url, error } = await res.json();
+      if (error) throw new Error(error);
+      window.location.href = url;
+    } catch (err) {
+      console.error('[checkout]', err.message);
+      setCheckoutLoading(null);
+    }
+  }
 
   const plans = [
     {
@@ -3956,7 +3979,7 @@ function PricingPage() {
     {
       id: 'pro', tier: 'Pro',
       tagline: 'For investors who want the full picture',
-      monthly: 9.99, annual: 9.99, annualBilled: 119, highlight: true,
+      monthly: 12, annual: 9.99, annualBilled: 119.88, highlight: true,
       bullets: [
         'Unlimited insider transactions (180 days)',
         'Full company transaction history',
@@ -3971,7 +3994,7 @@ function PricingPage() {
     {
       id: 'elite', tier: 'Elite',
       tagline: 'For power users who need everything',
-      monthly: 19.99, annual: 19.99, annualBilled: 239, highlight: false,
+      monthly: 18, annual: 14.99, annualBilled: 179.88, highlight: false,
       bullets: [
         'Everything in Pro',
         'CSV data export',
@@ -3981,7 +4004,7 @@ function PricingPage() {
     },
   ];
 
-  const annualSave = Math.round((1 - 9.99 / 9.99) * 100) || 17;
+  const annualSave = 17; // ~17% saving: €9.99/mo vs €12/mo
 
   const proofItems = [
     { label: 'Avg 30d return (profitable buys)', value: '+18.8%', sub: 'from our database',  color: '#16A34A' },
@@ -4094,11 +4117,11 @@ function PricingPage() {
                           </span>
                           <span style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>/mo</span>
                         </div>
-                        {plan.annualBilled ? (
+                        {billing === 'annual' && plan.annualBilled ? (
                           <div style={{ fontSize: 12, color: '#9CA3AF' }}>€{plan.annualBilled}/year billed annually</div>
-                        ) : (
-                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Billed annually</div>
-                        )}
+                        ) : plan.monthly > 0 ? (
+                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Or €{plan.annual}/mo billed annually</div>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -4121,11 +4144,16 @@ function PricingPage() {
                     fontWeight: 600, fontSize: 14, cursor: 'pointer',
                     fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
                     boxShadow: isH ? '0 4px 14px ' + ACCENT + '40' : 'none',
-                  }}>
-                    {plan.monthly === 0 ? 'Get started free' : plan.id === 'elite' ? 'Start Elite →' : 'Start Pro →'}
+                  }} onClick={() => plan.monthly > 0 && startCheckout(plan)}
+                     disabled={checkoutLoading === plan.id}>
+                    {plan.monthly === 0
+                      ? 'Get started free'
+                      : checkoutLoading === plan.id
+                        ? 'Redirecting…'
+                        : plan.id === 'elite' ? 'Start Elite →' : 'Start Pro →'}
                   </button>
                   <div style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>
-                    {plan.monthly === 0 ? 'No account required' : 'No card required to start'}
+                    {plan.monthly === 0 ? 'No account required' : 'Cancel any time'}
                   </div>
                 </div>
               </div>
@@ -4254,6 +4282,9 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [userPlan, setUserPlan] = useState('visitor');
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [checkoutSuccess, setCheckoutSuccess] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('checkout') === 'success'
+  );
   const access = useAccess(userPlan);
 
   async function fetchUserPlan(userId, userEmail) {
@@ -4459,6 +4490,19 @@ export default function App() {
         onSignOut={handleSignOut}
       />
       {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+      {checkoutSuccess && (
+        <div style={{
+          background: '#F0FDF4', borderBottom: '1px solid #BBF7D0',
+          padding: '10px 24px', display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', gap: 12,
+        }}>
+          <span style={{ fontSize: 13, color: '#15803D', fontWeight: 500 }}>
+            🎉 Payment successful! Your plan has been activated. Refresh if you don't see the upgrade yet.
+          </span>
+          <button onClick={() => { setCheckoutSuccess(false); window.history.replaceState({}, '', '/'); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#16A34A', padding: '0 4px' }}>×</button>
+        </div>
+      )}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
           <DashboardPage
@@ -4519,7 +4563,7 @@ export default function App() {
         {page === 'insights' && (
           <InsightsPage trades={trades} tradesLoading={tradesLoading} />
         )}
-        {page === 'pricing' && <PricingPage />}
+        {page === 'pricing' && <PricingPage session={session} onLogin={() => setShowLoginModal(true)} />}
         {page === 'company' && selectedCompany && (
           <Suspense fallback={
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: 13 }}>
