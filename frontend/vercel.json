@@ -5,6 +5,12 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/about",       "destination": "/about.html" },
+    { "source": "/methodology", "destination": "/methodology.html" },
+    { "source": "/disclaimer",  "destination": "/disclaimer.html" },
+    { "source": "/privacy",     "destination": "/privacy.html" },
+    { "source": "/terms",       "destination": "/terms.html" },
+    { "source": "/contact",     "destination": "/contact.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

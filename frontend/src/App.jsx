@@ -9,6 +9,71 @@ function track(eventName, params) {
   try { window.gtag?.('event', eventName, params); } catch {}
 }
 
+// ─── Dynamic meta tags ───────────────────────────────────────────────────────
+function useMetaTags(page, selectedCompany, selectedInsider) {
+  useEffect(() => {
+    let title = 'InsidersAlpha — European Insider Trading Tracker';
+    let desc  = 'Track MAR Article 19 insider transactions across 13 European markets. Conviction scoring, cluster signals, and performance data.';
+
+    if (page === 'company' && selectedCompany?.company) {
+      title = `${selectedCompany.company} Insider Transactions | InsidersAlpha`;
+      desc  = `Insider trading activity for ${selectedCompany.company}. Conviction scores, signal badges, and post-trade performance.`;
+    } else if (page === 'insiders' && selectedInsider) {
+      title = `${selectedInsider} Insider Trading History | InsidersAlpha`;
+      desc  = `Insider trading track record for ${selectedInsider}. Historical buys, win rate, and average returns.`;
+    } else if (page === 'pricing') {
+      title = 'Pricing — InsidersAlpha';
+      desc  = 'InsidersAlpha plans: Free, Pro (€9.99/mo), Elite (€19.99/mo). Unlock full European insider trading data.';
+    } else if (page === 'insights') {
+      title = 'Insights & Tools — InsidersAlpha';
+      desc  = 'Tax calculators, broker guides, and education for European investors. Danish ETF lagerbeskatning, Swedish ISK, and more.';
+    } else if (page === 'watchlist') {
+      title = 'My Watchlist — InsidersAlpha';
+    } else if (page === 'insiders') {
+      title = 'Top Insiders Leaderboard — InsidersAlpha';
+      desc  = 'Ranked list of European insiders by conviction score and historical performance.';
+    }
+
+    document.title = title;
+    const setMeta = (sel, attr, val) => document.querySelector(sel)?.setAttribute(attr, val);
+    setMeta('meta[name="description"]',       'content', desc);
+    setMeta('meta[property="og:title"]',      'content', title);
+    setMeta('meta[property="og:description"]','content', desc);
+    setMeta('meta[name="twitter:title"]',     'content', title);
+    setMeta('meta[name="twitter:description"]','content', desc);
+  }, [page, selectedCompany, selectedInsider]);
+}
+
+// ─── Footer ───────────────────────────────────────────────────────────────────
+function Footer() {
+  return (
+    <footer style={{
+      borderTop: '1px solid #f0f0f0', padding: '14px 24px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexWrap: 'wrap', gap: '4px 4px',
+      fontSize: 11, color: '#9CA3AF', background: '#fff', flexShrink: 0,
+    }}>
+      <span>© 2026 InsidersAlpha</span>
+      {[
+        { label: 'About',       href: '/about' },
+        { label: 'Methodology', href: '/methodology' },
+        { label: 'Disclaimer',  href: '/disclaimer' },
+        { label: 'Privacy',     href: '/privacy' },
+        { label: 'Terms',       href: '/terms' },
+        { label: 'Contact',     href: '/contact' },
+      ].map(l => (
+        <span key={l.href}>
+          <span style={{ margin: '0 4px', color: '#e0e0e0' }}>·</span>
+          <a href={l.href} style={{ color: '#9CA3AF', textDecoration: 'none', fontFamily: "'Inter', sans-serif" }}
+            onMouseEnter={e => e.target.style.color = '#374151'}
+            onMouseLeave={e => e.target.style.color = '#9CA3AF'}
+          >{l.label}</a>
+        </span>
+      ))}
+    </footer>
+  );
+}
+
 // ─── Access control ───────────────────────────────────────────────────────────
 
 function useAccess(plan) {
@@ -4270,6 +4335,9 @@ export default function App() {
   const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
 
+  // ── Dynamic meta tags ──────────────────────────────────────────────────────
+  useMetaTags(page, selectedCompany, selectedInsider);
+
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [session, setSession] = useState(null);
   const [userPlan, setUserPlan] = useState('visitor');
@@ -4577,6 +4645,7 @@ export default function App() {
           </Suspense>
         )}
       </div>
+      <Footer />
     </div>
   );
 }
