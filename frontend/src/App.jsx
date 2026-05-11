@@ -703,13 +703,12 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
     }}>
       {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 32, flexShrink: 0 }}>
-        <svg width="28" height="28" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <rect width="36" height="36" rx="6" fill="#0f1117"/>
-          <rect x="2" y="2" width="32" height="32" rx="4" fill="white"/>
-          <rect x="7" y="8" width="5" height="20" fill="#0f1117"/>
-          <polygon points="18,8 22,8 29,28 25,28" fill="#0f1117"/>
-          <polygon points="18,8 22,8 15,28 11,28" fill="#0f1117"/>
-          <rect x="16" y="20" width="8" height="3" fill="#0f1117"/>
+        <svg width="28" height="28" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+          <rect width="36" height="36" rx="5" fill="#0f1117"/>
+          <rect x="4" y="6" width="6" height="24" rx="1" fill="white"/>
+          <polygon points="14,30 18,30 26,6 22,6" fill="white"/>
+          <polygon points="22,30 26,30 18,6 14,6" fill="white"/>
+          <rect x="16" y="19" width="8" height="3" fill="#0f1117"/>
         </svg>
         <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.02em', color: '#111318' }}>
           InsidersAlpha
