@@ -393,7 +393,7 @@ function KpiCard({ label, value, sub, color }) {
 
 export default function CompanyPage({
   ticker, company, countryCode, yahooTicker,
-  trades, watchlist, onBack, onInsiderClick, backLabel,
+  trades, watchlist, onBack, onInsiderClick, backLabel, access,
 }) {
   const [chartData,     setChartData]     = useState([]);
   const [chartRange,    setChartRange]    = useState('1y');
@@ -730,7 +730,7 @@ export default function CompanyPage({
                 </tr>
               </thead>
               <tbody>
-                {companyTrades.map((t, i) => {
+                {(access && !access.isPro ? companyTrades.slice(0, 3) : companyTrades).map((t, i) => {
                   const isBuy      = t.transaction_type === 'BUY';
                   const name       = t.insider_name && t.insider_name !== 'Not disclosed'
                     ? t.insider_name : (t.via_entity || null);
@@ -833,6 +833,24 @@ export default function CompanyPage({
                 })}
               </tbody>
             </table>
+            {access && !access.isPro && companyTrades.length > 3 && (
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                padding: '20px', background: 'linear-gradient(to bottom, rgba(255,255,255,0.3), #fff 40%)',
+                borderTop: '1px solid #f0f0f0', gap: 8,
+              }}>
+                <span style={{ fontSize: 22 }}>🔒</span>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#111318' }}>
+                  {companyTrades.length - 3} more transaction{companyTrades.length - 3 !== 1 ? 's' : ''} hidden
+                </div>
+                <div style={{ fontSize: 12, color: '#9CA3AF' }}>Full history with Pro — from €19/month</div>
+                <a href="#pricing" onClick={e => { e.preventDefault(); }} style={{
+                  background: ACCENT, color: '#fff', border: 'none', borderRadius: 7,
+                  padding: '7px 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "'Inter', sans-serif", textDecoration: 'none', marginTop: 4,
+                }}>Unlock with Pro →</a>
+              </div>
+            )}
           </div>
         )}
       </div>

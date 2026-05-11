@@ -5,9 +5,202 @@ import { supabase } from './supabase.js';
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
 
 // ─── Analytics helpers ────────────────────────────────────────────────────────
-// Wraps window.gtag so events are silently dropped if GA hasn't loaded yet.
 function track(eventName, params) {
   try { window.gtag?.('event', eventName, params); } catch {}
+}
+
+// ─── Access control ───────────────────────────────────────────────────────────
+
+function useAccess(plan) {
+  const isAdmin = plan === 'admin';
+  const isPro   = ['pro', 'elite', 'admin'].includes(plan);
+  const isElite  = ['elite', 'admin'].includes(plan);
+  return {
+    isAdmin, isPro, isElite,
+    dashboardPageLimit:  isPro ? null : 1,   // null = no limit
+    companyHistoryLimit: isPro ? null : 3,
+    insidersLimit:       isPro ? null : 10,
+    canEditWatchlist:    isPro,
+    canSeeAlerts:        isPro,
+    canExport:           isElite,
+  };
+}
+
+// ─── LoginModal ───────────────────────────────────────────────────────────────
+
+function LoginModal({ onClose }) {
+  const [mode, setMode]       = useState('signin');
+  const [email, setEmail]     = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const [done, setDone]       = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true); setError('');
+    if (mode === 'signin') {
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      if (err) setError(err.message);
+      else onClose();
+    } else {
+      const { error: err } = await supabase.auth.signUp({ email, password });
+      if (err) setError(err.message);
+      else setDone('Check your email to confirm your account, then sign in.');
+    }
+    setLoading(false);
+  }
+
+  async function handleGoogle() {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '9px 12px', border: '1px solid #f0f0f0', borderRadius: 7,
+    fontSize: 13, fontFamily: "'Inter', sans-serif", outline: 'none', boxSizing: 'border-box',
+    background: '#fafafa',
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div style={{
+        background: '#fff', borderRadius: 14, padding: '32px 32px 28px',
+        width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.18)', position: 'relative',
+      }} onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} style={{
+          position: 'absolute', top: 16, right: 16,
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 20, color: '#9CA3AF', lineHeight: 1, padding: 2,
+        }}>×</button>
+
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', margin: '0 0 22px' }}>
+          {mode === 'signin' ? 'Sign in to InsidersAlpha' : 'Create your account'}
+        </h2>
+
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '12px 0 20px' }}>
+            <div style={{ fontSize: 36, marginBottom: 14 }}>✉️</div>
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.7 }}>{done}</p>
+          </div>
+        ) : (
+          <>
+            <button onClick={handleGoogle} style={{
+              width: '100%', padding: '10px 14px', border: '1px solid #f0f0f0', borderRadius: 8,
+              background: '#fff', cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+              fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 16,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} /><span style={{ fontSize: 11, color: '#9CA3AF' }}>or</span><div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="Email" required style={{ ...inputStyle, marginBottom: 10 }} />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Password" required style={{ ...inputStyle, marginBottom: error ? 8 : 16 }} />
+              {error && <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{error}</div>}
+              <button type="submit" disabled={loading} style={{
+                width: '100%', padding: '10px', background: ACCENT, color: '#fff', border: 'none',
+                borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: loading ? 'default' : 'pointer',
+                fontFamily: "'Inter', sans-serif", opacity: loading ? 0.7 : 1,
+              }}>{loading ? 'Loading…' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
+            </form>
+
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <button onClick={() => { setMode(m => m === 'signin' ? 'signup' : 'signin'); setError(''); }} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 12, color: '#9CA3AF', fontFamily: "'Inter', sans-serif",
+              }}>
+                {mode === 'signin' ? "No account? Sign up free" : "Already have an account? Sign in"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Upgrade gate components ──────────────────────────────────────────────────
+
+function UpgradeGate({ title = 'Unlock with Pro', sub, onUpgrade, compact }) {
+  if (compact) return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      fontSize: 11, color: '#9CA3AF',
+    }}>
+      <span>🔒</span>
+      <button onClick={onUpgrade} style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        fontSize: 11, color: ACCENT, fontWeight: 600, fontFamily: "'Inter', sans-serif", padding: 0,
+      }}>Unlock with Pro →</button>
+    </div>
+  );
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      padding: '24px 20px', gap: 8,
+      background: 'linear-gradient(to bottom, rgba(255,255,255,0.4) 0%, #fff 35%)',
+    }}>
+      <span style={{ fontSize: 24 }}>🔒</span>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#111318', textAlign: 'center' }}>{title}</div>
+      {sub && <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>{sub}</div>}
+      <button onClick={onUpgrade} style={{
+        background: ACCENT, color: '#fff', border: 'none', borderRadius: 7,
+        padding: '7px 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+        fontFamily: "'Inter', sans-serif", marginTop: 4,
+      }}>Unlock with Pro →</button>
+    </div>
+  );
+}
+
+function DashboardUpgradeBanner({ onLogin, onUpgrade }) {
+  return (
+    <div style={{
+      position: 'sticky', bottom: 0,
+      background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 30%, #fff 55%)',
+      padding: '32px 20px 16px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+      borderTop: '1px solid #f0f0f0',
+    }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#111318', marginBottom: 2 }}>
+          🔒 Unlock full data access
+        </div>
+        <div style={{ fontSize: 12, color: '#6B7280' }}>
+          Pro from €19/month — unlimited transactions, all signals, full history
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <button onClick={onLogin} style={{
+          padding: '7px 14px', border: '1px solid #f0f0f0', borderRadius: 7,
+          background: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+          fontFamily: "'Inter', sans-serif", color: '#374151',
+        }}>Sign in</button>
+        <button onClick={onUpgrade} style={{
+          padding: '7px 14px', background: ACCENT, color: '#fff', border: 'none',
+          borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          fontFamily: "'Inter', sans-serif",
+        }}>Start free trial →</button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -488,7 +681,8 @@ function computeInsiderScorecard(trades, performance) {
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
-function TopBar({ page, setPage, search, setSearch, alertCount }) {
+function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin, isElite, onLogin, onSignOut }) {
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const navItems = [
     { label: 'Dashboard',    key: 'dashboard' },
     { label: 'Watchlist',    key: 'watchlist', dot: alertCount > 0 },
@@ -565,13 +759,65 @@ function TopBar({ page, setPage, search, setSearch, alertCount }) {
         })}
       </nav>
 
-      {/* Avatar */}
-      <div style={{
-        marginLeft: 20, width: 32, height: 32, borderRadius: '50%',
-        background: ACCENT + '22', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', fontSize: 13, fontWeight: 600, color: ACCENT,
-        flexShrink: 0, cursor: 'pointer',
-      }}>J</div>
+      {/* Auth */}
+      {session ? (
+        <div style={{ position: 'relative', marginLeft: 16, flexShrink: 0 }}>
+          <button
+            onClick={() => setShowUserMenu(s => !s)}
+            style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: isAdmin ? '#F59E0B' : ACCENT,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, color: '#fff', border: 'none', cursor: 'pointer',
+            }}
+          >{(session.user.email?.[0] || 'U').toUpperCase()}</button>
+
+          {showUserMenu && (
+            <div style={{
+              position: 'absolute', top: 40, right: 0,
+              background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.10)', minWidth: 180, zIndex: 300,
+            }} onClick={() => setShowUserMenu(false)}>
+              <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>Signed in as</div>
+                <div style={{
+                  fontSize: 12, fontWeight: 600, color: '#111318',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{session.user.email}</div>
+                {isAdmin && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, color: '#F59E0B',
+                    background: '#FFFBEB', border: '1px solid #FDE68A',
+                    borderRadius: 3, padding: '1px 5px',
+                    textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, display: 'inline-block',
+                  }}>Admin</span>
+                )}
+              </div>
+              {!isElite && (
+                <button onClick={() => setPage('pricing')} style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '9px 16px', background: 'none', border: 'none',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 600, color: ACCENT,
+                  fontFamily: "'Inter', sans-serif",
+                }}>⬆ Upgrade plan</button>
+              )}
+              <button onClick={onSignOut} style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '9px 16px', background: 'none', border: 'none',
+                cursor: 'pointer', fontSize: 12, color: '#374151',
+                fontFamily: "'Inter', sans-serif", borderTop: '1px solid #f0f0f0',
+              }}>Sign out</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <button onClick={onLogin} style={{
+          marginLeft: 16, padding: '6px 16px', borderRadius: 7, flexShrink: 0,
+          background: ACCENT, color: '#fff', border: 'none',
+          fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          fontFamily: "'Inter', sans-serif",
+        }}>Sign in</button>
+      )}
     </header>
   );
 }
@@ -802,7 +1048,8 @@ function Pagination({ page, totalRows, onChange }) {
 
 // ─── TradesTable ──────────────────────────────────────────────────────────────
 
-function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, onCompanyClick, page, onPageChange }) {
+function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, onCompanyClick, page, onPageChange, access, onLogin, onUpgrade }) {
+  const locked = access && !access.isPro && page > 1;
   const cols = [
     { key: 'transaction_date', label: 'Date',    align: 'left',  sortable: true  },
     { key: 'company',          label: 'Company',  align: 'left',  sortable: true  },
@@ -943,20 +1190,31 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       <div style={{ fontSize: 13, color: '#9CA3AF' }}>Not disclosed</div>
                     )}
                   </td>
-                  {/* Type + signal badges — single line, no wrap */}
+                  {/* Type + signal badges — blurred on locked pages */}
                   <td style={{ padding: rowPad }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
-                      <TypeChip type={row.transaction_type} />
-                      <SignalBadges t={row} />
-                    </div>
+                    {locked ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <TypeChip type={row.transaction_type} />
+                        <span style={{ fontSize: 12, color: '#D1D5DB' }}>🔒</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
+                        <TypeChip type={row.transaction_type} />
+                        <SignalBadges t={row} />
+                      </div>
+                    )}
                   </td>
                   {/* Price */}
                   <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    {formatPrice(row.price_per_share, row.currency)}
+                    {locked
+                      ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
+                      : formatPrice(row.price_per_share, row.currency)}
                   </td>
                   {/* Value */}
                   <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    {formatValue(row.total_value, row.currency)}
+                    {locked
+                      ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
+                      : formatValue(row.total_value, row.currency)}
                   </td>
                   {/* Country */}
                   <td style={{ padding: rowPad, overflow: 'hidden' }}>
@@ -973,6 +1231,9 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
       </table>
       {!loading && page != null && onPageChange && (
         <Pagination page={page} totalRows={rows.length} onChange={onPageChange} />
+      )}
+      {locked && (
+        <DashboardUpgradeBanner onLogin={onLogin} onUpgrade={onUpgrade} />
       )}
     </div>
   );
@@ -1399,7 +1660,7 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab }) {
+function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab, access, onUpgrade, onLogin }) {
   const [tab, setTab] = useState(initialTab || 'stocks');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
@@ -1556,22 +1817,30 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           ))}
         </div>
         {tab === 'stocks' && (
-        <button
-          onClick={() => setShowAddModal(true)}
-          title="Add stock to watchlist"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 14px', background: ACCENT, color: '#fff',
-            border: 'none', borderRadius: 8, cursor: 'pointer',
-            fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
-            flexShrink: 0,
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          Add stock
-        </button>
+          access && !access.canEditWatchlist ? (
+            <button onClick={onUpgrade} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 14px', background: '#fff', color: ACCENT,
+              border: '1px solid ' + ACCENT, borderRadius: 8, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
+            }}>🔒 Add own stocks — Pro →</button>
+          ) : (
+            <button
+              onClick={() => setShowAddModal(true)}
+              title="Add stock to watchlist"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '8px 14px', background: ACCENT, color: '#fff',
+                border: 'none', borderRadius: 8, cursor: 'pointer',
+                fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 1v10M1 6h10" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              Add stock
+            </button>
+          )
         )}
       </div>
 
@@ -1581,6 +1850,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           trades={trades} tradesLoading={tradesLoading}
           watchlist={watchlist} watchlistTickers={watchlistTickers}
           onCompanyClick={onCompanyClick} onInsiderClick={onInsiderClick}
+          access={access} onUpgrade={onUpgrade}
           embedded
         />
       )}
@@ -1837,6 +2107,7 @@ function DashboardPage({
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
   countryCounts, onInsiderClick, onCompanyClick,
+  access, onLogin, onUpgrade,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
   const [tradePage, setTradePage] = useState(1);
@@ -2033,6 +2304,9 @@ function DashboardPage({
               onCompanyClick={onCompanyClick}
               page={tradePage}
               onPageChange={setTradePage}
+              access={access}
+              onLogin={onLogin}
+              onUpgrade={onUpgrade}
             />
           ) : (
             <BuybackPrograms rows={filteredBuybacks} loading={buybacksLoading} />
@@ -2351,11 +2625,14 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
 
 // ─── InsidersPage ─────────────────────────────────────────────────────────────
 
-function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick, onCompanyClick }) {
+function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick, onCompanyClick, access, onUpgrade }) {
   const leaderboard = useMemo(() =>
     tradesLoading ? [] : computeInsiderScorecard(trades, performance),
     [trades, performance, tradesLoading]
   );
+  const FREE_LIMIT = 10;
+  const visibleRows  = (access && !access.isPro) ? leaderboard.slice(0, FREE_LIMIT) : leaderboard;
+  const lockedRows   = (access && !access.isPro) ? leaderboard.slice(FREE_LIMIT, FREE_LIMIT + 3) : [];
 
   const rankColors = ['#F59E0B', '#9CA3AF', '#CD7C2F'];
   const isLoading = tradesLoading || perfLoading;
@@ -2418,7 +2695,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.map((ins, i) => {
+                  {visibleRows.map((ins, i) => {
                     const totalTrades = ins.stats.reduce((s, p) => s + p.count, 0);
                     const winRate = ins.combinedWinRate;
                     const avgReturn = ins.combinedAvgReturn;
@@ -2510,9 +2787,31 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
                       </tr>
                     );
                   })}
+
+                  {/* Blurred preview rows for locked insiders */}
+                  {lockedRows.map((ins, i) => (
+                    <tr key={'locked-' + i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      {[...Array(8)].map((_, j) => (
+                        <td key={j} style={{ padding: '12px 14px' }}>
+                          <div style={{
+                            height: 14, borderRadius: 4,
+                            background: '#f0f0f0', filter: 'blur(4px)',
+                            width: [24, 120, 90, 40, 50, 50, 60, 60][j] || 60,
+                          }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+            {lockedRows.length > 0 && (
+              <UpgradeGate
+                title={`Unlock ${leaderboard.length - FREE_LIMIT} more insiders`}
+                sub="Full leaderboard with complete track records"
+                onUpgrade={onUpgrade}
+              />
+            )}
           </div>
         )}
       </div>
@@ -2530,7 +2829,7 @@ const ALERT_TYPES = [
   { key: 'large',          label: '💰 Large' },
 ];
 
-function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded }) {
+function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded, access, onUpgrade }) {
   watchlistTickers = watchlistTickers || new Set();
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -2710,6 +3009,49 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
     (showCluster    && clusterGroups.length === 0) &&
     (showLarge      && largeAlerts.length === 0)
   );
+
+  // Visitor teaser — show counts but not content
+  if (access && !access.canSeeAlerts) {
+    const totalCount = alertIds.size;
+    const teaser = (
+      <div style={{ padding: embedded ? '16px 0' : '32px', maxWidth: 760, margin: '0 auto' }}>
+        {!embedded && (
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>Alerts</h1>
+        )}
+        <div style={{
+          background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
+          overflow: 'hidden',
+        }}>
+          {[
+            { icon: '🔥', label: `${convictionAlerts.length} High Conviction buys` },
+            { icon: '🔄', label: `${clusterGroups.length} Cluster signals` },
+            { icon: '💰', label: `${largeAlerts.length} Large purchases (≥€500K)` },
+            { icon: '⭐', label: `${watchlistAlerts.length} Watchlist transactions` },
+          ].map((item, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 20px', borderBottom: '1px solid #f0f0f0',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 16 }}>{item.icon}</span>
+                <span style={{ fontSize: 13, color: '#374151', filter: 'blur(0)', fontWeight: 500 }}>
+                  <span style={{ filter: 'blur(3px)', userSelect: 'none', marginRight: 4 }}>{item.label.split(' ')[0]}</span>
+                  {item.label.split(' ').slice(1).join(' ')}
+                </span>
+              </div>
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>🔒</span>
+            </div>
+          ))}
+          <UpgradeGate
+            title={`Unlock ${totalCount} alerts`}
+            sub="High conviction buys, cluster signals, large purchases — Pro from €19/month"
+            onUpgrade={onUpgrade}
+          />
+        </div>
+      </div>
+    );
+    return embedded ? teaser : <main style={{ flex: 1, overflowY: 'auto', background: '#fff' }}>{teaser}</main>;
+  }
 
   const inner = (
     <div style={{ maxWidth: embedded ? '100%' : 760, margin: embedded ? 0 : '0 auto', padding: embedded ? 0 : '28px 32px' }}>
@@ -3536,21 +3878,29 @@ function InsightsPage({ trades, tradesLoading }) {
 
 const PLAN_FEATURES_GRID = [
   { category: 'Data Access', rows: [
-    { label: 'Countries covered',       analyst: '3',          strategist: '10',             terminal: 'All 30+' },
-    { label: 'Insider Score',           analyst: 'Full',       strategist: 'Full + history', terminal: 'Full + raw signals' },
-    { label: 'Trade history depth',     analyst: 'Full archive', strategist: 'Full archive', terminal: 'Full archive' },
-    { label: 'Filing latency',          analyst: 'Daily',      strategist: 'Daily',          terminal: 'Daily' },
+    { label: 'Markets covered',         analyst: '13 European',  strategist: '13 European',    terminal: '13 European' },
+    { label: 'Transaction history',     analyst: 'First 50 rows', strategist: 'Full 180 days', terminal: 'Full 180 days' },
+    { label: 'Company page history',    analyst: 'Last 3 trades', strategist: 'Unlimited',      terminal: 'Unlimited' },
+    { label: 'Data updates',            analyst: 'Daily',         strategist: 'Daily',          terminal: 'Daily' },
   ]},
   { category: 'Signals & Alerts', rows: [
-    { label: 'Signal alerts',           analyst: '5 / week',   strategist: 'Unlimited',      terminal: 'Unlimited + webhooks' },
-    { label: 'Cluster buy detection',   analyst: false,        strategist: true,             terminal: true },
-    { label: 'Portfolio alerts',        analyst: false,        strategist: true,             terminal: true },
+    { label: 'Conviction scoring',      analyst: 'First 50 rows', strategist: true,             terminal: true },
+    { label: 'Signal badges (📉 🔁 🔄 📅)', analyst: 'First 50 rows', strategist: true,         terminal: true },
+    { label: 'Alerts feed',             analyst: false,           strategist: true,             terminal: true },
+    { label: 'Cluster buy detection',   analyst: false,           strategist: true,             terminal: true },
+    { label: 'Weekly email digest',     analyst: false,           strategist: 'Coming soon',    terminal: 'Coming soon' },
+    { label: 'Daily email alerts',      analyst: false,           strategist: false,            terminal: 'Coming soon' },
   ]},
-  { category: 'Tools & Export', rows: [
-    { label: 'Top Insiders leaderboard', analyst: true,        strategist: true,             terminal: true },
-    { label: 'Company pages',           analyst: true,         strategist: true,             terminal: true },
-    { label: 'CSV export',              analyst: false,        strategist: true,             terminal: true },
-    { label: 'Portfolio tracker',       analyst: false,        strategist: true,             terminal: true },
+  { category: 'Tools & Research', rows: [
+    { label: 'Top Insiders leaderboard', analyst: 'Top 10',      strategist: 'Full',           terminal: 'Full' },
+    { label: 'Insider performance profiles', analyst: false,     strategist: true,             terminal: true },
+    { label: 'Personal watchlist',      analyst: 'Demo only',    strategist: 'Unlimited',      terminal: 'Unlimited' },
+    { label: 'Buyback program tracking', analyst: true,          strategist: true,             terminal: true },
+    { label: 'Tax calculators',         analyst: true,           strategist: true,             terminal: true },
+  ]},
+  { category: 'Export & API', rows: [
+    { label: 'CSV data export',         analyst: false,           strategist: false,            terminal: 'Coming soon' },
+    { label: 'API access',              analyst: false,           strategist: false,            terminal: 'Coming soon' },
   ]},
 ];
 
@@ -3589,32 +3939,56 @@ function PricingPage() {
 
   const plans = [
     {
-      id: 'analyst', tier: 'The Analyst',
-      tagline: 'For individual investors building conviction',
-      monthly: 14.99, annual: 9.99, highlight: false,
-      bullets: ['3 countries', '12-month history', 'Insider Score', '5 alerts/week'],
+      id: 'free', tier: 'Free',
+      tagline: 'Try it — no account needed',
+      monthly: 0, annual: 0, highlight: false,
+      bullets: [
+        'First 50 insider trades with full data',
+        'Last 3 transactions on company pages',
+        'Top 10 insiders on leaderboard',
+        'Demo watchlist (7 pre-loaded stocks)',
+        'Stock charts with trade markers',
+        'All tax calculators & education',
+        '13 European markets',
+      ],
     },
     {
-      id: 'strategist', tier: 'The Strategist',
-      tagline: 'For serious traders who demand an edge',
-      monthly: 29.99, annual: 19.99, highlight: true,
-      bullets: ['10 countries', '5-year history', 'Real-time alerts', 'Portfolio tracker'],
+      id: 'pro', tier: 'Pro',
+      tagline: 'For investors who want the full picture',
+      monthly: 19, annual: 15, highlight: true,
+      bullets: [
+        'Unlimited insider transactions (180 days)',
+        'Full company transaction history',
+        'Full Top Insiders leaderboard',
+        'Personal watchlist — unlimited stocks',
+        'Full alerts feed (conviction, cluster, large)',
+        'All signal badges & conviction scores',
+        'Insider performance profiles & track records',
+        'Buyback program tracking',
+        'Weekly email digest (coming soon)',
+      ],
     },
     {
-      id: 'terminal', tier: 'The Terminal',
-      tagline: 'Institutional depth, zero compromises',
-      monthly: 39.99, annual: 24.99, highlight: false,
-      bullets: ['All 30+ countries', 'Full archive', 'API access', 'Dedicated manager'],
+      id: 'elite', tier: 'Elite',
+      tagline: 'For power users who need everything',
+      monthly: 49, annual: 39, highlight: false,
+      bullets: [
+        'Everything in Pro',
+        'Daily email alerts',
+        'CSV data export (coming soon)',
+        'API access (coming soon)',
+        'Priority support',
+      ],
     },
   ];
 
-  const annualSave = Math.round((1 - 19.99 / 29.99) * 100);
+  const annualSave = Math.round((1 - 15 / 19) * 100);
 
   const proofItems = [
-    { label: 'Avg return after A+ buy', value: '+31.4%', sub: '12-month window', color: '#16A34A' },
-    { label: 'CEO signal win rate',     value: '74%',    sub: 'last 3 years',    color: ACCENT },
-    { label: 'Trades in database',      value: '1.4M+',  sub: 'across 30 countries', color: '#6B7280' },
-    { label: 'Filing-to-signal',        value: 'Daily',  sub: 'all plans',       color: '#6B7280' },
+    { label: 'Avg 30d return (profitable buys)', value: '+18.8%', sub: 'from our database',  color: '#16A34A' },
+    { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
+    { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
+    { label: 'Markets covered',                   value: '13',    sub: 'European regulators', color: '#6B7280' },
   ];
 
   return (
@@ -3710,17 +4084,23 @@ function PricingPage() {
                   <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 24 }}>{plan.tagline}</div>
 
                   <div style={{ marginBottom: 24, paddingBottom: 22, borderBottom: '1px solid #f0f0f0' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, marginBottom: 4 }}>
-                      <span style={{ fontSize: 28, fontWeight: 700, color: '#6B7280', marginBottom: 6, lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>€</span>
-                      <span style={{ fontSize: 46, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>
-                        {price.toFixed(2)}
-                      </span>
-                      <span style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>/mo</span>
-                    </div>
-                    {billing === 'annual' ? (
-                      <div style={{ fontSize: 12, color: '#9CA3AF' }}>Billed €{(price * 12).toFixed(2)}/year</div>
+                    {plan.monthly === 0 ? (
+                      <div style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>Free</div>
                     ) : (
-                      <div style={{ fontSize: 12, color: '#9CA3AF' }}>Or €{plan.annual.toFixed(2)}/mo billed annually</div>
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, marginBottom: 4 }}>
+                          <span style={{ fontSize: 28, fontWeight: 700, color: '#6B7280', marginBottom: 6, lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>€</span>
+                          <span style={{ fontSize: 46, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'JetBrains Mono', monospace" }}>
+                            {price}
+                          </span>
+                          <span style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>/mo</span>
+                        </div>
+                        {billing === 'annual' ? (
+                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Billed €{(price * 12)}/year</div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Or €{plan.annual}/mo billed annually</div>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -3742,8 +4122,12 @@ function PricingPage() {
                     fontWeight: 600, fontSize: 14, cursor: 'pointer',
                     fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
                     boxShadow: isH ? '0 4px 14px ' + ACCENT + '40' : 'none',
-                  }}>UNLOCK</button>
-                  <div style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>No card required</div>
+                  }}>
+                    {plan.monthly === 0 ? 'Get started free' : plan.id === 'elite' ? 'Start Elite →' : 'Start Pro →'}
+                  </button>
+                  <div style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>
+                    {plan.monthly === 0 ? 'No account required' : 'No card required to start'}
+                  </div>
                 </div>
               </div>
             );
@@ -3781,7 +4165,7 @@ function PricingPage() {
           <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', borderBottom: '2px solid #f0f0f0' }}>
               <div style={{ padding: '16px 20px' }} />
-              {['The Analyst', 'The Strategist', 'The Terminal'].map((name, i) => (
+              {['Free', 'Pro', 'Elite'].map((name, i) => (
                 <div key={i} style={{
                   padding: '16px 20px', textAlign: 'center',
                   borderLeft: '1px solid #f0f0f0',
@@ -3824,9 +4208,12 @@ function PricingPage() {
           <h3 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 20, color: '#0C0F1A', textAlign: 'center' }}>Common questions</h3>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {[
-              { q: 'How is the Insider Score calculated?', a: 'The score weights trade size relative to estimated salary, change in ownership percentage, executive seniority, and whether the purchase followed a significant price drop. Scores update weekly.' },
-              { q: 'How quickly are trades available after filing?', a: 'All trades are processed daily from regulatory filings across 30+ countries.' },
-              { q: 'Can I cancel at any time?', a: 'Yes. Cancel any time from your account settings. Annual plans are refunded pro-rata for unused months.' },
+              { q: 'How many markets do you cover?', a: '13 European markets: Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CNMV, Finanstilsynet, FCA, FSMA, SKAT, etc.).' },
+              { q: 'How far back does data go?', a: 'We maintain a 180-day rolling window of insider transactions across all covered markets. Data is refreshed daily via automated scrapers.' },
+              { q: 'How often is data updated?', a: 'Daily — automated scrapers run every night via GitHub Actions, processing filings published by regulators within the previous 24 hours.' },
+              { q: 'What signals do you track?', a: 'Four signals: Conviction score (trade size × role seniority × timing), Cluster buying (2+ insiders at the same company within 14 days), Repetitive buying (same insider buying multiple times within 14 days), and Price dip (insider bought after a significant drawdown).' },
+              { q: 'How is the Conviction Score calculated?', a: 'It weights transaction size, ownership change percentage, role seniority (CEO/CFO score higher than board members), and whether the purchase followed a price decline. Scores are visible on all trades for Pro and Elite users.' },
+              { q: 'Can I cancel at any time?', a: 'Yes. Cancel any time from your account settings. No long-term commitment required.' },
             ].map((item, i) => <FAQItem key={i} q={item.q} a={item.a} />)}
           </div>
         </div>
@@ -3863,6 +4250,45 @@ export default function App() {
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
   const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
+
+  // ── Auth state ──────────────────────────────────────────────────────────────
+  const [session, setSession] = useState(null);
+  const [userPlan, setUserPlan] = useState('visitor');
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const access = useAccess(userPlan);
+
+  async function fetchUserPlan(userId, userEmail) {
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('plan')
+      .eq('id', userId)
+      .maybeSingle();
+    if (!data) {
+      // New user — create profile
+      await supabase.from('user_profiles').insert({ id: userId, email: userEmail, plan: 'visitor' });
+      setUserPlan('visitor');
+    } else {
+      setUserPlan(data.plan || 'visitor');
+    }
+  }
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s) fetchUserPlan(s.user.id, s.user.email);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      if (s) fetchUserPlan(s.user.id, s.user.email);
+      else setUserPlan('visitor');
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  function handleSignOut() {
+    supabase.auth.signOut();
+    setUserPlan('visitor');
+  }
 
   useEffect(() => {
     try { localStorage.setItem('ia_page', page); } catch {}
@@ -4022,7 +4448,18 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>
-      <TopBar page={page} setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }} search={search} setSearch={setSearch} alertCount={alertCount} />
+      <TopBar
+        page={page}
+        setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }}
+        search={search} setSearch={setSearch}
+        alertCount={alertCount}
+        session={session}
+        isAdmin={access.isAdmin}
+        isElite={access.isElite}
+        onLogin={() => setShowLoginModal(true)}
+        onSignOut={handleSignOut}
+      />
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
           <DashboardPage
@@ -4038,6 +4475,9 @@ export default function App() {
             countryCounts={countryCounts}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
+            access={access}
+            onLogin={() => setShowLoginModal(true)}
+            onUpgrade={() => setPage('pricing')}
           />
         )}
         {page === 'watchlist' && (
@@ -4051,6 +4491,9 @@ export default function App() {
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
             alertCount={alertCount}
+            access={access}
+            onUpgrade={() => setPage('pricing')}
+            onLogin={() => setShowLoginModal(true)}
           />
         )}
         {page === 'insiders' && selectedInsider ? (
@@ -4070,6 +4513,8 @@ export default function App() {
             perfLoading={perfLoading}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
+            access={access}
+            onUpgrade={() => setPage('pricing')}
           />
         )}
         {page === 'insights' && (
@@ -4092,6 +4537,7 @@ export default function App() {
               onBack={handleBack}
               backLabel={backLabel}
               onInsiderClick={handleInsiderClick}
+              access={access}
             />
           </Suspense>
         )}
