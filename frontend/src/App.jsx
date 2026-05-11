@@ -705,10 +705,10 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 32, flexShrink: 0 }}>
         <svg width="28" height="28" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
           <rect width="36" height="36" rx="5" fill="#0f1117"/>
-          <rect x="4" y="6" width="6" height="24" rx="1" fill="white"/>
-          <polygon points="14,30 18,30 26,6 22,6" fill="white"/>
-          <polygon points="22,30 26,30 18,6 14,6" fill="white"/>
-          <rect x="16" y="19" width="8" height="3" fill="#0f1117"/>
+          <rect x="4" y="6" width="6" height="24" fill="white"/>
+          <polygon points="17,6 20,6 24,30 21,30" fill="white"/>
+          <polygon points="17,6 20,6 16,30 13,30" fill="white"/>
+          <rect x="14" y="19" width="9" height="3" fill="white"/>
         </svg>
         <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.02em', color: '#111318' }}>
           InsidersAlpha

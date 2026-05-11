@@ -1,7 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
   <rect width="36" height="36" rx="5" fill="#0f1117"/>
-  <rect x="4" y="6" width="6" height="24" rx="1" fill="white"/>
-  <polygon points="14,30 18,30 26,6 22,6" fill="white"/>
-  <polygon points="22,30 26,30 18,6 14,6" fill="white"/>
-  <rect x="16" y="19" width="8" height="3" fill="#0f1117"/>
+  <!-- I: white vertical bar, left -->
+  <rect x="4" y="6" width="6" height="24" fill="white"/>
+  <!-- A: peak top-center, left leg goes bottom-left, right leg goes bottom-right -->
+  <polygon points="17,6 20,6 24,30 21,30" fill="white"/>
+  <polygon points="17,6 20,6 16,30 13,30" fill="white"/>
+  <!-- A crossbar: solid white bar bridging both legs -->
+  <rect x="14" y="19" width="9" height="3" fill="white"/>
 </svg>
