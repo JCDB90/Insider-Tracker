@@ -94,7 +94,8 @@
 
   <h2>Send a message</h2>
   <div id="success" class="success">✓ Message sent — we'll get back to you within 1–2 business days.</div>
-  <form id="contact-form" action="https://formspree.io/f/placeholder" method="POST">
+  <div id="error" style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px 18px;color:#B91C1C;font-size:14px;margin-bottom:16px;display:none"></div>
+  <form id="contact-form" action="/api/contact" method="POST">
     <div class="form-group">
       <label for="email">Your email</label>
       <input type="email" id="email" name="email" placeholder="you@example.com" required>
@@ -117,18 +118,39 @@
     <button type="submit" class="btn">Send message</button>
   </form>
   <script>
-    document.getElementById('contact-form').addEventListener('submit', function(e) {
+    document.getElementById('contact-form').addEventListener('submit', async function(e) {
       e.preventDefault();
-      // Replace with real Formspree endpoint or backend
       const form = e.target;
-      fetch(form.action, {method:'POST',body:new FormData(form),headers:{'Accept':'application/json'}})
-        .then(r => {
-          document.getElementById('success').style.display = 'block';
-          form.reset();
-        })
-        .catch(() => {
-          window.location.href = 'mailto:hello@insidersalpha.com';
+      const btn  = form.querySelector('button[type="submit"]');
+      const successEl = document.getElementById('success');
+      const errorEl   = document.getElementById('error');
+      btn.textContent = 'Sending…';
+      btn.disabled = true;
+      errorEl.style.display = 'none';
+      try {
+        const res = await fetch('/api/contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email:   document.getElementById('email').value,
+            subject: document.getElementById('subject').value,
+            message: document.getElementById('message').value,
+          }),
         });
+        const data = await res.json();
+        if (res.ok) {
+          successEl.style.display = 'block';
+          form.reset();
+        } else {
+          errorEl.textContent = data.error || 'Something went wrong. Please try again.';
+          errorEl.style.display = 'block';
+        }
+      } catch {
+        errorEl.textContent = 'Network error — please email hello@insidersalpha.com directly.';
+        errorEl.style.display = 'block';
+      }
+      btn.textContent = 'Send message';
+      btn.disabled = false;
     });
   </script>
 </main>
