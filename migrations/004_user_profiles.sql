@@ -21,10 +21,15 @@ CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (
 CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- 4. Auto-create profile on signup via trigger
+-- SECURITY DEFINER + explicit search_path bypasses RLS during the trigger execution
 CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
 BEGIN
-  INSERT INTO user_profiles (id, email, plan)
+  INSERT INTO public.user_profiles (id, email, plan)
   VALUES (NEW.id, NEW.email, 'visitor')
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
