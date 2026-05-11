@@ -1315,8 +1315,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
 const BUYBACK_STALE_DAYS = 90; // programmes with no execution > 90d ago are hidden by default
 
 function BuybackPrograms({ rows, loading }) {
-  const [expanded,     setExpanded]     = useState(new Set());
-  const [showInactive, setShowInactive] = useState(false);
+  const [expanded, setExpanded] = useState(new Set());
   const toggle = key => setExpanded(prev => {
     const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next;
   });
@@ -1389,12 +1388,21 @@ function BuybackPrograms({ rows, loading }) {
     }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
   }, [rows, cutoffDate]);
 
+  // Active = 'Active' or 'Announced'; hide Completed and Expired (stale)
   const programs = useMemo(() =>
-    showInactive ? allPrograms : allPrograms.filter(p => !p.isStale && p.status !== 'Completed'),
-    [allPrograms, showInactive]
+    allPrograms.filter(p => p.status === 'Active' || p.status === 'Announced'),
+    [allPrograms]
   );
 
-  const hiddenCount = allPrograms.length - programs.length;
+  // Group active programs by country for display
+  const byCountry = useMemo(() => {
+    const map = {};
+    for (const p of programs) {
+      if (!map[p.country_code]) map[p.country_code] = [];
+      map[p.country_code].push(p);
+    }
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [programs]);
 
   if (loading) {
     return (
@@ -1412,32 +1420,29 @@ function BuybackPrograms({ rows, loading }) {
   if (programs.length === 0 && !loading) {
     return (
       <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs</div>
-        {hiddenCount > 0 && (
-          <button onClick={() => setShowInactive(true)} style={{
-            marginTop: 10, fontSize: 12, color: ACCENT, background: 'none', border: 'none',
-            cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-          }}>Show {hiddenCount} completed / expired programs</button>
-        )}
+        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs in the current window</div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* Toggle for completed/expired programs */}
-      {hiddenCount > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={() => setShowInactive(v => !v)} style={{
-            fontSize: 12, color: ACCENT, background: 'none', border: '1px solid #f0f0f0',
-            borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-          }}>
-            {showInactive ? `Hide completed/expired` : `Show ${hiddenCount} completed/expired`}
-          </button>
-        </div>
-      )}
-
-      {programs.map(p => {
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {byCountry.map(([cc, cPrograms]) => (
+        <div key={cc}>
+          {/* Country header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Flag code={cc} />
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: '#9CA3AF',
+              textTransform: 'uppercase', letterSpacing: '0.07em',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>{COUNTRY_NAMES[cc] || cc}</span>
+            <span style={{ fontSize: 11, color: '#D1D5DB', fontFamily: "'JetBrains Mono', monospace" }}>
+              {cPrograms.length} program{cPrograms.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {cPrograms.map(p => {
         const isExpanded = expanded.has(p.key);
         const pct = p.completionPct != null ? Number(p.completionPct) : null;
         const statusCfg =
@@ -1590,8 +1595,11 @@ function BuybackPrograms({ rows, loading }) {
               </div>
             )}
           </div>
-        );
-      })}
+          );
+          })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
