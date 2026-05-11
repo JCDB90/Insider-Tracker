@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>High Conviction Insider Buying | InsidersAlpha</title>
+  <meta name="description" content="High Conviction flags the top-scoring insider buy transactions based on purchase size, role seniority, cluster signals, and pre-earnings timing. Only the strongest combined signals reach this threshold.">
+  <meta property="og:title" content="High Conviction Insider Buying | InsidersAlpha">
+  <meta property="og:description" content="High Conviction flags the top-scoring insider buy transactions based on purchase size, role seniority, cluster signals, and pre-earnings timing. Only the strongest combined signals reach this threshold.">
+  <meta property="og:url" content="https://www.insidersalpha.com/signals/high-conviction-insider-buying">
+  <meta property="og:type" content="article">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="High Conviction Insider Buying | InsidersAlpha">
+  <link rel="canonical" href="https://www.insidersalpha.com/signals/high-conviction-insider-buying">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RPT36NKE74"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-RPT36NKE74');</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type":"ListItem","position":1,"name":"InsidersAlpha","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":2,"name":"Signals","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":3,"name":"High Conviction Insider Buying","item":"https://www.insidersalpha.com/signals/high-conviction-insider-buying"}
+    ]
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {"@type":"Question","name":"What is the conviction score?","acceptedAnswer":{"@type":"Answer","text":"The conviction score (0–100) is calculated from the insider's historical performance across four weighted factors: 30-day win rate (25%), 30-day average return (20%), 90-day win rate (35%), and 90-day average return (20%). Scores are capped at outlier returns of +200% to prevent distortion. A score of 60+ is rated 'Strong', 80+ is 'Elite'."}},
+      {"@type":"Question","name":"How common is the High Conviction signal?","acceptedAnswer":{"@type":"Answer","text":"InsidersAlpha identifies roughly 40–60 High Conviction transactions per week across all 13 covered markets. The signal is intentionally selective — applying to approximately 5–10% of all recorded buy transactions."}},
+      {"@type":"Question","name":"What is the average return on High Conviction buys?","acceptedAnswer":{"@type":"Answer","text":"Based on InsidersAlpha's tracked database, profitable High Conviction trades (those with positive 30-day returns) averaged +18.8% at the 30-day mark. This is calculated from actual post-trade performance data with returns capped at +200% to exclude outliers. Past performance does not guarantee future results."}},
+      {"@type":"Question","name":"Can I get email alerts for High Conviction buys?","acceptedAnswer":{"@type":"Answer","text":"Email alerts are on the InsidersAlpha roadmap. Currently, High Conviction buy transactions appear prominently in the Alerts feed (Watchlist tab) and are highlighted throughout the platform. Pro subscribers see all High Conviction transactions in real time."}}
+    ]
+  }</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:15px}
+    a{color:#111318;text-decoration:none}a:hover{text-decoration:underline}
+    .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
+    .nav a{font-size:13px;color:#6B7280}.nav a:hover{color:#111318}
+    .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em;color:#111318;margin-right:auto}
+    .breadcrumb{font-size:12px;color:#9CA3AF;margin-bottom:20px}
+    .breadcrumb a{color:#9CA3AF}.breadcrumb a:hover{color:#111318}
+    .breadcrumb span{margin:0 6px}
+    .wrap{max-width:760px;margin:0 auto;padding:48px 24px 80px}
+    .badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:#f0f0f0;color:#6B7280;border-radius:4px;padding:3px 8px;margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+    h1{font-size:30px;font-weight:700;letter-spacing:-.025em;margin-bottom:12px;line-height:1.2}
+    h2{font-size:18px;font-weight:700;margin:32px 0 12px}
+    h3{font-size:15px;font-weight:600;margin:0 0 6px;color:#111318}
+    p{color:#374151;margin-bottom:14px;line-height:1.7}
+    .lead{font-size:17px;color:#374151;margin-bottom:28px;line-height:1.7}
+    .cta-box{background:#0f1117;border-radius:10px;padding:24px 28px;margin:32px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .cta-box p{color:#9CA3AF;font-size:14px;margin:0}
+    .cta-box strong{display:block;color:#fff;font-size:16px;font-weight:700;margin-bottom:4px}
+    .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:9px 20px;font-size:13px;font-weight:700;font-family:'Inter',sans-serif;white-space:nowrap}
+    .cta-btn:hover{background:#f0f0f0;text-decoration:none}
+    .faq-item{border-bottom:1px solid #f0f0f0;padding:16px 0}
+    .faq-item:last-child{border-bottom:none}
+    .ref-box{background:#f8f8f8;border-left:3px solid #e0e0e0;border-radius:0 6px 6px 0;padding:12px 16px;font-size:13px;color:#6B7280;margin:20px 0}
+    .ref-box em{font-style:normal;font-weight:500;color:#374151}
+    .signal-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .signal-chip{display:inline-flex;align-items:center;gap:6px;background:#f8f8f8;border:1px solid #f0f0f0;border-radius:6px;padding:7px 12px;font-size:13px;font-weight:500;text-decoration:none;color:#374151}
+    .signal-chip:hover{background:#f0f0f0;text-decoration:none}
+    .divider{height:1px;background:#f0f0f0;margin:28px 0}
+    footer{border-top:1px solid #f0f0f0;padding:20px 24px;text-align:center;font-size:12px;color:#9CA3AF}
+    footer a{color:#9CA3AF;margin:0 8px}footer a:hover{color:#111318}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="5" fill="#0f1117"/>
+      <rect x="4" y="6" width="6" height="24" fill="white"/>
+      <polygon points="17,6 20,6 24,30 21,30" fill="white"/>
+      <polygon points="17,6 20,6 16,30 13,30" fill="white"/>
+      <rect x="14" y="19" width="9" height="3" fill="white"/>
+    </svg>
+    InsidersAlpha
+  </a>
+  <a href="/">← Back to app</a>
+</nav>
+
+<main class="wrap">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="/">InsidersAlpha</a><span>›</span>
+    <a href="/methodology">Signals</a><span>›</span>
+    High Conviction Insider Buying
+  </nav>
+
+  <div class="badge">Signal</div>
+  <h1>🔥 Top-Scored PDMR Purchases</h1>
+  <p class="lead">High Conviction is InsidersAlpha's composite signal, firing only when a transaction scores highly across multiple dimensions simultaneously: transaction size relative to the insider's history, role seniority, clustering with peers, and proximity to pre-earnings windows. It identifies the subset of insider buys most likely to carry genuine informational content.</p>
+
+  <div class="cta-box">
+    <div>
+      <strong>See current High Conviction Insider Buying alerts</strong>
+      <p>Live insider transactions with this signal active across 13 European markets.</p>
+    </div>
+    <a href="/" class="cta-btn">View live alerts →</a>
+  </div>
+
+  <h2>How it works</h2>
+  <p>Not all insider purchases are equally meaningful. A board member buying €5,000 of shares in a company with a €5bn market cap is qualitatively different from a CEO buying €500,000 when the stock has just declined 15% and two other executives are buying at the same time. The High Conviction signal is designed to capture this distinction. It combines the conviction score (based on the insider's historical win rate and average returns) with an assessment of the current transaction's characteristics. Transactions reaching the High Conviction threshold have historically produced an average 30-day return of +18.8% for profitable trades in InsidersAlpha's database.</p>
+
+  <h2>Detection methodology</h2>
+  <p>A transaction is flagged as High Conviction when it achieves a combination of: (1) a conviction score of 60 or higher based on the insider's track record, (2) a transaction value that represents a significant position for that individual, and (3) one or more additional signal badges active (cluster, repetitive, or pre-earnings). The label is intentionally conservative — it applies to roughly 5–10% of all buy transactions.</p>
+
+  <div class="divider"></div>
+
+  <h2>Frequently asked questions</h2>
+  <div itemscope itemtype="https://schema.org/FAQPage">
+        <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">What is the conviction score?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">The conviction score (0–100) is calculated from the insider's historical performance across four weighted factors: 30-day win rate (25%), 30-day average return (20%), 90-day win rate (35%), and 90-day average return (20%). Scores are capped at outlier returns of +200% to prevent distortion. A score of 60+ is rated 'Strong', 80+ is 'Elite'.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">How common is the High Conviction signal?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">InsidersAlpha identifies roughly 40–60 High Conviction transactions per week across all 13 covered markets. The signal is intentionally selective — applying to approximately 5–10% of all recorded buy transactions.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">What is the average return on High Conviction buys?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">Based on InsidersAlpha's tracked database, profitable High Conviction trades (those with positive 30-day returns) averaged +18.8% at the 30-day mark. This is calculated from actual post-trade performance data with returns capped at +200% to exclude outliers. Past performance does not guarantee future results.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Can I get email alerts for High Conviction buys?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">Email alerts are on the InsidersAlpha roadmap. Currently, High Conviction buy transactions appear prominently in the Alerts feed (Watchlist tab) and are highlighted throughout the platform. Pro subscribers see all High Conviction transactions in real time.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>Other insider signals</h2>
+  <p>InsidersAlpha tracks five distinct insider trading signals. They can fire independently or in combination — co-occurrence of multiple signals on the same transaction is associated with higher conviction.</p>
+  <div class="signal-grid">
+    <a href="/signals/cluster-buying" class="signal-chip">🔄 Cluster Buying</a>
+    <a href="/signals/repeated-insider-buying" class="signal-chip">🔁 Repetitive Buying</a>
+    <a href="/signals/insider-buying-after-price-decline" class="signal-chip">📉 Buying After Price Decline</a>
+    <a href="/signals/pre-earnings-insider-buying" class="signal-chip">📅 Pre-Earnings Buying</a>
+  </div>
+  <p style="margin-top:16px;font-size:14px">See our <a href="/methodology" style="font-weight:500">methodology page</a> for a full explanation of how all signals are calculated.</p>
+</main>
+
+<footer>
+  © 2026 InsidersAlpha &nbsp;·&nbsp;
+  <a href="/about">About</a>
+  <a href="/methodology">Methodology</a>
+  <a href="/disclaimer">Disclaimer</a>
+  <a href="/privacy">Privacy</a>
+  <a href="/terms">Terms</a>
+  <a href="/contact">Contact</a>
+</footer>
+</body>
+</html>

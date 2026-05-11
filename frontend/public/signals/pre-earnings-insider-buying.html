@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pre-Earnings Insider Buying Signal | InsidersAlpha</title>
+  <meta name="description" content="Pre-earnings buying flags insiders who purchase shares 30–60 days before a known earnings date — just before the typical blackout period begins. Research shows CEO/CFO buys in this window carry 2–3× stronger predictive power.">
+  <meta property="og:title" content="Pre-Earnings Insider Buying Signal | InsidersAlpha">
+  <meta property="og:description" content="Pre-earnings buying flags insiders who purchase shares 30–60 days before a known earnings date — just before the typical blackout period begins. Research shows CEO/CFO buys in this window carry 2–3× stronger predictive power.">
+  <meta property="og:url" content="https://www.insidersalpha.com/signals/pre-earnings-insider-buying">
+  <meta property="og:type" content="article">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Pre-Earnings Insider Buying Signal | InsidersAlpha">
+  <link rel="canonical" href="https://www.insidersalpha.com/signals/pre-earnings-insider-buying">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RPT36NKE74"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-RPT36NKE74');</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type":"ListItem","position":1,"name":"InsidersAlpha","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":2,"name":"Signals","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":3,"name":"Pre-Earnings Insider Buying","item":"https://www.insidersalpha.com/signals/pre-earnings-insider-buying"}
+    ]
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {"@type":"Question","name":"Why is the window 30–60 days and not closer to earnings?","acceptedAnswer":{"@type":"Answer","text":"Most companies impose a 30-day pre-announcement trading blackout on insiders. A purchase made fewer than 30 days before earnings would likely violate company policy and is excluded. The 30–60 day window captures the last available trading window before insiders are locked out — making each purchase there more deliberate."}},
+      {"@type":"Question","name":"How complete is the earnings calendar coverage?","acceptedAnswer":{"@type":"Answer","text":"Earnings calendar coverage is currently strongest for Norwegian stocks (via Oslo Børs official data). Coverage for other European markets is incomplete. InsidersAlpha only fires the pre-earnings signal when earnings date data is confirmed — we do not estimate or infer earnings dates."}},
+      {"@type":"Question","name":"Does this signal work for sells as well as buys?","acceptedAnswer":{"@type":"Answer","text":"No. Insider sells before earnings could reflect simple diversification or contractual obligations. The predictive value documented in academic literature is specific to purchases. InsidersAlpha only fires the pre-earnings badge on buy transactions."}},
+      {"@type":"Question","name":"What research supports this signal?","acceptedAnswer":{"@type":"Answer","text":"Ke, Huddart & Petroni (2003) — 'What Insiders Know About Future Earnings and How They Use It' — documented that executives who sell shares before negative earnings surprises earn significantly higher abnormal returns. Seyhun (1998) found insider purchases 3–9 months before large earnings surprises generated 2–3× the abnormal returns of purchases at other times."}}
+    ]
+  }</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:15px}
+    a{color:#111318;text-decoration:none}a:hover{text-decoration:underline}
+    .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
+    .nav a{font-size:13px;color:#6B7280}.nav a:hover{color:#111318}
+    .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em;color:#111318;margin-right:auto}
+    .breadcrumb{font-size:12px;color:#9CA3AF;margin-bottom:20px}
+    .breadcrumb a{color:#9CA3AF}.breadcrumb a:hover{color:#111318}
+    .breadcrumb span{margin:0 6px}
+    .wrap{max-width:760px;margin:0 auto;padding:48px 24px 80px}
+    .badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:#f0f0f0;color:#6B7280;border-radius:4px;padding:3px 8px;margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+    h1{font-size:30px;font-weight:700;letter-spacing:-.025em;margin-bottom:12px;line-height:1.2}
+    h2{font-size:18px;font-weight:700;margin:32px 0 12px}
+    h3{font-size:15px;font-weight:600;margin:0 0 6px;color:#111318}
+    p{color:#374151;margin-bottom:14px;line-height:1.7}
+    .lead{font-size:17px;color:#374151;margin-bottom:28px;line-height:1.7}
+    .cta-box{background:#0f1117;border-radius:10px;padding:24px 28px;margin:32px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .cta-box p{color:#9CA3AF;font-size:14px;margin:0}
+    .cta-box strong{display:block;color:#fff;font-size:16px;font-weight:700;margin-bottom:4px}
+    .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:9px 20px;font-size:13px;font-weight:700;font-family:'Inter',sans-serif;white-space:nowrap}
+    .cta-btn:hover{background:#f0f0f0;text-decoration:none}
+    .faq-item{border-bottom:1px solid #f0f0f0;padding:16px 0}
+    .faq-item:last-child{border-bottom:none}
+    .ref-box{background:#f8f8f8;border-left:3px solid #e0e0e0;border-radius:0 6px 6px 0;padding:12px 16px;font-size:13px;color:#6B7280;margin:20px 0}
+    .ref-box em{font-style:normal;font-weight:500;color:#374151}
+    .signal-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .signal-chip{display:inline-flex;align-items:center;gap:6px;background:#f8f8f8;border:1px solid #f0f0f0;border-radius:6px;padding:7px 12px;font-size:13px;font-weight:500;text-decoration:none;color:#374151}
+    .signal-chip:hover{background:#f0f0f0;text-decoration:none}
+    .divider{height:1px;background:#f0f0f0;margin:28px 0}
+    footer{border-top:1px solid #f0f0f0;padding:20px 24px;text-align:center;font-size:12px;color:#9CA3AF}
+    footer a{color:#9CA3AF;margin:0 8px}footer a:hover{color:#111318}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="5" fill="#0f1117"/>
+      <rect x="4" y="6" width="6" height="24" fill="white"/>
+      <polygon points="17,6 20,6 24,30 21,30" fill="white"/>
+      <polygon points="17,6 20,6 16,30 13,30" fill="white"/>
+      <rect x="14" y="19" width="9" height="3" fill="white"/>
+    </svg>
+    InsidersAlpha
+  </a>
+  <a href="/">← Back to app</a>
+</nav>
+
+<main class="wrap">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="/">InsidersAlpha</a><span>›</span>
+    <a href="/methodology">Signals</a><span>›</span>
+    Pre-Earnings Insider Buying
+  </nav>
+
+  <div class="badge">Signal</div>
+  <h1>📅 Buying Before the Blackout Window</h1>
+  <p class="lead">Pre-earnings buying is triggered when an insider purchases shares 30 to 60 days before a known upcoming earnings date — the window just before most companies impose a self-enforced trading blackout. An executive buying in this compressed window, knowing they will soon be locked out, is taking a deliberate, time-sensitive position.</p>
+
+  <div class="cta-box">
+    <div>
+      <strong>See current Pre-Earnings Insider Buying alerts</strong>
+      <p>Live insider transactions with this signal active across 13 European markets.</p>
+    </div>
+    <a href="/" class="cta-btn">View live alerts →</a>
+  </div>
+
+  <h2>How it works</h2>
+  <p>Most public companies impose internal trading blackout periods in the 30 days before earnings announcements. This means an insider buying 30–60 days before earnings is buying as close to the blackout as MAR and company policy permit. Research by Seyhun (1998) and Ke, Huddart &amp; Petroni (2003) found that CEO and CFO purchases made 3–9 months before large earnings surprises generate abnormal returns 2–3 times larger than purchases at other times. The pre-earnings window captures insiders who are buying with maximum informational advantage — they know the upcoming results — and maximum urgency — they won't be able to buy once the blackout begins.</p>
+
+  <h2>Detection methodology</h2>
+  <p>InsidersAlpha cross-references each buy transaction date against our earnings calendar (sourced from Oslo Børs and supplemented where available). If a transaction falls within the 30-to-60-day window before the next known earnings date, the pre-earnings badge is applied. Transactions within 30 days of earnings are excluded as they likely fall inside the blackout window and may be programmatic or plan-based.</p>
+
+  <div class="divider"></div>
+
+  <h2>Frequently asked questions</h2>
+  <div itemscope itemtype="https://schema.org/FAQPage">
+        <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Why is the window 30–60 days and not closer to earnings?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">Most companies impose a 30-day pre-announcement trading blackout on insiders. A purchase made fewer than 30 days before earnings would likely violate company policy and is excluded. The 30–60 day window captures the last available trading window before insiders are locked out — making each purchase there more deliberate.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">How complete is the earnings calendar coverage?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">Earnings calendar coverage is currently strongest for Norwegian stocks (via Oslo Børs official data). Coverage for other European markets is incomplete. InsidersAlpha only fires the pre-earnings signal when earnings date data is confirmed — we do not estimate or infer earnings dates.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Does this signal work for sells as well as buys?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">No. Insider sells before earnings could reflect simple diversification or contractual obligations. The predictive value documented in academic literature is specific to purchases. InsidersAlpha only fires the pre-earnings badge on buy transactions.</p>
+      </div>
+    </div>
+    <div class="faq-item" itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+      <h3 itemprop="name">What research supports this signal?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <p itemprop="text">Ke, Huddart & Petroni (2003) — 'What Insiders Know About Future Earnings and How They Use It' — documented that executives who sell shares before negative earnings surprises earn significantly higher abnormal returns. Seyhun (1998) found insider purchases 3–9 months before large earnings surprises generated 2–3× the abnormal returns of purchases at other times.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>Other insider signals</h2>
+  <p>InsidersAlpha tracks five distinct insider trading signals. They can fire independently or in combination — co-occurrence of multiple signals on the same transaction is associated with higher conviction.</p>
+  <div class="signal-grid">
+    <a href="/signals/cluster-buying" class="signal-chip">🔄 Cluster Buying</a>
+    <a href="/signals/repeated-insider-buying" class="signal-chip">🔁 Repetitive Buying</a>
+    <a href="/signals/insider-buying-after-price-decline" class="signal-chip">📉 Buying After Price Decline</a>
+    <a href="/signals/high-conviction-insider-buying" class="signal-chip">🔥 High Conviction</a>
+  </div>
+  <p style="margin-top:16px;font-size:14px">See our <a href="/methodology" style="font-weight:500">methodology page</a> for a full explanation of how all signals are calculated.</p>
+</main>
+
+<footer>
+  © 2026 InsidersAlpha &nbsp;·&nbsp;
+  <a href="/about">About</a>
+  <a href="/methodology">Methodology</a>
+  <a href="/disclaimer">Disclaimer</a>
+  <a href="/privacy">Privacy</a>
+  <a href="/terms">Terms</a>
+  <a href="/contact">Contact</a>
+</footer>
+</body>
+</html>

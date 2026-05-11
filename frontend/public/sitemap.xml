@@ -105,4 +105,31 @@
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
+
+  <!-- Signal pages -->
+  <url>
+    <loc>https://www.insidersalpha.com/signals/cluster-buying</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.insidersalpha.com/signals/repeated-insider-buying</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.insidersalpha.com/signals/insider-buying-after-price-decline</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.insidersalpha.com/signals/pre-earnings-insider-buying</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.insidersalpha.com/signals/high-conviction-insider-buying</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
 </urlset>
