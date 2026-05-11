@@ -11,6 +11,19 @@
     { "source": "/privacy",     "destination": "/privacy.html" },
     { "source": "/terms",       "destination": "/terms.html" },
     { "source": "/contact",     "destination": "/contact.html" },
+    { "source": "/market/germany-insider-transactions",     "destination": "/market/germany-insider-transactions.html" },
+    { "source": "/market/france-insider-transactions",      "destination": "/market/france-insider-transactions.html" },
+    { "source": "/market/sweden-insider-transactions",      "destination": "/market/sweden-insider-transactions.html" },
+    { "source": "/market/netherlands-insider-transactions", "destination": "/market/netherlands-insider-transactions.html" },
+    { "source": "/market/belgium-insider-transactions",     "destination": "/market/belgium-insider-transactions.html" },
+    { "source": "/market/spain-insider-transactions",       "destination": "/market/spain-insider-transactions.html" },
+    { "source": "/market/italy-insider-transactions",       "destination": "/market/italy-insider-transactions.html" },
+    { "source": "/market/norway-insider-transactions",      "destination": "/market/norway-insider-transactions.html" },
+    { "source": "/market/denmark-insider-transactions",     "destination": "/market/denmark-insider-transactions.html" },
+    { "source": "/market/finland-insider-transactions",     "destination": "/market/finland-insider-transactions.html" },
+    { "source": "/market/switzerland-insider-transactions", "destination": "/market/switzerland-insider-transactions.html" },
+    { "source": "/market/united-kingdom-insider-transactions", "destination": "/market/united-kingdom-insider-transactions.html" },
+    { "source": "/market/south-korea-insider-transactions", "destination": "/market/south-korea-insider-transactions.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
