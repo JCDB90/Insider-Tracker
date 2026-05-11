@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32">
-  <!-- Icon mark -->
-  <rect width="32" height="32" rx="7" fill="#0f1117"/>
-  <text x="16" y="22.5" font-family="Inter, -apple-system, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle" fill="white" letter-spacing="-0.5">IA</text>
-  <!-- Wordmark -->
-  <text x="42" y="21" font-family="Inter, -apple-system, Arial, sans-serif" font-size="15" font-weight="700" fill="#0f1117" letter-spacing="-0.3">InsidersAlpha</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark outer background -->
+  <rect width="32" height="32" rx="6" fill="#0f1117"/>
+  <!-- White inner — letters punch through this -->
+  <rect x="2" y="2" width="28" height="28" rx="4" fill="white"/>
+  <!-- I — vertical bar -->
+  <rect x="5.5" y="7.5" width="4.5" height="17" rx="0.5" fill="#0f1117"/>
+  <!-- A — left leg -->
+  <line x1="14" y1="24.5" x2="20.5" y2="7.5" stroke="#0f1117" stroke-width="3.5" stroke-linecap="butt"/>
+  <!-- A — right leg -->
+  <line x1="27" y1="24.5" x2="20.5" y2="7.5" stroke="#0f1117" stroke-width="3.5" stroke-linecap="butt"/>
+  <!-- A — crossbar -->
+  <rect x="16.5" y="17" width="8" height="2.5" fill="#0f1117"/>
 </svg>
