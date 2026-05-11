@@ -44,7 +44,10 @@ function LoginModal({ onClose }) {
       if (err) setError(err.message);
       else onClose();
     } else {
-      const { error: err } = await supabase.auth.signUp({ email, password });
+      const { error: err } = await supabase.auth.signUp({
+        email, password,
+        options: { emailRedirectTo: 'https://www.insidersalpha.com' },
+      });
       if (err) setError(err.message);
       else setDone('Check your email to confirm your account, then sign in.');
     }
@@ -54,7 +57,7 @@ function LoginModal({ onClose }) {
   async function handleGoogle() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: 'https://www.insidersalpha.com' },
     });
   }
 
