@@ -3900,6 +3900,42 @@ function InsightsPage({ trades, tradesLoading }) {
         {showEducation && (
           <div style={{ marginBottom: 20 }}>
             <SectionLabel>Education</SectionLabel>
+            {/* Article links */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              {[
+                {
+                  title: 'How to Read European Insider Trading Disclosures (MAR Art.19)',
+                  desc: 'Understand the EU legal framework behind insider disclosures and how to interpret each field.',
+                  href: '/articles/how-to-read-european-insider-trading-disclosures',
+                  tag: 'Guide',
+                },
+                {
+                  title: 'What is Cluster Buying? How Multiple Insiders Signal Conviction',
+                  desc: 'Learn how to identify and interpret coordinated insider buying across a company.',
+                  href: '/articles/what-is-cluster-buying',
+                  tag: 'Signal',
+                },
+              ].map((a, i) => (
+                <a key={i} href={a.href} style={{
+                  display: 'flex', flexDirection: 'column', gap: 6,
+                  background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+                  padding: '14px 16px', textDecoration: 'none',
+                  transition: 'border-color 0.12s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#d0d0d0'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#f0f0f0'}
+                >
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+                    background: '#f0f0f0', color: '#6B7280', borderRadius: 3, padding: '2px 6px',
+                    width: 'fit-content', fontFamily: "'JetBrains Mono', monospace",
+                  }}>{a.tag}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111318', lineHeight: 1.4 }}>{a.title}</span>
+                  <span style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>{a.desc}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: ACCENT, marginTop: 2 }}>Read article →</span>
+                </a>
+              ))}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {EDUCATION_ITEMS.map((item, i) => {
                 const isOpen = openEdu === i;
