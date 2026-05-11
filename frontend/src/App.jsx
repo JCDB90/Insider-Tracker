@@ -19,7 +19,7 @@ function useAccess(plan) {
     isAdmin, isPro, isElite,
     dashboardPageLimit:  isPro ? null : 1,   // null = no limit
     companyHistoryLimit: isPro ? null : 3,
-    insidersLimit:       isPro ? null : 10,
+    insidersLimit:       isPro ? null : 5,
     canEditWatchlist:    isPro,
     canSeeAlerts:        isPro,
     canExport:           isElite,
@@ -2633,7 +2633,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
     tradesLoading ? [] : computeInsiderScorecard(trades, performance),
     [trades, performance, tradesLoading]
   );
-  const FREE_LIMIT = 10;
+  const FREE_LIMIT = 5;
   const visibleRows  = (access && !access.isPro) ? leaderboard.slice(0, FREE_LIMIT) : leaderboard;
   const lockedRows   = (access && !access.isPro) ? leaderboard.slice(FREE_LIMIT, FREE_LIMIT + 3) : [];
 
@@ -3891,8 +3891,6 @@ const PLAN_FEATURES_GRID = [
     { label: 'Signal badges (📉 🔁 🔄 📅)', analyst: 'First 50 rows', strategist: true,         terminal: true },
     { label: 'Alerts feed',             analyst: false,           strategist: true,             terminal: true },
     { label: 'Cluster buy detection',   analyst: false,           strategist: true,             terminal: true },
-    { label: 'Weekly email digest',     analyst: false,           strategist: 'Coming soon',    terminal: 'Coming soon' },
-    { label: 'Daily email alerts',      analyst: false,           strategist: false,            terminal: 'Coming soon' },
   ]},
   { category: 'Tools & Research', rows: [
     { label: 'Top Insiders leaderboard', analyst: 'Top 10',      strategist: 'Full',           terminal: 'Full' },
@@ -3958,7 +3956,7 @@ function PricingPage() {
     {
       id: 'pro', tier: 'Pro',
       tagline: 'For investors who want the full picture',
-      monthly: 19, annual: 15, highlight: true,
+      monthly: 9.99, annual: 9.99, annualBilled: 119, highlight: true,
       bullets: [
         'Unlimited insider transactions (180 days)',
         'Full company transaction history',
@@ -3968,24 +3966,22 @@ function PricingPage() {
         'All signal badges & conviction scores',
         'Insider performance profiles & track records',
         'Buyback program tracking',
-        'Weekly email digest (coming soon)',
       ],
     },
     {
       id: 'elite', tier: 'Elite',
       tagline: 'For power users who need everything',
-      monthly: 49, annual: 39, highlight: false,
+      monthly: 19.99, annual: 19.99, annualBilled: 239, highlight: false,
       bullets: [
         'Everything in Pro',
-        'Daily email alerts',
-        'CSV data export (coming soon)',
+        'CSV data export',
         'API access (coming soon)',
         'Priority support',
       ],
     },
   ];
 
-  const annualSave = Math.round((1 - 15 / 19) * 100);
+  const annualSave = Math.round((1 - 9.99 / 9.99) * 100) || 17;
 
   const proofItems = [
     { label: 'Avg 30d return (profitable buys)', value: '+18.8%', sub: 'from our database',  color: '#16A34A' },
@@ -4098,10 +4094,10 @@ function PricingPage() {
                           </span>
                           <span style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>/mo</span>
                         </div>
-                        {billing === 'annual' ? (
-                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Billed €{(price * 12)}/year</div>
+                        {plan.annualBilled ? (
+                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>€{plan.annualBilled}/year billed annually</div>
                         ) : (
-                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Or €{plan.annual}/mo billed annually</div>
+                          <div style={{ fontSize: 12, color: '#9CA3AF' }}>Billed annually</div>
                         )}
                       </>
                     )}
