@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How to Read European Insider Trading Disclosures (MAR Art.19) | InsidersAlpha</title>
+  <meta name="description" content="A practical guide to reading MAR Article 19 PDMR transaction disclosures. What the fields mean, which regulators publish them, and what to look for.">
+  <meta property="og:title" content="How to Read European Insider Trading Disclosures (MAR Art.19)">
+  <meta property="og:description" content="A practical guide to reading MAR Article 19 PDMR transaction disclosures across 13 European markets.">
+  <meta property="og:url" content="https://www.insidersalpha.com/articles/how-to-read-european-insider-trading-disclosures">
+  <meta property="og:type" content="article">
+  <link rel="canonical" href="https://www.insidersalpha.com/articles/how-to-read-european-insider-trading-disclosures">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RPT36NKE74"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-RPT36NKE74');</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "How to Read European Insider Trading Disclosures (MAR Art.19)",
+    "description": "A practical guide to reading MAR Article 19 PDMR transaction disclosures across 13 European markets.",
+    "url": "https://www.insidersalpha.com/articles/how-to-read-european-insider-trading-disclosures",
+    "publisher": {"@type": "Organization", "name": "InsidersAlpha", "url": "https://www.insidersalpha.com"},
+    "datePublished": "2026-05-01",
+    "dateModified": "2026-05-01"
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type":"ListItem","position":1,"name":"InsidersAlpha","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":2,"name":"Articles","item":"https://www.insidersalpha.com/articles"},
+      {"@type":"ListItem","position":3,"name":"How to Read European Insider Trading Disclosures","item":"https://www.insidersalpha.com/articles/how-to-read-european-insider-trading-disclosures"}
+    ]
+  }</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:16px}
+    a{color:#111318}a:hover{text-decoration:underline}
+    .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
+    .nav a{font-size:13px;color:#6B7280}.nav a:hover{color:#111318}
+    .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em;color:#111318;margin-right:auto}
+    .breadcrumb{font-size:12px;color:#9CA3AF;margin-bottom:24px}
+    .breadcrumb a{color:#9CA3AF}.breadcrumb a:hover{color:#111318}
+    .breadcrumb span{margin:0 6px}
+    .wrap{max-width:680px;margin:0 auto;padding:48px 24px 80px}
+    .meta{display:flex;gap:16px;align-items:center;margin-bottom:32px;font-size:13px;color:#9CA3AF}
+    .tag{background:#f0f0f0;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-family:'JetBrains Mono',monospace;color:#6B7280}
+    h1{font-size:32px;font-weight:700;letter-spacing:-.03em;line-height:1.2;margin-bottom:16px}
+    h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:36px 0 14px}
+    h3{font-size:16px;font-weight:600;margin:24px 0 8px}
+    p{color:#374151;margin-bottom:18px;line-height:1.75}
+    ul,ol{color:#374151;padding-left:22px;margin-bottom:18px}
+    li{margin-bottom:8px;line-height:1.7}
+    .lede{font-size:18px;color:#374151;line-height:1.7;margin-bottom:28px;font-weight:400}
+    .callout{background:#f8f8f8;border-left:3px solid #0f1117;border-radius:0 8px 8px 0;padding:14px 18px;margin:24px 0;font-size:15px;color:#374151}
+    .callout strong{color:#111318}
+    table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}
+    th{text-align:left;padding:9px 12px;border-bottom:2px solid #f0f0f0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9CA3AF}
+    td{padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#374151;vertical-align:top}
+    td:first-child{font-weight:500;color:#111318;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:13px}
+    .cta-box{background:#0f1117;border-radius:10px;padding:24px 28px;margin:36px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .cta-box p{color:#9CA3AF;font-size:13px;margin:0}
+    .cta-box strong{display:block;color:#fff;font-size:15px;font-weight:700;margin-bottom:4px}
+    .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none}
+    .cta-btn:hover{background:#f0f0f0;text-decoration:none}
+    .divider{height:1px;background:#f0f0f0;margin:32px 0}
+    .related{background:#f8f8f8;border-radius:10px;padding:20px 24px;margin-top:36px}
+    .related h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;margin:0 0 12px;font-family:'JetBrains Mono',monospace}
+    .related-links{display:flex;flex-direction:column;gap:8px}
+    .related-links a{font-size:14px;font-weight:500;color:#111318;text-decoration:none}
+    .related-links a:hover{text-decoration:underline}
+    footer{border-top:1px solid #f0f0f0;padding:20px 24px;text-align:center;font-size:12px;color:#9CA3AF}
+    footer a{color:#9CA3AF;margin:0 8px}footer a:hover{color:#111318}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="5" fill="#0f1117"/>
+      <rect x="4" y="6" width="6" height="24" fill="white"/>
+      <polygon points="17,6 20,6 24,30 21,30" fill="white"/>
+      <polygon points="17,6 20,6 16,30 13,30" fill="white"/>
+      <rect x="14" y="19" width="9" height="3" fill="white"/>
+    </svg>
+    InsidersAlpha
+  </a>
+  <a href="/">← Back to app</a>
+</nav>
+
+<main class="wrap">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="/">InsidersAlpha</a><span>›</span>
+    <a href="/methodology">Education</a><span>›</span>
+    MAR Article 19 Guide
+  </nav>
+
+  <div class="meta">
+    <span class="tag">Education</span>
+    <span>8 min read</span>
+    <span>Updated May 2026</span>
+  </div>
+
+  <h1>How to Read European Insider Trading Disclosures (MAR Art.&nbsp;19)</h1>
+
+  <p class="lede">Every executive at a European listed company is legally required to report their personal stock trades to a financial regulator within three business days. Here is how those filings work, what the fields mean, and which databases publish them.</p>
+
+  <h2>The legal foundation</h2>
+
+  <p>EU Regulation 596/2014 — the Market Abuse Regulation, known universally as MAR — created a unified disclosure framework across the European Economic Area. Article 19 is the specific provision that covers managerial transactions: it requires that <em>persons discharging managerial responsibilities</em> (PDMRs) and their closely associated persons report any personal transaction in the company's financial instruments to the national competent authority within three business days of execution.</p>
+
+  <p>Before MAR came into force in July 2016, each EU country had its own disclosure rules with different timelines, thresholds, and formats. MAR standardised the obligation. The €5,000 annual threshold below which transactions need not be reported is the same in France, Germany, Sweden, and every other EEA member state.</p>
+
+  <div class="callout">
+    <strong>Who must report:</strong> PDMRs include board members, executive directors, CFOs, CEOs, and any person with regular access to inside information and decision-making authority. Closely associated persons include spouses, dependent children, and companies controlled by a PDMR.
+  </div>
+
+  <h2>The standard notification form</h2>
+
+  <p>ESMA (the European Securities and Markets Authority) publishes a standard notification template that all Article 19 filings must use. The form has seven sections. Understanding each section is the key to reading a filing correctly.</p>
+
+  <table>
+    <thead><tr><th>Section</th><th>What it contains</th></tr></thead>
+    <tbody>
+      <tr><td>1. Person</td><td>Full name of the PDMR or closely associated person making the notification</td></tr>
+      <tr><td>2. Reason</td><td>Position/status (CEO, board member, etc.) and whether this is the initial notification or an amendment</td></tr>
+      <tr><td>3. Issuer</td><td>Company name and Legal Entity Identifier (LEI)</td></tr>
+      <tr><td>4. Transaction</td><td>Description of the financial instrument (share, option, convertible, etc.) and ISIN code</td></tr>
+      <tr><td>5. Nature</td><td>Transaction type: acquisition (buy) or disposal (sell), plus any specific type (market transaction, off-market, grant, vesting)</td></tr>
+      <tr><td>6. Details</td><td>Date, volume, price, and total value of the transaction. Multiple transactions in a single filing each appear as a separate line.</td></tr>
+      <tr><td>7. Aggregated</td><td>Running total of all transactions reported in the same notification (if multiple lines)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The raw filings are often in PDF or XML format. InsidersAlpha parses and normalises these fields across all 13 covered markets so you can compare a French AMF filing with a Norwegian Finanstilsynet filing in the same table.</p>
+
+  <h2>What "closely associated person" means in practice</h2>
+
+  <p>A significant portion of disclosures come from "closely associated persons" rather than the PDMR directly. This usually means one of three scenarios: a spouse or domestic partner trading through a joint account, a family trust or holding company making the purchase, or an adult dependent child with their own brokerage account.</p>
+
+  <p>The practical significance for an investor is limited — the economic exposure is the same. However, it is worth noting that a PDMR's personal holding company buying shares has the same disclosure obligation and informational content as the PDMR buying directly. InsidersAlpha captures both and links the entity to the underlying person where the regulator provides that information.</p>
+
+  <h2>Where filings are published by market</h2>
+
+  <p>Despite the unified ESMA form, each country's regulator maintains its own database. There is no single pan-European filing portal. The main ones:</p>
+
+  <ul>
+    <li><strong><a href="/market/germany-insider-transactions">Germany (BaFin)</a></strong> — published as XML feeds via the BaFin Directors' Dealings database. High volume; many German filings involve Beteiligungs (holding company) structures.</li>
+    <li><strong><a href="/market/france-insider-transactions">France (AMF)</a></strong> — available via the AMF's transaction search API. French filings often use "personne liée" (closely associated person) structures.</li>
+    <li><strong><a href="/market/sweden-insider-transactions">Sweden</a>, <a href="/market/norway-insider-transactions">Norway</a>, <a href="/market/denmark-insider-transactions">Denmark</a>, <a href="/market/finland-insider-transactions">Finland</a></strong> — distributed through the Nasdaq Nordic news system and accessible via a centralised API. Coverage includes both Main Market and First North companies.</li>
+    <li><strong><a href="/market/netherlands-insider-transactions">Netherlands (AFM)</a></strong> — published as XML exports. Large Dutch companies like ASML and Adyen are sometimes cross-listed and their disclosures may also appear in other jurisdictions.</li>
+    <li><strong><a href="/market/united-kingdom-insider-transactions">United Kingdom (FCA)</a></strong> — the UK retained the substance of MAR post-Brexit. Filings are published via the FCA's National Storage Mechanism (NSM).</li>
+  </ul>
+
+  <h2>The fields investors actually care about</h2>
+
+  <p>When you open a raw filing, most of the form is boilerplate. The four fields that carry real information are:</p>
+
+  <ol>
+    <li><strong>Transaction type.</strong> "Acquisition" (buy) carries more information than "Disposal" (sell). Insiders sell for many reasons — diversification, tax planning, mortgage, lifestyle — but buying with personal cash is an active decision to increase exposure.</li>
+    <li><strong>Price.</strong> A purchase at market price (within a few percent of the day's close) is more informative than a grant or vesting event at a nominally low exercise price. Grants are excluded from InsidersAlpha's buy transaction analysis for this reason.</li>
+    <li><strong>Volume relative to company size.</strong> A €10,000 purchase at a company with a €50m market cap is proportionally much more significant than the same amount at a DAX 40 company. Raw transaction value is a starting point; percentage of outstanding shares or relative to estimated compensation is more meaningful.</li>
+    <li><strong>Timing.</strong> When did the transaction occur relative to earnings dates, price movements, and other insiders' activity? A purchase the day after a 20% drawdown tells a different story than one at an all-time high.</li>
+  </ol>
+
+  <div class="cta-box">
+    <div>
+      <strong>Browse live European insider filings</strong>
+      <p>InsidersAlpha normalises disclosures from all 13 markets into a single searchable table with conviction scoring.</p>
+    </div>
+    <a href="/" class="cta-btn">View live transactions →</a>
+  </div>
+
+  <h2>Common traps when reading filings</h2>
+
+  <p><strong>Grants and vestings.</strong> A PDMR "acquiring" shares at £0.001 per share via a long-term incentive plan is not the same as buying at market. These appear as acquisitions in the raw data but involve no cash outlay and no expression of conviction about the current stock price. Always check the price field.</p>
+
+  <p><strong>Off-market transactions.</strong> Some filings record transfers between related accounts — for example, a PDMR moving shares from a personal account to a family trust. These are technically disclosable but economically irrelevant: no cash changes hands and no external counterparty is involved.</p>
+
+  <p><strong>Currency mismatches.</strong> A Norwegian executive's transaction is filed in NOK, a Swiss filing in CHF. When comparing transaction sizes across markets, currency conversion matters. InsidersAlpha converts all values to a EUR equivalent for cross-market comparison.</p>
+
+  <div class="divider"></div>
+
+  <div class="related">
+    <h3>Related reading</h3>
+    <div class="related-links">
+      <a href="/methodology">Full InsidersAlpha methodology — data sources and scoring model</a>
+      <a href="/signals/cluster-buying">What is cluster buying and why it matters</a>
+      <a href="/signals/high-conviction-insider-buying">How the conviction score is calculated</a>
+      <a href="/market/germany-insider-transactions">Germany insider transactions — BaFin database</a>
+      <a href="/market/france-insider-transactions">France insider transactions — AMF database</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  © 2026 InsidersAlpha &nbsp;·&nbsp;
+  <a href="/about">About</a>
+  <a href="/methodology">Methodology</a>
+  <a href="/disclaimer">Disclaimer</a>
+  <a href="/privacy">Privacy</a>
+  <a href="/terms">Terms</a>
+  <a href="/contact">Contact</a>
+</footer>
+</body>
+</html>

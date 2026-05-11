@@ -29,7 +29,8 @@
     { "source": "/signals/insider-buying-after-price-decline", "destination": "/signals/insider-buying-after-price-decline.html" },
     { "source": "/signals/pre-earnings-insider-buying",        "destination": "/signals/pre-earnings-insider-buying.html" },
     { "source": "/signals/high-conviction-insider-buying",     "destination": "/signals/high-conviction-insider-buying.html" },
-    { "source": "/company/:slug",  "destination": "/company/:slug.html" },
+    { "source": "/company/:slug",   "destination": "/company/:slug.html" },
+    { "source": "/articles/:slug",  "destination": "/articles/:slug.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
