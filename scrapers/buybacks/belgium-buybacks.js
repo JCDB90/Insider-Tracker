@@ -129,6 +129,7 @@ async function scrapeBEBuybacks() {
       dbRows.push({
         filing_id:      filingId,
         country_code:   COUNTRY_CODE,
+        ticker:         '',           // NOT NULL in DB — overwritten below if ISIN resolves
         company:        item.companyName || null,
         announced_date: pubDate,
         execution_date: pubDate,

@@ -424,6 +424,7 @@ async function scrapeNordicBuybacks() {
     const row = {
       filing_id:      filingId,
       country_code:   countryCode,
+      ticker:         '',           // NOT NULL in DB — overwritten below if ISIN resolves
       company:        item.company || null,
       announced_date: result.program_start || execDate,
       execution_date: execDate,
