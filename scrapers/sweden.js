@@ -140,7 +140,8 @@ async function fetchPage(from, to, page) {
   $('tbody tr').each((_, tr) => {
     const c = $(tr).find('td').map((_, td) => $(td).text().trim()).get();
     if (c.length < 13) return;
-    rows.push({ company: c[1], insider: c[2], position: c[3], nature: c[5],
+    // c[4] = closely associated entity name or "Yes" — captured for logging/future use
+    rows.push({ company: c[1], insider: c[2], position: c[3], closely: c[4] || null, nature: c[5],
                 isin: c[8], txDateStr: c[9], volume: c[10], price: c[12], currency: c[13] || 'SEK' });
   });
   return rows;
@@ -180,8 +181,10 @@ async function scrapeSE() {
   console.log(`  ${allRaw.length} rows from ${page} page(s)`);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
 
+  const { looksLikeCorp } = require('./lib/entityUtils');
   const seen = new Set();
   const dbRows = [];
+  let corpFilings = 0;
   for (const r of allRaw) {
     const txDate = parseSEDate(r.txDateStr);
     if (!txDate || txDate < co) continue;
@@ -192,6 +195,14 @@ async function scrapeSE() {
     const fid  = `SE-${r.isin || 'X'}-${txIso}-${slug}-${Math.round(shares||0)}`;
     if (seen.has(fid)) continue;
     seen.add(fid);
+
+    // Log closely-associated or corporate entity filings for visibility
+    // (looksLikeCorp rows will be dropped by saveInsiderTransactions — log here first)
+    if (r.insider && looksLikeCorp(r.insider)) {
+      console.log(`  ⚠  Corp entity insider: "${r.insider}" @ ${r.company} on ${txIso} (type: ${r.nature}, closely: ${r.closely || 'n/a'})`);
+      corpFilings++;
+    }
+
     dbRows.push({
       filing_id: fid, country_code: COUNTRY_CODE,
       ticker: getTicker(r.company), _isin: r.isin || null,
@@ -204,6 +215,7 @@ async function scrapeSE() {
       source: SOURCE,
     });
   }
+  if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (will be dropped by db filter)`);
 
   console.log(`  ${dbRows.length} unique rows`);
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }

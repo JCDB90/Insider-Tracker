@@ -23,6 +23,10 @@ on:
         description: 'Single country code to test (NL, DE, FR …) — leave empty to run all'
         required: false
         default: ''
+      lookback_days:
+        description: 'Override LOOKBACK_DAYS for all scrapers (default: each scraper's own default)'
+        required: false
+        default: ''
 
 # Pass Supabase credentials to every step via env
 env:
@@ -30,6 +34,7 @@ env:
   SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
   DART_API_KEY: ${{ secrets.DART_API_KEY }}
   NODE_ENV: production
+  LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
 
 jobs:
   scrape:
