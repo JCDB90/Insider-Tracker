@@ -25,7 +25,7 @@ const { isinToTicker }        = require('../lib/isinToTicker');
 
 const COUNTRY_CODE     = 'BE';
 const SOURCE           = 'FSMA STORI';
-const RETENTION_DAYS   = parseInt(process.env.LOOKBACK_DAYS || '90');
+const RETENTION_DAYS   = parseInt(process.env.LOOKBACK_DAYS || '365');
 const PAGE_SIZE        = 50;
 const DELAY_MS         = 300;
 const BUYBACK_TYPE_ID  = 'fd1dc80a-b4a6-4878-acbd-362e00f693c9';

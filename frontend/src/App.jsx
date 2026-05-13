@@ -1372,7 +1372,12 @@ function BuybackPrograms({ rows, loading }) {
       // Discard bogus completion values (>150% = programme max was extracted wrong)
       const completionPct = rawPct != null && rawPct <= 150 ? rawPct : null;
 
-      const isStale = lastDate < cutoffDate;
+      // A program is stale only if it has no future end date AND no recent execution.
+      // Programs with program_end in the future stay Active even if execution is old.
+      const today = new Date().toISOString().slice(0, 10);
+      const programEnd = enriched?.program_end || latest?.program_end || null;
+      const hasFutureEnd = programEnd && programEnd >= today;
+      const isStale = !hasFutureEnd && lastDate < cutoffDate;
       const status  = completionPct >= 95  ? 'Completed'
                     : latest?.status === 'Announced' ? 'Announced'
                     : isStale ? 'Expired'
@@ -1480,8 +1485,8 @@ function BuybackPrograms({ rows, loading }) {
                 </div>
               </div>
 
-              {/* Row 2: progress bar — only when completion_pct is known */}
-              {pct != null && (
+              {/* Row 2: progress bar */}
+              {pct != null ? (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <span style={{ fontSize: 12, color: '#6B7280' }}>
@@ -1500,13 +1505,55 @@ function BuybackPrograms({ rows, loading }) {
                       background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
                   </div>
                 </div>
-              )}
+              ) : p.programMax ? (
+                /* Known program size but no completion % — show max authorized + indeterminate bar */
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+                      {p.spentCumul
+                        ? <>{formatValue(p.spentCumul, p.currency)} <span>of {formatValue(p.programMax, p.currency)}</span></>
+                        : <>Max {formatValue(p.programMax, p.currency)}</>}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>In progress</span>
+                  </div>
+                  <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: '100%',
+                      background: `repeating-linear-gradient(90deg, ${ACCENT}33 0px, ${ACCENT}66 20px, ${ACCENT}33 40px)`,
+                      borderRadius: 4 }} />
+                  </div>
+                </div>
+              ) : p.status === 'Active' || p.status === 'Announced' ? (
+                /* No size data — show a thin activity indicator */
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ height: 4, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: '60%',
+                      background: p.status === 'Announced' ? `${ACCENT}55` : `${ACCENT}88`,
+                      borderRadius: 4 }} />
+                  </div>
+                </div>
+              ) : null}
 
-              {/* Row 3: stats */}
+              {/* Row 3: stats — Started · Last filing · shares · price */}
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                {p.firstDate && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Started</div>
+                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {formatDateShort(p.firstDate)}
+                    </div>
+                  </div>
+                )}
+                {p.lastDate && (
+                  <div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Last filing</div>
+                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {formatDateShort(p.lastDate)}
+                    </div>
+                  </div>
+                )}
                 {p.cumShares > 0 && (
                   <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Total Shares</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Shares bought</div>
                     <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
                       {p.cumShares.toLocaleString('en-US')}
                     </div>
@@ -1514,20 +1561,12 @@ function BuybackPrograms({ rows, loading }) {
                 )}
                 {p.avgPrice != null && (
                   <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Latest Avg Price</div>
+                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Avg price</div>
                     <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
                       {formatPrice(p.avgPrice, p.currency)}
                     </div>
                   </div>
                 )}
-                <div>
-                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Period</div>
-                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {p.firstDate
-                      ? `${formatDateShort(p.firstDate)} → ${p.lastDate ? formatDateShort(p.lastDate) : 'Ongoing'}`
-                      : '—'}
-                  </div>
-                </div>
                 {p.executionCount > 0 && (
                   <div>
                     <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Reports</div>
@@ -2042,7 +2081,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                         color: b.status === 'Announced' ? ACCENT : '#D97706',
                       }}>{b.status || 'Active'}</span>
                     </div>
-                    {pct != null && (
+                    {pct != null ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ flex: 1, height: 4, background: '#f0f0f0', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
                           <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 2 }} />
@@ -2054,13 +2093,27 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                           </span>
                         )}
                       </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ flex: 1, height: 4, background: '#f0f0f0', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
+                          <div style={{ height: '100%', width: '60%',
+                            background: `repeating-linear-gradient(90deg, ${ACCENT}44 0px, ${ACCENT}88 20px, ${ACCENT}44 40px)`,
+                            borderRadius: 2 }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>
+                          {b.total_value ? formatValue(b.total_value, b.currency) + ' max' : 'In progress'}
+                        </span>
+                      </div>
                     )}
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                      {b.announced_date && <span style={{ fontSize: 11, color: '#9CA3AF' }}>Started {formatDateShort(b.announced_date)}</span>}
+                      {b.execution_date && b.execution_date !== b.announced_date && <span style={{ fontSize: 11, color: '#9CA3AF' }}>· Last filing {formatDateShort(b.execution_date)}</span>}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
-                      {b.cumulative_shares ? Number(b.cumulative_shares).toLocaleString('en-US') + ' shares' : formatValue(b.total_value, b.currency)}
+                      {b.cumulative_shares ? Number(b.cumulative_shares).toLocaleString('en-US') + ' sh' : formatValue(b.total_value, b.currency)}
                     </div>
-                    <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{formatDateShort(b.announced_date)}</div>
                   </div>
                 </div>
               );
