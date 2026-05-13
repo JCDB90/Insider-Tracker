@@ -36,6 +36,10 @@ jobs:
         continue-on-error: true
         run: node scrapers/buybacks/nordic-buybacks.js
 
+      - name: 🇧🇪 Belgium Buybacks (FSMA STORI)
+        continue-on-error: true
+        run: node scrapers/buybacks/belgium-buybacks.js
+
       - name: 📋 Watchlist IR Monitor (keyword detector)
         continue-on-error: true
         run: node scrapers/buybacks/watchlist-buybacks.js
