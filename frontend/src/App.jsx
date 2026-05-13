@@ -1312,7 +1312,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
 
 // ─── BuybackPrograms — grouped accordion view ─────────────────────────────────
 
-const BUYBACK_STALE_DAYS = 90; // programmes with no execution > 90d ago are hidden by default
+const BUYBACK_STALE_DAYS = 90;
 
 function BuybackPrograms({ rows, loading }) {
   const [expanded, setExpanded] = useState(new Set());
@@ -1325,7 +1325,9 @@ function BuybackPrograms({ rows, loading }) {
     return d.toISOString().slice(0, 10);
   }, []);
 
-  // Group rows by country_code + normalised company name
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Group rows by country_code + company
   const allPrograms = useMemo(() => {
     const groups = {};
     for (const row of rows) {
@@ -1333,73 +1335,64 @@ function BuybackPrograms({ rows, loading }) {
       if (!groups[key]) groups[key] = { key, company: row.company, ticker: row.ticker || '', country_code: row.country_code, currency: row.currency, executions: [] };
       groups[key].executions.push(row);
     }
+
     return Object.values(groups).map(g => {
       const sorted = [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
       const latest = sorted[0];
 
-      // Use the row with completion_pct as the "enriched" row for programme data.
-      // total_value is reliable as programme max only when completion_pct is set —
-      // otherwise it might be a legacy weekly execution value.
-      const enriched = sorted.find(r => r.completion_pct != null) || null;
+      // Best row for programme-level metadata (has completion_pct, or any with total_value)
+      const enriched = sorted.find(r => r.completion_pct != null)
+                    || sorted.find(r => r.total_value)
+                    || null;
 
-      const programMax = enriched ? (Number(enriched.total_value) || null) : null;
-      const spentCumul = enriched
-        ? (Number(enriched.spent_value || enriched.cumulative_value) || null)
-        : null;
-      const cumShares = enriched ? (Number(enriched.cumulative_shares) || null) : null;
+      const programMax   = Number(enriched?.total_value)  || null;
+      const spentCumul   = Number(enriched?.spent_value || enriched?.cumulative_value) || null;
+      const cumShares    = Number(enriched?.cumulative_shares) || null;
+      const programEnd   = sorted.find(r => r.program_end)?.program_end || null;
 
-      // For shares display: prefer cumulative_shares from enriched row, else sum weekly
-      const execRows  = g.executions.filter(r => r.shares_bought != null);
+      // Shares: prefer cumulative_shares, else sum weekly shares_bought
+      const execRows  = sorted.filter(r => r.shares_bought != null);
       const sumShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
       const totalShares = cumShares || (sumShares > 0 ? sumShares : null);
 
-      // Avg price from latest execution that has one
-      const avgPrice = Number(latest?.avg_price) || null;
-
-      // Programme start = earliest announced_date (set to program_start by scraper)
-      // Programme latest = most recent execution_date
-      const announcedDates = g.executions.map(r => r.announced_date).filter(Boolean).sort();
-      const execDates      = g.executions.map(r => r.execution_date).filter(Boolean).sort();
+      // Dates: start = earliest announced_date; last = most recent execution_date
+      const announcedDates = sorted.map(r => r.announced_date).filter(Boolean).sort();
+      const execDates      = sorted.map(r => r.execution_date).filter(Boolean).sort();
       const firstDate = announcedDates[0] || execDates[0];
       const lastDate  = execDates[execDates.length - 1] || announcedDates[announcedDates.length - 1];
 
-      // completion_pct: use enriched value; derive from spent/max if both available
+      // completion_pct
       const rawPct = enriched?.completion_pct ?? (
         programMax && spentCumul && programMax > 0
-          ? Math.round((spentCumul / programMax) * 1000) / 10
-          : null
+          ? Math.round((spentCumul / programMax) * 1000) / 10 : null
       );
-      // Discard bogus completion values (>150% = programme max was extracted wrong)
-      const completionPct = rawPct != null && rawPct <= 150 ? rawPct : null;
+      const completionPct = rawPct != null && rawPct > 0 && rawPct <= 150 ? rawPct : null;
 
-      // A program is stale only if it has no future end date AND no recent execution.
-      // Programs with program_end in the future stay Active even if execution is old.
-      const today = new Date().toISOString().slice(0, 10);
-      const programEnd = enriched?.program_end || latest?.program_end || null;
+      // Status: only Active reaches the card — Expired/Completed are filtered
       const hasFutureEnd = programEnd && programEnd >= today;
       const isStale = !hasFutureEnd && lastDate < cutoffDate;
-      const status  = completionPct >= 95  ? 'Completed'
-                    : latest?.status === 'Announced' ? 'Announced'
-                    : isStale ? 'Expired'
-                    : 'Active';
+      const status = completionPct >= 95 ? 'Completed'
+                   : isStale            ? 'Expired'
+                   : latest?.status === 'Active' ? 'Active'
+                   : 'Expired'; // treat Announced/unknown as Expired
 
       return {
-        ...g,
-        programMax, spentCumul, cumShares: totalShares, avgPrice,
-        firstDate, lastDate, executionCount: execRows.length,
-        completionPct, status, isStale,
+        ...g, programMax, spentCumul, cumShares: totalShares,
+        firstDate, lastDate, programEnd,
+        executionCount: execRows.length,
+        completionPct, status,
         executions: sorted,
       };
     }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
-  }, [rows, cutoffDate]);
+  }, [rows, cutoffDate, today]);
 
-  // Active = 'Active' or 'Announced'; hide Completed and Expired (stale)
+  // Show ONLY Active programs with execution in last 90 days OR future program_end
   const programs = useMemo(() =>
-    allPrograms.filter(p => p.status === 'Active' || p.status === 'Announced'),
+    allPrograms.filter(p => p.status === 'Active'),
     [allPrograms]
   );
 
-  // Group active programs by country for display
+  // Group by country — country header only when 3+ programs
   const byCountry = useMemo(() => {
     const map = {};
     for (const p of programs) {
@@ -1409,233 +1402,241 @@ function BuybackPrograms({ rows, loading }) {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
   }, [programs]);
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '18px 20px' }}>
-            <div style={{ height: 14, width: 200, background: '#f0f0f0', borderRadius: 4, marginBottom: 10 }} />
-            <div style={{ height: 6, width: '60%', background: '#f0f0f0', borderRadius: 3, marginBottom: 8 }} />
-            <div style={{ height: 12, width: 280, background: '#f0f0f0', borderRadius: 4 }} />
+  if (loading) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '16px 20px' }}>
+          <div style={{ height: 14, width: 220, background: '#f0f0f0', borderRadius: 4, marginBottom: 10 }} />
+          <div style={{ height: 6, width: '65%', background: '#f0f0f0', borderRadius: 3, marginBottom: 10 }} />
+          <div style={{ display: 'flex', gap: 20 }}>
+            {[100, 80, 90, 50].map((w, j) => <div key={j} style={{ height: 28, width: w, background: '#f0f0f0', borderRadius: 4 }} />)}
           </div>
-        ))}
-      </div>
-    );
-  }
-  if (programs.length === 0 && !loading) {
-    return (
-      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs in the current window</div>
-      </div>
-    );
-  }
+        </div>
+      ))}
+    </div>
+  );
+
+  if (programs.length === 0) return (
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
+      <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs in the current window</div>
+    </div>
+  );
+
+  const LABEL = { fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 };
+  const VALUE = { fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' };
+  const VALUE_MUTED = { ...VALUE, color: '#6B7280', fontWeight: 400, fontSize: 12 };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {byCountry.map(([cc, cPrograms]) => (
         <div key={cc}>
-          {/* Country header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Flag code={cc} />
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: '#9CA3AF',
-              textTransform: 'uppercase', letterSpacing: '0.07em',
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>{COUNTRY_NAMES[cc] || cc}</span>
-            <span style={{ fontSize: 11, color: '#D1D5DB', fontFamily: "'JetBrains Mono', monospace" }}>
-              {cPrograms.length} program{cPrograms.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {cPrograms.map(p => {
-        const isExpanded = expanded.has(p.key);
-        const pct = p.completionPct != null ? Number(p.completionPct) : null;
-        const statusCfg =
-          p.status === 'Completed' ? { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' } :
-          p.status === 'Expired'   ? { bg: '#F9FAFB', color: '#9CA3AF', border: '#E5E7EB' } :
-          p.status === 'Announced' ? { bg: '#EEF2FF', color: ACCENT,    border: '#C7D2FE' } :
-                                     { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' };
-
-        return (
-          <div key={p.key} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
-            {/* ── Program card header ─────────────────────────────────── */}
-            <div
-              onClick={() => toggle(p.key)}
-              style={{ padding: '16px 20px', cursor: 'pointer', userSelect: 'none' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-              onMouseLeave={e => e.currentTarget.style.background = ''}
-            >
-              {/* Row 1: flag + company + status */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <Flag code={p.country_code} />
-                  <div style={{ minWidth: 0 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14, color: '#111318', marginRight: 8 }}>
-                      {p.company || '—'}
-                    </span>
-                    {p.ticker && <span style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>({p.ticker})</span>}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  <span style={{
-                    fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                    background: statusCfg.bg, color: statusCfg.color, border: '1px solid ' + statusCfg.border,
-                  }}>{p.status}</span>
-                  <span style={{ fontSize: 12, color: '#9CA3AF' }}>{isExpanded ? '▲' : '▼'}</span>
-                </div>
-              </div>
-
-              {/* Row 2: progress bar */}
-              {pct != null ? (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: '#6B7280' }}>
-                      {p.spentCumul && p.programMax
-                        ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
-                        : p.programMax
-                          ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span>
-                          : null}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 95 ? '#16A34A' : ACCENT, fontFamily: "'JetBrains Mono', monospace" }}>
-                      {pct.toFixed(1)}% complete
-                    </span>
-                  </div>
-                  <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.min(100, pct)}%`,
-                      background: pct >= 95 ? '#16A34A' : ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
-                  </div>
-                </div>
-              ) : p.programMax ? (
-                /* Known program size but no completion % — show max authorized + indeterminate bar */
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-                      {p.spentCumul
-                        ? <>{formatValue(p.spentCumul, p.currency)} <span>of {formatValue(p.programMax, p.currency)}</span></>
-                        : <>Max {formatValue(p.programMax, p.currency)}</>}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>In progress</span>
-                  </div>
-                  <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: '100%',
-                      background: `repeating-linear-gradient(90deg, ${ACCENT}33 0px, ${ACCENT}66 20px, ${ACCENT}33 40px)`,
-                      borderRadius: 4 }} />
-                  </div>
-                </div>
-              ) : p.status === 'Active' || p.status === 'Announced' ? (
-                /* No size data — show a thin activity indicator */
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ height: 4, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: '60%',
-                      background: p.status === 'Announced' ? `${ACCENT}55` : `${ACCENT}88`,
-                      borderRadius: 4 }} />
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Row 3: stats — Started · Last filing · shares · price */}
-              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                {p.firstDate && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Started</div>
-                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
-                      {formatDateShort(p.firstDate)}
-                    </div>
-                  </div>
-                )}
-                {p.lastDate && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Last filing</div>
-                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace" }}>
-                      {formatDateShort(p.lastDate)}
-                    </div>
-                  </div>
-                )}
-                {p.cumShares > 0 && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Shares bought</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
-                      {p.cumShares.toLocaleString('en-US')}
-                    </div>
-                  </div>
-                )}
-                {p.avgPrice != null && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Avg price</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
-                      {formatPrice(p.avgPrice, p.currency)}
-                    </div>
-                  </div>
-                )}
-                {p.executionCount > 0 && (
-                  <div>
-                    <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 1 }}>Reports</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>{p.executionCount}</div>
-                  </div>
-                )}
-              </div>
+          {/* Country header — only when 3+ programs */}
+          {cPrograms.length >= 3 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Flag code={cc} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', fontFamily: "'JetBrains Mono', monospace" }}>
+                {COUNTRY_NAMES[cc] || cc}
+              </span>
+              <span style={{ fontSize: 11, color: '#D1D5DB', fontFamily: "'JetBrains Mono', monospace" }}>
+                {cPrograms.length} programs
+              </span>
             </div>
+          )}
 
-            {/* ── Expanded execution rows ─────────────────────────────── */}
-            {isExpanded && (
-              <div style={{ borderTop: '1px solid #f0f0f0' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                      {['Date', 'Shares', 'Avg Price', 'Daily Value', 'Progress'].map((h, i) => (
-                        <th key={h} style={{
-                          padding: '7px 16px', fontSize: 10, fontWeight: 600, color: '#9CA3AF',
-                          letterSpacing: '0.06em', textTransform: 'uppercase',
-                          textAlign: i >= 1 && i <= 3 ? 'right' : 'left',
-                        }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {p.executions.map((ex, i) => (
-                      <tr key={ex.id ?? i}
-                        style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #f0f0f0' : 'none' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}
-                      >
-                        <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
-                          {formatDateShort(ex.execution_date || ex.announced_date)}
-                        </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {ex.shares_bought != null ? Number(ex.shares_bought).toLocaleString('en-US') : '—'}
-                        </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {ex.avg_price != null ? formatPrice(ex.avg_price, ex.currency) : '—'}
-                        </td>
-                        <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {formatValue(ex.total_value, ex.currency)}
-                        </td>
-                        <td style={{ padding: '7px 16px' }}>
-                          {ex.completion_pct != null ? (
-                            <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>
-                              {Number(ex.completion_pct).toFixed(1)}%
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {p.executions[0]?.filing_url && (
-                  <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f0f0' }}>
-                    <a href={p.executions[0].filing_url} target="_blank" rel="noopener noreferrer"
-                      style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}>
-                      View latest filing ↗
-                    </a>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {cPrograms.map(p => {
+              const isExpanded = expanded.has(p.key);
+              const pct = p.completionPct != null ? Number(p.completionPct) : null;
+              const showPctBar  = pct != null && pct > 0 && pct < 100;
+              const showDoneBar = pct != null && pct >= 100;
+              const futureEnd   = p.programEnd && p.programEnd > today;
+
+              return (
+                <div key={p.key} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+                  {/* ── Card header (clickable to expand) ─────────────── */}
+                  <div
+                    onClick={() => toggle(p.key)}
+                    style={{ padding: '14px 18px', cursor: 'pointer', userSelect: 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
+                    {/* Row 1: flag (if no country header) + company + ticker + chevron */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        {cPrograms.length < 3 && <Flag code={p.country_code} />}
+                        <span style={{ fontWeight: 700, fontSize: 14, color: '#111318', marginRight: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {p.company || '—'}
+                        </span>
+                        {p.ticker && (
+                          <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF', flexShrink: 0 }}>
+                            {p.ticker}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 12, color: '#D1D5DB', flexShrink: 0, marginLeft: 8 }}>
+                        {isExpanded ? '▲' : '▼'}
+                      </span>
+                    </div>
+
+                    {/* Row 2: progress bar */}
+                    {showDoneBar ? (
+                      // 100% complete
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#6B7280' }}>
+                            {p.spentCumul && p.programMax
+                              ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
+                              : p.programMax ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span> : null}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#16A34A', fontFamily: "'JetBrains Mono', monospace" }}>
+                            {pct.toFixed(1)}% complete
+                          </span>
+                        </div>
+                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: '100%', background: '#16A34A', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    ) : showPctBar ? (
+                      // Known % 0-99
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#6B7280' }}>
+                            {p.spentCumul && p.programMax
+                              ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
+                              : p.programMax ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span> : null}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: ACCENT, fontFamily: "'JetBrains Mono', monospace" }}>
+                            {pct.toFixed(1)}% complete
+                          </span>
+                        </div>
+                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
+                        </div>
+                      </div>
+                    ) : p.programMax ? (
+                      // Max known, no pct — striped "in progress"
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+                            {p.spentCumul
+                              ? <>{formatValue(p.spentCumul, p.currency)} <span>of {formatValue(p.programMax, p.currency)}</span></>
+                              : <>Max {formatValue(p.programMax, p.currency)}</>}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>In progress</span>
+                        </div>
+                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: '100%',
+                            background: `repeating-linear-gradient(90deg, ${ACCENT}28 0px, ${ACCENT}55 18px, ${ACCENT}28 36px)`,
+                            borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    ) : (
+                      // No size data — thin activity line
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ height: 4, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: '55%', background: `${ACCENT}77`, borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Row 3: 4 canonical metadata fields */}
+                    <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
+                      {/* STARTED */}
+                      <div style={{ minWidth: 80, marginRight: 20 }}>
+                        <div style={LABEL}>Started</div>
+                        <div style={VALUE_MUTED}>{p.firstDate ? formatDateShort(p.firstDate) : '—'}</div>
+                      </div>
+                      {/* LAST FILING */}
+                      <div style={{ minWidth: 80, marginRight: 20 }}>
+                        <div style={LABEL}>Last filing</div>
+                        <div style={VALUE_MUTED}>{p.lastDate ? formatDateShort(p.lastDate) : '—'}</div>
+                      </div>
+                      {/* SHARES BOUGHT */}
+                      <div style={{ minWidth: 90, marginRight: 20 }}>
+                        <div style={LABEL}>Shares bought</div>
+                        <div style={VALUE}>
+                          {p.cumShares != null && p.cumShares > 0
+                            ? p.cumShares.toLocaleString('en-US')
+                            : '—'}
+                        </div>
+                      </div>
+                      {/* REPORTS — only if >0 */}
+                      {p.executionCount > 0 && (
+                        <div style={{ minWidth: 56, marginRight: 20 }}>
+                          <div style={LABEL}>Reports</div>
+                          <div style={VALUE}>{p.executionCount}</div>
+                        </div>
+                      )}
+                      {/* ENDS — only if program_end is in the future */}
+                      {futureEnd && (
+                        <div style={{ minWidth: 90 }}>
+                          <div style={LABEL}>Ends</div>
+                          <div style={{ ...VALUE_MUTED, color: '#374151' }}>{formatDateShort(p.programEnd)}</div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-          );
-          })}
+
+                  {/* ── Expanded execution detail table ─────────────────── */}
+                  {isExpanded && (
+                    <div style={{ borderTop: '1px solid #f0f0f0' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+                            {['Date', 'Shares', 'Avg Price', 'Value', 'Completion'].map((h, i) => (
+                              <th key={h} style={{
+                                padding: '7px 16px', fontSize: 10, fontWeight: 600, color: '#9CA3AF',
+                                letterSpacing: '0.06em', textTransform: 'uppercase',
+                                textAlign: i === 0 ? 'left' : 'right',
+                              }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.executions.map((ex, i) => (
+                            <tr key={ex.id ?? i}
+                              style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                              onMouseLeave={e => e.currentTarget.style.background = ''}
+                            >
+                              <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+                                {formatDateShort(ex.execution_date || ex.announced_date)}
+                              </td>
+                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {ex.shares_bought != null && ex.shares_bought > 0 ? Number(ex.shares_bought).toLocaleString('en-US') : '—'}
+                              </td>
+                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {ex.avg_price != null ? formatPrice(ex.avg_price, ex.currency) : '—'}
+                              </td>
+                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                {formatValue(ex.total_value, ex.currency)}
+                              </td>
+                              <td style={{ padding: '7px 16px', textAlign: 'right' }}>
+                                {ex.completion_pct != null && ex.completion_pct > 0 ? (
+                                  <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>
+                                    {Number(ex.completion_pct).toFixed(1)}%
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {p.executions[0]?.filing_url && (
+                        <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f0f0' }}>
+                          <a href={p.executions[0].filing_url} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}>
+                            View latest filing ↗
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
