@@ -240,7 +240,8 @@ function parseBuybackText(text, pub) {
 
   // Validate: avgPrice shouldn't exceed share count
   if (sharesBought && avgPrice && avgPrice > sharesBought) {
-    [sharesBought, avgPrice] = [avgPrice, sharesBought];
+    // Re-round after swap: shares_bought is bigint in DB, must be integer
+    [sharesBought, avgPrice] = [Math.round(avgPrice), sharesBought];
   }
 
   // ── Cumulative totals ─────────────────────────────────────────────────────────
