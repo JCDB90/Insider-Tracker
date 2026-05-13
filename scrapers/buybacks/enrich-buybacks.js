@@ -110,12 +110,14 @@ function parseProgramMax(text) {
   if (!text) return null;
   const CCY = '(SEK|EUR|DKK|NOK|ISK|GBP|USD)';
   const prefixRe = /(?:total\s+maximum\s+amount\s+of\s+|for\s+a\s+(?:total\s+)?(?:maximum\s+)?amount\s+of\s+(?:up\s+to\s+)?|up\s+to\s+(?:a\s+total\s+(?:maximum\s+)?amount\s+of\s+)?|aggregate\s+consideration\s+of\s+up\s+to\s+|programme\s+of\s+up\s+to\s+|of\s+up\s+to\s+)/i;
-  // "CCY X,XXX,XXX" or "X,XXX,XXX CCY"
-  let m = text.match(new RegExp(prefixRe.source + CCY + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?', 'i'));
-  if (!m) m = text.match(new RegExp(prefixRe.source + '([\\d,. ]+)\\s*(million|billion|mn|bn)?\\s*' + CCY, 'i'));
+  // "CCY X,XXX,XXX [million]" — groups: 1=CCY, 2=number, 3=mult
+  const m1 = text.match(new RegExp(prefixRe.source + CCY + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?', 'i'));
+  // "X,XXX,XXX [million] CCY" — groups: 1=number, 2=mult, 3=CCY
+  const m2 = text.match(new RegExp(prefixRe.source + '([\\d,. ]+)\\s*(million|billion|mn|bn)?\\s*' + CCY, 'i'));
+  const m = m1 || m2;
   if (!m) return null;
-  const numStr = m === text.match(new RegExp(prefixRe.source + CCY + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?', 'i')) ? m[2] : m[1];
-  const mult_s = m[3] || '';
+  const numStr  = m1 ? m[2] : m[1];
+  const mult_s  = m1 ? (m[3] || '') : (m[2] || '');
   const mult = /billion|bn/i.test(mult_s) ? 1e9 : /million|mn/i.test(mult_s) ? 1e6 : 1;
   const n = parseFloat(String(numStr).replace(/[\s,]/g, '').replace(/\.$/, ''));
   if (!isNaN(n) && n * mult > 10000) return Math.round(n * mult);
