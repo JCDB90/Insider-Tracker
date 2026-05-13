@@ -316,18 +316,29 @@ async function enrichBuybacks() {
     for (const r of prog.rows) {
       const upd = {};
 
+      // Sanity-check dates: start must be within last 5 years, not > 6mo future
+      const today = new Date().toISOString().slice(0, 10);
+      const maxFuture = new Date(); maxFuture.setMonth(maxFuture.getMonth() + 6);
+      const maxFutureStr = maxFuture.toISOString().slice(0, 10);
+      const minPast = new Date(); minPast.setFullYear(minPast.getFullYear() - 5);
+      const minPastStr = minPast.toISOString().slice(0, 10);
+      const safeStart = start && start >= minPastStr && start <= maxFutureStr ? start : null;
+      // Program end can be up to 3 years in the future; reject if in distant past (> 5y ago)
+      const safeEnd   = end && end >= minPastStr ? end : null;
+
       // Fix announced_date if we found a real program start
-      if (start && r.announced_date !== start) {
-        upd.announced_date = start;
+      if (safeStart && r.announced_date !== safeStart) {
+        upd.announced_date = safeStart;
       }
 
-      // Store program_end only when span >= 14 days (short = execution-period false match).
-      // Explicitly null bad entries so previous false positives get cleared.
-      if (end && start && end > start) {
-        const spanDays = (new Date(end) - new Date(start)) / 86400000;
-        upd.program_end = spanDays >= 14 ? end : null;
-      } else if (end && !start) {
-        upd.program_end = end;
+      // Store program_end: span >= 14 days required to filter execution-period false matches
+      if (safeEnd && safeStart && safeEnd > safeStart) {
+        const spanDays = (new Date(safeEnd) - new Date(safeStart)) / 86400000;
+        upd.program_end = spanDays >= 14 ? safeEnd : null;
+      } else if (safeEnd && !safeStart) {
+        upd.program_end = safeEnd;
+      } else if (!safeEnd && end) {
+        upd.program_end = null; // clear bad date
       }
       // else: no end extracted — leave existing value alone
 
