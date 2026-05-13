@@ -331,14 +331,19 @@ async function enrichBuybacks() {
         upd.announced_date = safeStart;
       }
 
-      // Store program_end: span >= 14 days required to filter execution-period false matches
+      // Store program_end: requires paired safeStart to validate the span.
+      // If start was rejected (safeStart=null), discard the paired end too —
+      // they came from the same bad text match.
       if (safeEnd && safeStart && safeEnd > safeStart) {
         const spanDays = (new Date(safeEnd) - new Date(safeStart)) / 86400000;
         upd.program_end = spanDays >= 14 ? safeEnd : null;
-      } else if (safeEnd && !safeStart) {
+      } else if (safeEnd && !start) {
+        // No start found at all (not just rejected) — single end date is acceptable
         upd.program_end = safeEnd;
-      } else if (!safeEnd && end) {
-        upd.program_end = null; // clear bad date
+      } else if (end && !safeEnd) {
+        upd.program_end = null; // clear bad end date (failed sanity check)
+      } else if (start && !safeStart) {
+        upd.program_end = null; // start was bad → discard paired end
       }
       // else: no end extracted — leave existing value alone
 
