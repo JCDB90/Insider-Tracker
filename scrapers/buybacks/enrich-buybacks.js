@@ -154,6 +154,46 @@ function parseProgramMax(text) {
   return null;
 }
 
+// ── Completion % from text ────────────────────────────────────────────────────
+
+function parseCompletionPct(text) {
+  if (!text) return null;
+  // "9.46% of the maximum authorized amount"
+  // "56.3% of the maximum"
+  // "represents approximately X% of the total"
+  const m = text.match(/([\d]+(?:[.,]\d+)?)\s*%\s+of\s+(?:the\s+)?(?:maximum|total)/i)
+           || text.match(/represents\s+approximately\s+([\d]+(?:[.,]\d+)?)\s*%/i);
+  if (!m) return null;
+  const pct = parseFloat(String(m[1]).replace(',', '.'));
+  return (!isNaN(pct) && pct > 0 && pct <= 150) ? Math.round(pct * 10) / 10 : null;
+}
+
+// ── Cumulative value from text ────────────────────────────────────────────────
+
+function parseCumulativeValue(text) {
+  if (!text) return null;
+  const CCY = '(SEK|EUR|DKK|NOK|ISK|GBP|USD)';
+  // "Total accumulated during the repurchase program 3,005,071 294.69 885,581,100"
+  // "Accumulated under the programme 55,109 229.67 12,657,114 [CCY]"
+  // "cumulative consideration of [CCY] X,XXX"
+  // "cash amount... amounts to X [CCY]"
+  const patterns = [
+    new RegExp(`(?:cumulative|total\\s+consideration|cash\\s+amount[^.]{0,40}amounts?\\s+to)\\s+(?:approximately\\s+)?${CCY}?\\s*([\\d,. ]+)\\s*(?:${CCY}|million|billion)?`, 'i'),
+    new RegExp(`(?:total\\s+accumulated\\s+during[^\\n]{0,60})\\t([\\d,. ]+)\\t[\\d.,]+\\t([\\d,. ]+)`, 'i'),
+    new RegExp(`(?:accumulated\\s+under[^\\n]{0,60})\\t([\\d,. ]+)\\t[\\d.,]+\\t([\\d,. ]+)`, 'i'),
+  ];
+  for (const pat of patterns) {
+    const m = text.match(pat);
+    if (m) {
+      // For tab-separated table patterns: last capture = total value
+      const raw = m[m.length - 1];
+      const n = parseFloat(String(raw).replace(/[\s,]/g, ''));
+      if (!isNaN(n) && n > 1000) return Math.round(n);
+    }
+  }
+  return null;
+}
+
 // ── HTTP fetch helpers ────────────────────────────────────────────────────────
 
 function stripHtml(html) {
@@ -267,6 +307,8 @@ async function enrichBuybacks() {
 
     const { start, end } = parseProgramDates(text);
     let programMax = parseProgramMax(text);
+    const textPct  = parseCompletionPct(text);
+    const textCumul = parseCumulativeValue(text);
 
     // Derive completion_pct for all rows in this group that have cumulative data
     // and build update objects
@@ -286,22 +328,31 @@ async function enrichBuybacks() {
         upd.program_end = spanDays >= 14 ? end : null;
       } else if (end && !start) {
         upd.program_end = end;
-      } else if (!end) {
-        // No end extracted — only clear if row currently has a bad value
-        // (span check not possible, skip to avoid nuking good values)
       }
+      // else: no end extracted — leave existing value alone
 
       // Fill missing total_value (program max)
       if (programMax && !r.total_value) {
         upd.total_value = programMax;
       }
 
-      // Derive completion_pct
+      // Derive completion_pct — try in priority order:
+      // 1. Direct "X% of the maximum" text (most reliable)
+      // 2. Cumulative value from text / effective max
+      // 3. Existing cumulative_value in DB / effective max
       const effectiveMax = r.total_value || programMax;
-      const cumul = r.cumulative_value;
-      if (effectiveMax && cumul && r.completion_pct == null) {
-        const pct = Math.round((cumul / effectiveMax) * 1000) / 10;
-        if (pct <= 150) { upd.completion_pct = pct; upd.pct_complete = Math.round(pct); }
+      const cumul = textCumul || r.cumulative_value;
+      if (r.completion_pct == null) {
+        if (textPct != null) {
+          upd.completion_pct = textPct; upd.pct_complete = Math.round(textPct);
+          // Also store cumulative value if we extracted it and spent_value is missing
+          if (textCumul && !r.cumulative_value && !r.spent_value) {
+            upd.cumulative_value = textCumul; upd.spent_value = textCumul;
+          }
+        } else if (effectiveMax && cumul) {
+          const pct = Math.round((cumul / effectiveMax) * 1000) / 10;
+          if (pct <= 150) { upd.completion_pct = pct; upd.pct_complete = Math.round(pct); }
+        }
       }
 
       if (Object.keys(upd).length > 0) updates.push({ filing_id: r.filing_id, ...upd });
