@@ -224,7 +224,7 @@ async function enrichBuybacks() {
   const programList = Object.values(groups);
   console.log(`  ${programList.length} unique programs to enrich`);
 
-  let updatedDates = 0, updatedMax = 0, updatedPct = 0, errors = 0;
+  let updatedDates = 0, updatedEnd = 0, updatedMax = 0, updatedPct = 0, errors = 0;
 
   for (let i = 0; i < programList.length; i++) {
     const prog = programList[i];
@@ -249,8 +249,14 @@ async function enrichBuybacks() {
         upd.announced_date = start;
       }
 
-      // Store program_end (column may not exist yet — we try anyway)
-      if (end) upd.program_end = end;
+      // Store program_end only when it looks like a genuine program period
+      // (> 14 days from start, and end > start). Short spans = execution period false matches.
+      if (end && start && end > start) {
+        const spanDays = (new Date(end) - new Date(start)) / 86400000;
+        if (spanDays >= 14) upd.program_end = end;
+      } else if (end && !start) {
+        upd.program_end = end; // no start to cross-check, keep it
+      }
 
       // Fill missing total_value (program max)
       if (programMax && !r.total_value) {
@@ -295,9 +301,11 @@ async function enrichBuybacks() {
 
     // Tally what was updated
     const anyWithStart  = updates.some(u => u.announced_date);
+    const anyWithEnd    = updates.some(u => u.program_end);
     const anyWithMax    = updates.some(u => u.total_value);
     const anyWithPct    = updates.some(u => u.completion_pct != null);
     if (anyWithStart) updatedDates++;
+    if (anyWithEnd)   updatedEnd++;
     if (anyWithMax)   updatedMax++;
     if (anyWithPct)   updatedPct++;
 
@@ -308,6 +316,7 @@ async function enrichBuybacks() {
 
   console.log(`\n  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s`);
   console.log(`  Programs with real program_start extracted: ${updatedDates}`);
+  console.log(`  Programs with program_end extracted:        ${updatedEnd}`);
   console.log(`  Programs with total_value (max) filled:     ${updatedMax}`);
   console.log(`  Programs with completion_pct derived:       ${updatedPct}`);
   console.log(`  Errors / skipped:                           ${errors}`);

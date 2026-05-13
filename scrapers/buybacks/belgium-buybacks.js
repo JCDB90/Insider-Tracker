@@ -33,7 +33,9 @@ const COUNTRY_CODE     = 'BE';
 const SOURCE           = 'FSMA STORI';
 const RETENTION_DAYS   = parseInt(process.env.LOOKBACK_DAYS || '90');
 // Fetch the 3 most recent filings per company so the frontend can show history
-const FILINGS_PER_CO   = 3;
+// Fetch enough filings per company to span a typical quarterly authorization window.
+// More filings = better "Started" date estimate in the frontend (uses min announced_date).
+const FILINGS_PER_CO   = 10;
 const DELAY_MS         = 200;
 const BUYBACK_TYPE_ID  = 'fd1dc80a-b4a6-4878-acbd-362e00f693c9';
 
