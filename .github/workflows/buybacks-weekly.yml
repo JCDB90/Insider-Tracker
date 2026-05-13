@@ -32,6 +32,10 @@ jobs:
         continue-on-error: true
         run: node scrapers/buybacks/uk-buybacks.js
 
+      - name: 🇸🇪🇩🇰🇫🇮 Nordic Buybacks (Nasdaq Nordic - Changes in own shares)
+        continue-on-error: true
+        run: node scrapers/buybacks/nordic-buybacks.js
+
       - name: 📋 Watchlist IR Monitor (keyword detector)
         continue-on-error: true
         run: node scrapers/buybacks/watchlist-buybacks.js
