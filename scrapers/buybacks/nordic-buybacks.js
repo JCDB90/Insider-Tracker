@@ -441,9 +441,8 @@ async function scrapeNordicBuybacks() {
     if (result.completion_pct != null)    { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
     if (result.program_start != null)     row.announced_date     = result.program_start;
 
-    // Ticker from ISIN
+    // Ticker from ISIN (isin column not in buyback_programs — use only for lookup)
     if (result.isin) {
-      row.isin = result.isin;
       try {
         const ticker = await isinToTicker(result.isin);
         if (ticker) row.ticker = ticker;
