@@ -158,8 +158,19 @@ async function scrapeSE() {
 
   while (emptyRun < 2 && page <= 500) {
     let rows;
-    try { rows = await fetchPage(from, to, page); }
-    catch (err) { console.warn(`  ⚠  p${page}: ${err.message}`); break; }
+    let attempt = 0;
+    while (attempt < 3) {
+      try {
+        rows = await fetchPage(from, to, page);
+        break;
+      } catch (err) {
+        attempt++;
+        if (attempt >= 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up after 3 tries)`); rows = null; break; }
+        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 3s`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+    if (!rows) break;
     if (rows.length === 0) { emptyRun++; } else { emptyRun = 0; allRaw.push(...rows); }
     if (rows.length < 10) break;
     page++;
