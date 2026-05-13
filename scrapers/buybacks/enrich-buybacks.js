@@ -37,7 +37,9 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Date parsing ──────────────────────────────────────────────────────────────
 
-function parseDate(s) {
+const CURRENT_YEAR = new Date().getFullYear();
+
+function parseDate(s, fallbackYear = CURRENT_YEAR) {
   if (!s) return null;
   s = s.trim().replace(/,/g, '').replace(/\s+/g, ' ');
   // "7 May 2026" or "24 April 2026"
@@ -52,17 +54,30 @@ function parseDate(s) {
     const mon = MONTHS[m[1].toLowerCase()];
     if (mon) return `${m[3]}-${String(mon).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
   }
+  // "7 May" or "May 7" — no year, use fallback year
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]+)$/);
+  if (m) {
+    const mon = MONTHS[m[2].toLowerCase()];
+    if (mon) return `${fallbackYear}-${String(mon).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  }
+  m = s.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  if (m) {
+    const mon = MONTHS[m[1].toLowerCase()];
+    if (mon) return `${fallbackYear}-${String(mon).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  }
   // "2026-05-07"
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // "07.05.2026" or "07/05/2026"
+  // "07.05.2026" or "07/05/2026" (DD.MM.YYYY — Finnish, Nordic)
   m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
   if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  // "1.1.2026" already covered above; "1.1." without year — skip
   return null;
 }
 
 // ── Text parsing ──────────────────────────────────────────────────────────────
 
-const DATE_TOKEN = String.raw`(\d{1,2}\s+[A-Za-z]+(?:,?\s+\d{4})?|[A-Za-z]+\s+\d{1,2}(?:,?\s+\d{4})?|\d{4}-\d{2}-\d{2})`;
+// DATE_TOKEN matches: "7 May 2026", "May 7, 2026", "7 May" (no year), "2026-05-07", "07.05.2026"
+const DATE_TOKEN = String.raw`(\d{1,2}\s+[A-Za-z]+(?:,?\s+\d{4})?|[A-Za-z]+\s+\d{1,2}(?:,?\s+\d{4})?|\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})`;
 
 function parseProgramDates(text) {
   if (!text) return { start: null, end: null };
@@ -81,15 +96,30 @@ function parseProgramDates(text) {
   m = text.match(new RegExp(`ran\\s+between\\s+${d}\\s+and\\s+${d}`, 'i'));
   if (m) return { start: parseDate(m[1]), end: parseDate(m[2]) };
 
+  // Finnish: "started on {start}, and will end latest on {end}" (may lack year on start)
+  m = text.match(new RegExp(`started\\s+on\\s+${d}`, 'i'));
+  const fiStart = m ? parseDate(m[1]) : null;
+  m = text.match(new RegExp(`(?:will\\s+)?end\\s+(?:latest|no\\s+later)\\s+(?:than\\s+|on\\s+)?${d}`, 'i'));
+  const fiEnd = m ? parseDate(m[1]) : null;
+  if (fiStart || fiEnd) return { start: fiStart, end: fiEnd };
+
   // "period from {start} to {end}" / "period from {start} until {end}"
   m = text.match(new RegExp(`period\\s+from\\s+${d}\\s+(?:to|until)\\s+${d}`, 'i'));
   if (m) return { start: parseDate(m[1]), end: parseDate(m[2]) };
 
-  // "from {start} to {end}" with explicit year on both
+  // "from {start} to/until {end}" — require year on at least one side to avoid execution-period matches
   m = text.match(new RegExp(`\\bfrom\\s+(?:and\\s+including\\s+)?${d}\\s+(?:to|until|through)\\s+(?:and\\s+including\\s+)?${d}`, 'i'));
-  if (m && parseDate(m[1]) && parseDate(m[2])) return { start: parseDate(m[1]), end: parseDate(m[2]) };
+  if (m) {
+    const s = parseDate(m[1]), e = parseDate(m[2]);
+    // Only trust if at least one has explicit 4-digit year in the original token
+    if (s && e && (/\d{4}/.test(m[1]) || /\d{4}/.test(m[2]))) return { start: s, end: e };
+  }
 
-  // "commencing {start}" + optional "expir(ing|es)/ends {end}"
+  // DD.MM.YYYY - DD.MM.YYYY (Finnish compact range: "1.2.2026 - 31.3.2027")
+  m = text.match(/(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/);
+  if (m) return { start: parseDate(m[1]), end: parseDate(m[2]) };
+
+  // "commencing {start}" + optional "expir/ends {end}"
   m = text.match(new RegExp(`commenc(?:ing|es)\\s+(?:on\\s+)?${d}`, 'i'));
   const startOnly = m ? parseDate(m[1]) : null;
   m = text.match(new RegExp(`(?:expir(?:ing|es)|ends?|terminates?)\\s+(?:on\\s+)?${d}`, 'i'));

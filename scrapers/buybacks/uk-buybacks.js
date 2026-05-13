@@ -330,9 +330,10 @@ async function scrapeGBBuybacks() {
     };
     // Only include enriched fields when non-null — preserves existing DB values
     // when a document lacks cumulative/programme data (avoids null overwrites)
-    if (result.total_value  != null) row.total_value  = result.total_value;
-    if (result.spent_value  != null) { row.spent_value = result.spent_value; row.cumulative_value = result.spent_value; }
+    if (result.total_value    != null) row.total_value    = result.total_value;
+    if (result.spent_value    != null) { row.spent_value = result.spent_value; row.cumulative_value = result.spent_value; }
     if (result.completion_pct != null) { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
+    if (result.program_end    != null) row.program_end    = result.program_end;
     dbRows.push(row);
   }
 
