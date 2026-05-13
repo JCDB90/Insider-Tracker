@@ -249,13 +249,16 @@ async function enrichBuybacks() {
         upd.announced_date = start;
       }
 
-      // Store program_end only when it looks like a genuine program period
-      // (> 14 days from start, and end > start). Short spans = execution period false matches.
+      // Store program_end only when span >= 14 days (short = execution-period false match).
+      // Explicitly null bad entries so previous false positives get cleared.
       if (end && start && end > start) {
         const spanDays = (new Date(end) - new Date(start)) / 86400000;
-        if (spanDays >= 14) upd.program_end = end;
+        upd.program_end = spanDays >= 14 ? end : null;
       } else if (end && !start) {
-        upd.program_end = end; // no start to cross-check, keep it
+        upd.program_end = end;
+      } else if (!end) {
+        // No end extracted — only clear if row currently has a bad value
+        // (span check not possible, skip to avoid nuking good values)
       }
 
       // Fill missing total_value (program max)
@@ -320,8 +323,8 @@ async function enrichBuybacks() {
   console.log(`  Programs with total_value (max) filled:     ${updatedMax}`);
   console.log(`  Programs with completion_pct derived:       ${updatedPct}`);
   console.log(`  Errors / skipped:                           ${errors}`);
-  if (!updatedDates && !updatedMax && !updatedPct) {
-    console.log('\n  ⚠  No updates applied — run migrations/005_buyback_program_end.sql in Supabase dashboard first if program_end was the only new field');
+  if (!updatedDates && !updatedEnd && !updatedMax && !updatedPct) {
+    console.log('\n  ℹ  No field changes detected — data may already be fully enriched');
   }
 }
 
