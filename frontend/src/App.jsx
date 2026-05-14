@@ -4460,7 +4460,13 @@ export default function App() {
     } catch { return 'dashboard'; }
   });
   const [search, setSearch] = useState('');
-  const [selectedCountries, setSelectedCountries] = useState(new Set());
+  const [selectedCountries, setSelectedCountries] = useState(() => {
+    // Pre-select country if ?country=XX is in the URL (e.g. from SEO landing pages)
+    try {
+      const cc = new URLSearchParams(window.location.search).get('country');
+      return cc ? new Set([cc.toUpperCase()]) : new Set();
+    } catch { return new Set(); }
+  });
 
   const [trades, setTrades] = useState([]);
   const [buybacks, setBuybacks] = useState([]);
