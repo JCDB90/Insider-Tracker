@@ -454,6 +454,7 @@ async function scrapeNordicBuybacks() {
     if (result.cumulative_shares != null) row.cumulative_shares  = result.cumulative_shares;
     if (result.completion_pct != null)    { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
     if (result.program_start != null)     row.announced_date     = result.program_start;
+    if (result.program_end != null)       row.program_end        = result.program_end;
 
     // Ticker from ISIN (isin column not in buyback_programs — use only for lookup)
     if (result.isin) {
