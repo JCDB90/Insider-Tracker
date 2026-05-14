@@ -70,12 +70,25 @@
       }
     ]
   }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "ImageObject",
+    "url": "https://www.insidersalpha.com/images/insidersalpha-insider-transactions-dashboard.png",
+    "description": "InsidersAlpha European insider trading dashboard showing real-time transactions from Swedish companies including Essity, Cloetta, and Avanza Bank with conviction signals, insider roles, and exact transaction values",
+    "width": 1498,
+    "height": 630
+  }</script>
 
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:15px}
     a{color:#2563EB;text-decoration:none}
     a:hover{text-decoration:underline}
+
+    /* Dashboard screenshot */
+    .dashboard-figure{margin:0 0 40px;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+    .dashboard-figure img{display:block;width:100%;height:auto}
+    .dashboard-figure figcaption{padding:10px 16px;font-size:12px;color:#6B7280;background:#f8f8f8;border-top:1px solid #e5e7eb;text-align:center;font-family:'JetBrains Mono',monospace}
 
     /* Nav */
     .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
@@ -233,6 +246,18 @@
     <a href="/">InsidersAlpha</a><span>›</span>
     Best Insider Trading Tracker for European Stocks
   </nav>
+
+  <!-- Dashboard screenshot -->
+  <figure class="dashboard-figure">
+    <img
+      src="/images/insidersalpha-insider-transactions-dashboard.png"
+      alt="InsidersAlpha dashboard showing European insider transactions including Swedish stocks from Essity, Cloetta, and Avanza Bank with conviction signals, insider roles, and real-time price data"
+      width="1498"
+      height="630"
+      loading="lazy"
+    />
+    <figcaption>Live insider transaction feed — Sweden filter active, showing 11 May 2026 transactions with signal badges</figcaption>
+  </figure>
 
   <!-- Why European tracking -->
   <section>
