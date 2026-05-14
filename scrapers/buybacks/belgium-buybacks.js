@@ -150,6 +150,10 @@ async function scrapeBEBuybacks() {
       const isin = item.isinCodes?.[0]?.code || null;
       const doc  = item.mainDocuments?.find(d => d.language === 'en') || item.mainDocuments?.[0];
 
+      // Build a deep-link to the FSMA STORI viewer for this specific topic
+      const topicId = item.requiredReportingTopicId;
+      const filingPageUrl = `${STORI_PAGE}?topicId=${topicId}`;
+
       dbRows.push({
         filing_id:      filingId,
         country_code:   COUNTRY_CODE,
@@ -159,8 +163,8 @@ async function scrapeBEBuybacks() {
         execution_date: item.datePublication.slice(0, 10),
         currency:       'EUR',
         status:         'Active',
-        filing_url:     STORI_PAGE,
-        source_url:     STORI_PAGE,
+        filing_url:     filingPageUrl,
+        source_url:     filingPageUrl,
         source:         SOURCE,
         shares_bought:  null,
         avg_price:      null,
