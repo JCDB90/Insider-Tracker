@@ -8,8 +8,9 @@
   <meta property="og:title" content="InsiderScreener vs InsidersAlpha (2026)">
   <meta property="og:description" content="Detailed comparison of InsiderScreener and InsidersAlpha for European insider trading. Coverage, signals, buyback tracking, and pricing compared side by side.">
   <meta property="og:url" content="https://www.insidersalpha.com/compare/insiderscreener">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:type" content="article">
+  <meta property="og:image" content="https://www.insidersalpha.com/images/insidersalpha-insider-transactions-dashboard.png">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="InsiderScreener vs InsidersAlpha (2026)">
   <meta name="twitter:description" content="Coverage, signals, buyback tracking, and pricing compared side by side.">
   <link rel="canonical" href="https://www.insidersalpha.com/compare/insiderscreener">
@@ -35,36 +36,32 @@
       {
         "@type": "Question",
         "name": "What is the difference between InsiderScreener and InsidersAlpha?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Both track European MAR Art.19 insider disclosures. InsidersAlpha additionally offers active buyback program tracking across 6 markets (1,750+ programs), a 4-layer conviction signal system, South Korea coverage via DART, and insider performance tracking at 30, 90, and 180 days."
-        }
+        "acceptedAnswer": {"@type": "Answer", "text": "Both track European MAR Art.19 insider disclosures. InsidersAlpha additionally offers active buyback program tracking across 6 markets (1,750+ programs), a 4-layer conviction signal system, South Korea coverage via DART, and insider performance tracking at 30, 90, and 180 days. InsiderScreener has broader global reach covering US, Canada, Australia, and India."}
       },
       {
         "@type": "Question",
         "name": "Does InsiderScreener track share buybacks?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "InsiderScreener does not appear to offer share buyback program tracking. InsidersAlpha tracks 1,750+ active buyback programs across Norway, UK, Sweden, Denmark, Finland, and Belgium with progress bars and completion percentages."
-        }
+        "acceptedAnswer": {"@type": "Answer", "text": "InsiderScreener does not appear to offer share buyback program tracking. InsidersAlpha tracks 1,750+ active buyback programs across Norway, UK, Sweden, Denmark, Finland, and Belgium with progress bars and completion percentages."}
       },
       {
         "@type": "Question",
         "name": "Which platform has better Nordic coverage?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "InsidersAlpha covers all 4 Nordic markets — Sweden, Denmark, Norway, and Finland. InsiderScreener covers Sweden, Denmark, and Finland but does not include Norway as of 2026."
-        }
+        "acceptedAnswer": {"@type": "Answer", "text": "InsidersAlpha covers all 4 Nordic markets — Sweden, Denmark, Norway, and Finland. InsiderScreener covers Sweden, Denmark, and Finland but does not include Norway as of 2026."}
       },
       {
         "@type": "Question",
-        "name": "Does InsidersAlpha cover more markets than InsiderScreener?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "InsiderScreener covers more markets in total (16 including US, Australia, India, and Canada). InsidersAlpha focuses on 12 European markets plus South Korea, with Norway and South Korea as markets InsiderScreener does not cover."
-        }
+        "name": "How does InsiderScreener pricing compare to InsidersAlpha?",
+        "acceptedAnswer": {"@type": "Answer", "text": "InsidersAlpha Pro costs €9.99/mo. InsiderScreener's paid plans start at €14/mo (Plus), with Pro at €25/mo and Premium at €49/mo. Both have free tiers."}
       }
     ]
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "ImageObject",
+    "url": "https://www.insidersalpha.com/images/insidersalpha-transaction-signals.png",
+    "description": "InsidersAlpha transaction history showing insider performance tracking with 30d, 90d, 6M returns and conviction signals including Cluster buy, Bought on dip, and Pre-earnings buy badges",
+    "width": 1447,
+    "height": 469
   }</script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -72,105 +69,72 @@
     a{color:#111318;text-decoration:none}
     a:hover{text-decoration:underline}
 
-    /* Nav */
     .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
     .nav a{font-size:13px;color:#6B7280}.nav a:hover{color:#111318;text-decoration:none}
     .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em;color:#111318;margin-right:auto}
 
-    /* Layout */
     .wrap{max-width:820px;margin:0 auto;padding:48px 24px 80px}
 
-    /* Breadcrumb */
     .breadcrumb{font-size:12px;color:#9CA3AF;margin-bottom:28px}
     .breadcrumb a{color:#9CA3AF}.breadcrumb a:hover{color:#111318;text-decoration:none}
     .breadcrumb span{margin:0 5px}
 
-    /* Badge */
     .badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;background:#f0f0f0;color:#6B7280;border-radius:4px;padding:3px 8px;margin-bottom:20px;font-family:'JetBrains Mono',monospace}
 
-    /* Hero */
-    .hero{border:1px solid #f0f0f0;border-radius:12px;padding:36px 40px;margin-bottom:40px;background:#fafafa}
+    .hero{border:1px solid #f0f0f0;border-radius:12px;padding:36px 40px;margin-bottom:36px;background:#fafafa}
+    @media(max-width:580px){.hero{padding:24px}}
     .hero h1{font-size:28px;font-weight:700;letter-spacing:-.025em;margin-bottom:10px;line-height:1.25}
-    .hero p{color:#6B7280;font-size:15px;line-height:1.65;margin:0}
+    .hero p{color:#374151;font-size:15px;line-height:1.7;margin:0}
 
-    /* Headings */
+    .dashboard-figure{margin:0 0 40px;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.07)}
+    .dashboard-figure img{display:block;width:100%;height:auto}
+    .dashboard-figure figcaption{padding:10px 16px;font-size:12px;color:#6B7280;background:#f8f8f8;border-top:1px solid #e5e7eb;text-align:center;font-family:'JetBrains Mono',monospace}
+
     h2{font-size:18px;font-weight:700;letter-spacing:-.015em;margin:44px 0 14px;color:#111318}
-    h3{font-size:15px;font-weight:600;margin:20px 0 8px}
-    p{color:#374151;margin-bottom:14px;line-height:1.7}
-    ul{color:#374151;padding-left:20px;margin-bottom:14px}
-    li{margin-bottom:7px;line-height:1.65}
+    p{color:#374151;margin-bottom:16px;line-height:1.75}
+    p:last-child{margin-bottom:0}
 
-    /* Quick summary cards */
-    .summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:40px}
-    @media(max-width:580px){.summary-grid{grid-template-columns:1fr}}
-    .summary-card{border:1px solid #f0f0f0;border-radius:10px;padding:20px 22px}
-    .summary-card .platform-name{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-bottom:10px}
-    .summary-card h3{font-size:15px;font-weight:700;margin:0 0 8px;letter-spacing:-.01em}
-    .summary-card p{font-size:13px;color:#6B7280;line-height:1.6;margin:0}
-
-    /* Comparison table */
-    .table-wrap{overflow-x:auto;margin-bottom:12px}
+    .table-wrap{overflow-x:auto;margin-bottom:10px}
     table{width:100%;border-collapse:collapse;font-size:13px}
     thead th{background:#f8f8f8;font-weight:700;text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6B7280;font-family:'JetBrains Mono',monospace;border-bottom:2px solid #f0f0f0;white-space:nowrap}
     thead th:not(:first-child){text-align:center}
-    tbody td{padding:11px 14px;border-bottom:1px solid #f8f8f8;color:#374151;vertical-align:top}
+    thead th.col-ia{background:#EEF2FF;color:#4338CA}
+    tbody td{padding:11px 14px;border-bottom:1px solid #f8f8f8;color:#374151;vertical-align:middle}
     tbody td:not(:first-child){text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px}
     tbody tr:last-child td{border-bottom:none}
     tbody tr:hover{background:#fafafa}
     .col-ia{background:rgba(67,56,202,.03)}
-    thead th.col-ia{background:#EEF2FF;color:#4338CA}
-    .yes{color:#16a34a;font-weight:600}
-    .no{color:#dc2626}
-    .partial{color:#d97706}
     .row-label{font-weight:500;color:#111318;font-family:'Inter',-apple-system,sans-serif;font-size:13px}
-    .table-note{font-size:11px;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-top:6px}
+    .table-note{font-size:11px;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-top:8px;line-height:1.6}
 
-    /* Section: strengths */
-    .strength-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px}
-    @media(max-width:600px){.strength-grid{grid-template-columns:1fr}}
-    .strength-card{border:1px solid #f0f0f0;border-radius:10px;padding:18px 20px}
-    .strength-card .icon{font-size:18px;margin-bottom:8px}
-    .strength-card h3{font-size:14px;font-weight:700;margin:0 0 6px;letter-spacing:-.01em}
-    .strength-card p{font-size:13px;color:#6B7280;line-height:1.6;margin:0}
+    .divider{height:1px;background:#f0f0f0;margin:40px 0}
 
-    /* Feature highlight blocks */
-    .feature-block{border-left:3px solid #4338CA;border-radius:0 8px 8px 0;background:#EEF2FF;padding:14px 18px;margin:20px 0}
-    .feature-block h3{font-size:14px;font-weight:700;margin:0 0 5px;color:#111318}
-    .feature-block p{font-size:13px;color:#4338CA;margin:0;line-height:1.55}
+    .prose-section{margin-bottom:32px}
+    .prose-section p{margin-bottom:16px}
 
-    /* Pricing */
     .pricing-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px}
     @media(max-width:580px){.pricing-grid{grid-template-columns:1fr}}
     .pricing-card{border:1px solid #f0f0f0;border-radius:10px;padding:22px 24px}
-    .pricing-card .platform{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-bottom:12px}
-    .pricing-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #f8f8f8;font-size:13px}
+    .pricing-card .platform{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-bottom:14px}
+    .pricing-row{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid #f8f8f8;font-size:13px;gap:12px}
     .pricing-row:last-child{border-bottom:none}
     .tier-name{font-weight:600;color:#111318}
-    .tier-price{font-family:'JetBrains Mono',monospace;color:#374151;font-size:12px}
     .tier-note{font-size:11px;color:#9CA3AF;margin-top:3px}
-    .pricing-card .ext-link{display:inline-block;margin-top:12px;font-size:12px;color:#4338CA;font-weight:500}
-    .pricing-card .ext-link:hover{text-decoration:underline}
+    .tier-price{font-family:'JetBrains Mono',monospace;color:#374151;font-size:12px;white-space:nowrap;flex-shrink:0}
+    .pricing-link{display:inline-block;margin-top:12px;font-size:12px;color:#6B7280}
+    .pricing-link:hover{text-decoration:underline}
 
-    /* FAQ */
     .faq-item{border-bottom:1px solid #f0f0f0;padding:18px 0}
     .faq-item:last-child{border-bottom:none}
     .faq-q{font-weight:600;font-size:14px;color:#111318;margin-bottom:8px}
-    .faq-a{font-size:13px;color:#6B7280;line-height:1.65;margin:0}
+    .faq-a{font-size:13px;color:#6B7280;line-height:1.7;margin:0}
 
-    /* CTA */
     .cta-box{background:#0f1117;border-radius:10px;padding:28px 32px;margin:44px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
     .cta-box p{color:#9CA3AF;font-size:13px;margin:0}
     .cta-box strong{display:block;color:#fff;font-size:15px;font-weight:700;margin-bottom:4px}
     .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:10px 20px;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none}
     .cta-btn:hover{background:#f0f0f0;text-decoration:none}
 
-    /* Divider */
-    .divider{height:1px;background:#f0f0f0;margin:36px 0}
-
-    /* Three-way note */
-    .threeway-note{background:#f8f8f8;border-radius:8px;padding:14px 18px;font-size:12px;color:#9CA3AF;margin-top:10px;font-family:'JetBrains Mono',monospace;line-height:1.6}
-
-    /* Footer */
     footer{border-top:1px solid #f0f0f0;padding:20px 24px;text-align:center;font-size:12px;color:#9CA3AF}
     footer a{color:#9CA3AF;margin:0 8px}footer a:hover{color:#111318}
   </style>
@@ -199,37 +163,43 @@
     InsiderScreener vs InsidersAlpha
   </nav>
 
-  <div class="badge">Platform Comparison</div>
+  <div class="badge">Platform Comparison · 2026</div>
 
   <div class="hero">
     <h1>InsiderScreener vs InsidersAlpha</h1>
-    <p>Both platforms track MAR Article 19 European insider disclosures. InsiderScreener is an established tool with broad global reach. InsidersAlpha focuses on European depth, active buyback tracking, and conviction signals. This page compares them objectively, feature by feature.</p>
+    <p>We use both. Here's what we found after comparing them side by side.</p>
   </div>
 
-  <!-- Quick summary -->
-  <h2>Quick summary</h2>
-  <div class="summary-grid">
-    <div class="summary-card">
-      <div class="platform-name">InsiderScreener</div>
-      <h3>Broad global coverage, strong analyst tools</h3>
-      <p>16 markets including US, Canada, Australia, and India alongside 12 European markets. Good insider performance rankings with pre-planned trade filtering. Clean REST API. Best suited to investors who track both US and European markets from one tool.</p>
-    </div>
-    <div class="summary-card">
-      <div class="platform-name">InsidersAlpha</div>
-      <h3>European depth, buybacks, and conviction scoring</h3>
-      <p>13 markets (12 EU + South Korea), with Norway as a key European market not covered by InsiderScreener. Unique active buyback tracking across 1,750+ programs, a 4-layer signal system, and algorithmic conviction scoring. Very generous free tier.</p>
-    </div>
+  <!-- Dashboard screenshot in hero area -->
+  <figure class="dashboard-figure">
+    <img
+      src="/images/insidersalpha-insider-transactions-dashboard.png"
+      alt="InsidersAlpha dashboard showing European insider transactions including Swedish stocks from Essity, Cloetta, and Avanza Bank with conviction signals, insider roles, and real-time price data"
+      width="1498"
+      height="630"
+      loading="lazy"
+    />
+    <figcaption>InsidersAlpha live insider transaction feed — real-time MAR Art.19 disclosures with signal badges and conviction scoring</figcaption>
+  </figure>
+
+  <!-- The honest take -->
+  <div class="prose-section">
+    <p>InsiderScreener has been tracking European insider transactions for years. The interface is clean, company pages load fast, and the data is reliable. If you trade European stocks and want a straightforward view of who's buying what, it works fine.</p>
+
+    <p>Where InsidersAlpha differs is in what gets built on top of the raw data. Active buyback programs, signal layers, conviction scoring, and Norway coverage are the four things that pushed us to build something separately. None of those are available on InsiderScreener.</p>
+
+    <p>One area where InsiderScreener is genuinely stronger: global reach. If you also track US, Canadian, Australian, or Indian equities, InsiderScreener covers all of them. InsidersAlpha is European-only (plus South Korea). That's a real difference depending on your portfolio.</p>
   </div>
 
   <!-- Comparison table -->
-  <h2>Feature comparison</h2>
+  <h2>Side by side</h2>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th style="width:36%">Feature</th>
-          <th class="col-ia" style="width:32%">InsidersAlpha</th>
-          <th style="width:32%">InsiderScreener</th>
+          <th style="width:40%">Feature</th>
+          <th class="col-ia" style="width:30%">InsidersAlpha</th>
+          <th style="width:30%">InsiderScreener</th>
         </tr>
       </thead>
       <tbody>
@@ -239,116 +209,93 @@
           <td>12 EU markets</td>
         </tr>
         <tr>
-          <td class="row-label">Norway</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="no">❌ No</td>
+          <td class="row-label">Norway (Oslo Bors)</td>
+          <td class="col-ia">✅</td>
+          <td>❌</td>
         </tr>
         <tr>
-          <td class="row-label">South Korea</td>
-          <td class="col-ia yes">✅ Yes (DART)</td>
-          <td class="no">❌ No</td>
+          <td class="row-label">South Korea (DART)</td>
+          <td class="col-ia">✅</td>
+          <td>❌</td>
         </tr>
         <tr>
           <td class="row-label">US / Canada / Australia / India</td>
-          <td class="col-ia no">❌ No</td>
-          <td class="yes">✅ Yes (all 4)</td>
+          <td class="col-ia">❌</td>
+          <td>✅ all four</td>
         </tr>
         <tr>
           <td class="row-label">Active buyback tracking</td>
-          <td class="col-ia yes">✅ 1,750+ programs</td>
-          <td class="no">❌ Not available</td>
+          <td class="col-ia">✅ 1,750+ programs</td>
+          <td>❌</td>
         </tr>
         <tr>
           <td class="row-label">Cluster buying signals</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="yes">✅ Yes</td>
+          <td class="col-ia">✅</td>
+          <td>✅</td>
         </tr>
         <tr>
           <td class="row-label">Price dip signals</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="partial">– Not confirmed</td>
+          <td class="col-ia">✅</td>
+          <td>–</td>
         </tr>
         <tr>
           <td class="row-label">Pre-earnings signals</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="partial">– Not confirmed</td>
+          <td class="col-ia">✅</td>
+          <td>–</td>
         </tr>
         <tr>
           <td class="row-label">Conviction scoring</td>
-          <td class="col-ia yes">✅ V3 algorithm</td>
-          <td class="no">❌ Not mentioned</td>
+          <td class="col-ia">✅ V3 algorithm</td>
+          <td>❌</td>
         </tr>
         <tr>
-          <td class="row-label">Insider performance rankings</td>
-          <td class="col-ia yes">✅ 30 / 90 / 180d</td>
-          <td class="yes">✅ Avg return + success rate</td>
+          <td class="row-label">Insider performance (30/90/180d)</td>
+          <td class="col-ia">✅</td>
+          <td>✅ return + success rate</td>
         </tr>
         <tr>
           <td class="row-label">Pre-planned trade filtering</td>
-          <td class="col-ia partial">– Not featured</td>
-          <td class="yes">✅ Yes</td>
+          <td class="col-ia">–</td>
+          <td>✅</td>
         </tr>
         <tr>
           <td class="row-label">CSV / Excel export</td>
-          <td class="col-ia yes">✅ Pro / Elite</td>
-          <td class="yes">✅ Yes</td>
+          <td class="col-ia">✅ Pro &amp; Elite</td>
+          <td>✅</td>
         </tr>
         <tr>
           <td class="row-label">REST API</td>
-          <td class="col-ia yes">✅ Elite tier</td>
-          <td class="yes">✅ Paid plans</td>
-        </tr>
-        <tr>
-          <td class="row-label">Daily email alerts</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="yes">✅ Yes</td>
+          <td class="col-ia">✅ Elite tier</td>
+          <td>✅ paid plans</td>
         </tr>
         <tr>
           <td class="row-label">Free tier</td>
-          <td class="col-ia yes">✅ Yes</td>
-          <td class="yes">✅ Yes</td>
+          <td class="col-ia">✅</td>
+          <td>✅</td>
         </tr>
         <tr>
           <td class="row-label">Starting price (paid)</td>
-          <td class="col-ia">€9.99 / mo (annual)</td>
-          <td>Visit insiderscreener.com</td>
+          <td class="col-ia">€9.99/mo</td>
+          <td>€14/mo (Plus)</td>
         </tr>
       </tbody>
     </table>
   </div>
-  <p class="table-note">– = not confirmed as present or absent. ❌ = confirmed absent based on public information as of May 2026. InsiderScreener pricing was unavailable for automated verification — check their pricing page directly.</p>
-
-  <!-- Also include InsiderPulse three-way note -->
-  <div class="threeway-note">
-    Also comparing: InsiderPulse covers 8 European markets (DE, FR, GB, NL, SE, NO, DK, FI) at €9.99/mo Pro. No buyback tracking. Good free tier.
-  </div>
+  <p class="table-note">– = not confirmed as present or absent. ❌ = confirmed absent based on public information as of May 2026.</p>
 
   <div class="divider"></div>
 
   <!-- What InsiderScreener does well -->
   <h2>What InsiderScreener does well</h2>
-  <p style="margin-bottom:20px">InsiderScreener is an established platform with a good reputation in the European insider data space. These are its genuine strengths:</p>
-  <div class="strength-grid">
-    <div class="strength-card">
-      <div class="icon">🌍</div>
-      <h3>Broadest global market reach</h3>
-      <p>16 markets including US, Canada, Australia, and India alongside 12 European markets. The only option here if you need a single tool that covers both US and EU insider data.</p>
-    </div>
-    <div class="strength-card">
-      <div class="icon">🏆</div>
-      <h3>Insider performance rankings</h3>
-      <p>Top Insiders feature ranks insiders by average return and success rate with pre-planned trade filtering. Useful for identifying historically accurate buyers before following their next trade.</p>
-    </div>
-    <div class="strength-card">
-      <div class="icon">🔍</div>
-      <h3>Cluster buy screener</h3>
-      <p>Cluster buying detection is confirmed. Their screener lets you filter for multi-insider buy events across their full market universe.</p>
-    </div>
-    <div class="strength-card">
-      <div class="icon">🔌</div>
-      <h3>REST API for developers</h3>
-      <p>A documented REST API is available on paid plans (Starter and Pro tiers). Good option for developers building their own tools on top of the data.</p>
-    </div>
+
+  <div class="prose-section">
+    <p>InsiderScreener is the better choice if you need a single tool that covers both US and European markets. Its 16-market universe includes US, Canada, Australia, and India alongside Europe — InsidersAlpha doesn't cover any of those.</p>
+
+    <p>The insider performance rankings are genuinely useful. InsiderScreener tracks average return and success rate per insider and filters out pre-planned trades (trading plans that were set up in advance). This helps separate opportunistic buys from scheduled ones. InsidersAlpha tracks 30/90/180-day returns but doesn't have the pre-planned trade filter.</p>
+
+    <p>The cluster buy screener is confirmed. You can filter for events where multiple insiders bought at the same company — one of the more reliable signals in the literature. InsidersAlpha does this too, but InsiderScreener's screener is applied across a larger market universe including US equities.</p>
+
+    <p>The interface is clean and the data loads quickly. If you've used it, you know it doesn't try to do too much — it presents the transaction data clearly and gets out of the way.</p>
   </div>
 
   <div class="divider"></div>
@@ -356,35 +303,29 @@
   <!-- What InsidersAlpha adds -->
   <h2>What InsidersAlpha adds</h2>
 
-  <div class="feature-block">
-    <h3>1. Active buyback program tracking — 1,750+ programs</h3>
-    <p>Tracks authorised share buyback programs across Norway, UK, Sweden, Denmark, Finland, and Belgium. Each program shows progress bars, completion percentage, end date, and remaining budget. No other free platform offers this. InsiderScreener does not appear to track buyback programs.</p>
+  <div class="prose-section">
+    <p>The main reason we built InsidersAlpha differently was buybacks. No other free platform was tracking active European buyback programs — with progress bars, completion percentages, and program end dates. InsiderScreener doesn't offer this. Neither does anyone else for free.</p>
+
+    <p>We track 1,750+ active programs across Norway, the UK, Sweden, Denmark, Finland, and Belgium. Each program shows how far through the authorization it is. When a company is 85% through its €500 million buyback and insiders are also buying personally, that's a different signal than either one in isolation.</p>
+
+    <p>The signal system has four layers: cluster buying (two or more insiders, 14-day window), repetitive buying (the same insider coming back), price dip buying (purchase after a 10–60% drawdown), and pre-earnings buying (30–45 days before blackout). These stack — a cluster buy after a price drop gets both badges. InsiderScreener has cluster screener but not the other three layers.</p>
+
+    <p>Norway is the other meaningful gap. InsiderScreener's European coverage skips Oslo Bors. InsidersAlpha scrapes Norwegian insider disclosures daily. For investors with Nordic exposure that includes Norway, this matters.</p>
+
+    <p>South Korea is a niche addition but a real one. DART filings from Korean-listed companies sit alongside the European data. Most European insider trackers don't touch Asian markets at all.</p>
   </div>
 
-  <div class="feature-block">
-    <h3>2. 4-layer signal system</h3>
-    <p>Cluster buying (2+ insiders, 14-day window) · Repetitive buying (same insider, multiple purchases) · Price dip (10–60% drawdown before purchase) · Pre-earnings (30–45 days before blackout period). These stack: a cluster buy during a price dip is surfaced with both badges simultaneously.</p>
-  </div>
-
-  <div class="feature-block">
-    <h3>3. Norway coverage (Oslo Bors)</h3>
-    <p>InsidersAlpha scrapes Finanstilsynet daily for Norwegian insider disclosures. InsiderScreener's 16-market coverage does not include Norway, making this a meaningful gap for European investors.</p>
-  </div>
-
-  <div class="feature-block">
-    <h3>4. South Korea via DART</h3>
-    <p>Korean insider disclosures from DART alongside European coverage. Useful for investors with exposure to Korean-listed holdings.</p>
-  </div>
-
-  <div class="feature-block">
-    <h3>5. Conviction scoring (V3)</h3>
-    <p>Each buy transaction receives an algorithmic conviction score based on cluster activity, repetition pattern, purchase size, and insider seniority. Surfaces the highest-signal trades from daily filing volume without manual filtering.</p>
-  </div>
-
-  <div class="feature-block">
-    <h3>6. Generous free tier</h3>
-    <p>First 50 transactions per market visible without an account. Signal badges, top 5 insiders, and buyback dashboard accessible on free tier. No credit card required to evaluate.</p>
-  </div>
+  <!-- Performance screenshot -->
+  <figure class="dashboard-figure">
+    <img
+      src="/images/insidersalpha-transaction-signals.png"
+      alt="InsidersAlpha transaction history showing insider performance tracking with 30d, 90d, 6M returns and conviction signals including Cluster buy, Bought on dip, and Pre-earnings buy badges"
+      width="1447"
+      height="469"
+      loading="lazy"
+    />
+    <figcaption>InsidersAlpha tracks performance after every insider buy — showing 30-day, 90-day, and 6-month returns alongside conviction signals for each transaction.</figcaption>
+  </figure>
 
   <div class="divider"></div>
 
@@ -396,23 +337,23 @@
       <div class="pricing-row">
         <div>
           <div class="tier-name">Free</div>
-          <div class="tier-note">50 transactions, signal badges, top 5 insiders</div>
+          <div class="tier-note">First 50 transactions, no account needed</div>
         </div>
         <div class="tier-price">€0</div>
       </div>
       <div class="pricing-row">
         <div>
           <div class="tier-name">Pro</div>
-          <div class="tier-note">Full history, watchlist, all signals, export</div>
+          <div class="tier-note">Full history, all signals, unlimited watchlist</div>
         </div>
-        <div class="tier-price">€9.99/mo annual<br>or €12/mo</div>
+        <div class="tier-price">€9.99/mo</div>
       </div>
       <div class="pricing-row">
         <div>
           <div class="tier-name">Elite</div>
-          <div class="tier-note">CSV export + REST API access</div>
+          <div class="tier-note">CSV export + API access</div>
         </div>
-        <div class="tier-price">€14.99/mo annual<br>or €18/mo</div>
+        <div class="tier-price">€14.99/mo</div>
       </div>
     </div>
     <div class="pricing-card">
@@ -420,70 +361,70 @@
       <div class="pricing-row">
         <div>
           <div class="tier-name">Free</div>
-          <div class="tier-note">Available — limits unspecified</div>
+          <div class="tier-note">Limited access</div>
         </div>
         <div class="tier-price">€0</div>
       </div>
       <div class="pricing-row">
         <div>
-          <div class="tier-name">Paid plans</div>
-          <div class="tier-note">Pricing not published publicly</div>
+          <div class="tier-name">Plus</div>
+          <div class="tier-note"></div>
         </div>
-        <div class="tier-price">—</div>
+        <div class="tier-price">€14/mo</div>
       </div>
       <div class="pricing-row">
         <div>
-          <div class="tier-name">API: Starter</div>
-          <div class="tier-note">REST API access</div>
+          <div class="tier-name">Pro</div>
+          <div class="tier-note"></div>
         </div>
         <div class="tier-price">€25/mo</div>
       </div>
       <div class="pricing-row">
         <div>
-          <div class="tier-name">API: Pro</div>
-          <div class="tier-note">Higher rate limits</div>
+          <div class="tier-name">Premium</div>
+          <div class="tier-note"></div>
         </div>
-        <div class="tier-price">€85/mo</div>
+        <div class="tier-price">€49/mo</div>
       </div>
-      <a href="https://insiderscreener.com/pricing" rel="noopener noreferrer" target="_blank" class="ext-link">View current pricing at insiderscreener.com →</a>
+      <a href="https://www.insiderscreener.com/pricing" rel="noopener noreferrer" target="_blank" class="pricing-link">Check current pricing at insiderscreener.com →</a>
     </div>
   </div>
 
   <div class="divider"></div>
 
   <!-- FAQ -->
-  <h2>Frequently asked questions</h2>
+  <h2>Common questions</h2>
 
   <div class="faq-item">
     <div class="faq-q">What is the difference between InsiderScreener and InsidersAlpha?</div>
-    <p class="faq-a">Both track European MAR Art.19 insider disclosures. InsidersAlpha additionally offers active buyback program tracking across 6 markets (1,750+ programs), a 4-layer conviction signal system, South Korea coverage via DART, and insider performance tracking at 30, 90, and 180 days. InsiderScreener has broader global reach (US, Canada, Australia, India) and confirmed pre-planned trade filtering.</p>
+    <p class="faq-a">Both track European MAR Art.19 insider disclosures. InsidersAlpha adds active buyback program tracking (1,750+ programs), a 4-layer signal system, South Korea via DART, and Norway coverage. InsiderScreener covers more markets globally — US, Canada, Australia, and India — which InsidersAlpha doesn't.</p>
   </div>
 
   <div class="faq-item">
     <div class="faq-q">Does InsiderScreener track share buybacks?</div>
-    <p class="faq-a">InsiderScreener does not appear to offer share buyback program tracking. InsidersAlpha tracks 1,750+ active buyback programs across Norway, UK, Sweden, Denmark, Finland, and Belgium with progress bars and completion percentages. This is a category where the two platforms differ meaningfully.</p>
+    <p class="faq-a">InsiderScreener doesn't appear to offer buyback program tracking. InsidersAlpha tracks 1,750+ active programs with progress bars and completion data across 6 European markets. This is probably the biggest functional difference between the two platforms right now.</p>
   </div>
 
   <div class="faq-item">
-    <div class="faq-q">Which platform has better Nordic coverage?</div>
-    <p class="faq-a">InsidersAlpha covers all 4 Nordic markets — Sweden, Denmark, Norway, and Finland. InsiderScreener covers Sweden, Denmark, and Finland but does not include Norway as of 2026. For investors focused on Oslo Bors, InsidersAlpha is the relevant choice.</p>
+    <div class="faq-q">Which platform covers more Nordic markets?</div>
+    <p class="faq-a">InsidersAlpha covers all four: Sweden, Denmark, Norway, and Finland. InsiderScreener covers Sweden, Denmark, and Finland — but not Norway. If you follow Oslo Bors, InsidersAlpha is the relevant choice.</p>
   </div>
 
   <div class="faq-item">
-    <div class="faq-q">Does InsidersAlpha cover more markets than InsiderScreener?</div>
-    <p class="faq-a">InsiderScreener covers more markets in total (16 including US, Australia, India, and Canada). InsidersAlpha focuses on 13 markets (12 European + South Korea). Norway and South Korea are markets InsidersAlpha covers that InsiderScreener does not; US, Canada, Australia, and India are markets InsiderScreener covers that InsidersAlpha does not.</p>
+    <div class="faq-q">How does the pricing compare?</div>
+    <p class="faq-a">InsidersAlpha Pro is €9.99/mo. InsiderScreener's paid plans start at €14/mo (Plus), going up to €25/mo (Pro) and €49/mo (Premium). InsidersAlpha's free tier lets you access the first 50 transactions per market without an account — useful for evaluating the data before committing.</p>
   </div>
 
   <div class="faq-item">
-    <div class="faq-q">Which platform is better for a developer or quant?</div>
-    <p class="faq-a">Both offer REST APIs on paid plans. InsiderScreener's API starts at €25/mo. InsidersAlpha's API is available on the Elite plan at €14.99/mo (annual). InsiderScreener has a longer track record with developer integrations. InsidersAlpha's API is newer but covers the buyback and signal data layers not available from InsiderScreener.</p>
+    <div class="faq-q">Which is better for a developer?</div>
+    <p class="faq-a">InsiderScreener has a longer track record with developer integrations and documented API plans. InsidersAlpha's API is on the Elite plan at €14.99/mo and is newer, but it covers the buyback and signal data that InsiderScreener's API doesn't. Depends what you're building.</p>
   </div>
 
   <!-- CTA -->
   <div class="cta-box">
     <div>
-      <strong>Try InsidersAlpha — free, no credit card</strong>
-      <p>50 transactions per market, full signal badges, and the buyback dashboard are available without an account.</p>
+      <strong>Try InsidersAlpha free</strong>
+      <p>No account needed — see live European insider data, signal badges, and the buyback dashboard.</p>
     </div>
     <a href="/" class="cta-btn">Start for free →</a>
   </div>
