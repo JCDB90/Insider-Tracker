@@ -393,8 +393,9 @@ async function scrapeNordicBuybacks() {
   if (!allItems.length) { console.log('  No data.'); return { saved: 0 }; }
 
   // ── Process each filing ────────────────────────────────────────────────────
-  const seen   = new Set();
-  const dbRows = [];
+  const seen            = new Set();
+  const dbRows          = [];
+  const programEndMap   = new Map(); // filing_id → program_end (updated separately)
   let   parsed = 0, skipped = 0;
 
   // Deduplicate: skip duplicate-language posts (English preferred)
@@ -454,7 +455,8 @@ async function scrapeNordicBuybacks() {
     if (result.cumulative_shares != null) row.cumulative_shares  = result.cumulative_shares;
     if (result.completion_pct != null)    { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
     if (result.program_start != null)     row.announced_date     = result.program_start;
-    if (result.program_end != null)       row.program_end        = result.program_end;
+    // program_end tracked separately — saved via UPDATE after upsert so existing values are preserved
+    if (result.program_end != null)       programEndMap.set(filingId, result.program_end);
 
     // Ticker from ISIN (isin column not in buyback_programs — use only for lookup)
     if (result.isin) {
@@ -474,8 +476,19 @@ async function scrapeNordicBuybacks() {
   for (const r of dbRows) byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
   console.log('  By country:', Object.entries(byCc).map(([k,v]) => `${k}: ${v}`).join(', '));
 
+  const { supabase: sbClient } = require('../lib/db');
   const { inserted, error } = await saveBuybackPrograms(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+
+  // UPDATE program_end separately — never via upsert to avoid clearing existing values
+  // (Supabase upsert with ignoreDuplicates:false overwrites ALL columns in payload on conflict)
+  let endUpdated = 0;
+  for (const [filingId, programEnd] of programEndMap) {
+    await sbClient.from('buyback_programs').update({ program_end: programEnd }).eq('filing_id', filingId);
+    endUpdated++;
+    if (endUpdated % 20 === 0) await delay(100);
+  }
+  if (endUpdated) console.log(`  program_end set for ${endUpdated} rows`);
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
   const withMax  = dbRows.filter(r => r.total_value).length;

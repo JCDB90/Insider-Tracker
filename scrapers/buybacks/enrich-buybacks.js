@@ -271,14 +271,22 @@ async function enrichBuybacks() {
     : ['SE', 'DK', 'FI', 'IS', 'NO'];
   console.log(`  Markets: ${countries.join(', ')}`);
 
-  // Fetch all rows for target countries
-  const { data: rows, error } = await sb
-    .from('buyback_programs')
-    .select('id,filing_id,company,country_code,announced_date,execution_date,total_value,cumulative_value,completion_pct,source_url')
-    .in('country_code', countries)
-    .order('execution_date', { ascending: false });
-
-  if (error) { console.error('  ❌ DB fetch:', error.message); process.exit(1); }
+  // Fetch all rows for target countries (paginated — default Supabase limit is 1000)
+  const rows = [];
+  let fromIdx = 0;
+  while (true) {
+    const { data, error } = await sb
+      .from('buyback_programs')
+      .select('id,filing_id,company,country_code,announced_date,execution_date,total_value,cumulative_value,completion_pct,source_url')
+      .in('country_code', countries)
+      .order('execution_date', { ascending: false })
+      .range(fromIdx, fromIdx + 999);
+    if (error) { console.error('  ❌ DB fetch:', error.message); process.exit(1); }
+    if (!data || !data.length) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+    fromIdx += 1000;
+  }
   console.log(`  Loaded ${rows.length} rows`);
 
   // Group by (company, country_code) → pick most recent execution's source_url
