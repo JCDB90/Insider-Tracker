@@ -4003,6 +4003,46 @@ function InsightsPage({ trades, tradesLoading }) {
                 </a>
               ))}
             </div>
+
+            {/* Compare pages */}
+            <div style={{ marginTop: 20, marginBottom: 6 }}>
+              <SectionLabel>Compare</SectionLabel>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              {[
+                {
+                  title: 'Best Insider Trading Tracker for European Stocks',
+                  desc: 'How InsidersAlpha compares to InsiderScreener, InsiderPulse, and OpenInsider across markets, signals, and buyback tracking.',
+                  href: '/best-insider-trading-tracker-europe',
+                  tag: 'Comparison',
+                },
+                {
+                  title: 'InsiderScreener vs InsidersAlpha',
+                  desc: 'Side-by-side comparison of coverage, signals, buyback tracking, and pricing between the two European insider platforms.',
+                  href: '/compare/insiderscreener',
+                  tag: 'Comparison',
+                },
+              ].map((a, i) => (
+                <a key={i} href={a.href} style={{
+                  display: 'flex', flexDirection: 'column', gap: 6,
+                  background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+                  padding: '14px 16px', textDecoration: 'none',
+                  transition: 'border-color 0.12s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#d0d0d0'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#f0f0f0'}
+                >
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+                    background: '#EEF2FF', color: '#4F46E5', borderRadius: 3, padding: '2px 6px',
+                    width: 'fit-content', fontFamily: "'JetBrains Mono', monospace",
+                  }}>{a.tag}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111318', lineHeight: 1.4 }}>{a.title}</span>
+                  <span style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>{a.desc}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: ACCENT, marginTop: 2 }}>Read comparison →</span>
+                </a>
+              ))}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {EDUCATION_ITEMS.map((item, i) => {
                 const isOpen = openEdu === i;

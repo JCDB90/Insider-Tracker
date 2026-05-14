@@ -31,6 +31,8 @@
     { "source": "/signals/high-conviction-insider-buying",     "destination": "/signals/high-conviction-insider-buying.html" },
     { "source": "/company/:slug",   "destination": "/company/:slug.html" },
     { "source": "/articles/:slug",  "destination": "/articles/:slug.html" },
+    { "source": "/best-insider-trading-tracker-europe", "destination": "/best-insider-trading-tracker-europe.html" },
+    { "source": "/compare/insiderscreener",             "destination": "/compare/insiderscreener.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

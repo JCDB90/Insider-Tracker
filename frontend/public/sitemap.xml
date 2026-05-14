@@ -134,6 +134,18 @@
   </url>
 
 
+  <!-- Comparison / landing pages -->
+  <url>
+    <loc>https://www.insidersalpha.com/best-insider-trading-tracker-europe</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.insidersalpha.com/compare/insiderscreener</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
   <!-- Articles -->
   <url>
     <loc>https://www.insidersalpha.com/articles/how-to-read-european-insider-trading-disclosures</loc>
