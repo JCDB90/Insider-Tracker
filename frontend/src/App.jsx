@@ -1390,9 +1390,10 @@ function BuybackPrograms({ rows, loading }) {
     }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
   }, [rows, cutoffDate, today]);
 
-  // Show ONLY Active programs with execution in last 90 days OR future program_end
+  // Show ONLY Active programs with execution in last 90 days OR future program_end.
+  // Exclude Iceland (IS) — Nasdaq Nordic JSONP includes IS but we have no execution data.
   const programs = useMemo(() =>
-    allPrograms.filter(p => p.status === 'Active'),
+    allPrograms.filter(p => p.status === 'Active' && p.country_code !== 'IS'),
     [allPrograms]
   );
 
