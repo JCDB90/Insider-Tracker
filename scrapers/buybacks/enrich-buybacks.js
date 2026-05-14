@@ -84,12 +84,12 @@ function parseProgramDates(text) {
 
   const d = DATE_TOKEN;
 
-  // "runs between {start} and {end}"
-  let m = text.match(new RegExp(`runs?\\s+between\\s+${d}\\s+and\\s+${d}`, 'i'));
+  // "runs between {start} and {end}" / "running between {start} and {end}" (SEB style)
+  let m = text.match(new RegExp(`runn?(?:ing|s)?\\s+between\\s+${d}\\s+and\\s+${d}`, 'i'));
   if (m) return { start: parseDate(m[1]), end: parseDate(m[2]) };
 
-  // "runs from {start} until/to {end}" — comma optional
-  m = text.match(new RegExp(`runs?\\s+from\\s+(?:and\\s+including\\s+)?${d},?\\s+(?:until|to)\\s+(?:and\\s+including\\s+)?${d}`, 'i'));
+  // "runs from {start} until/to {end}" / "running from {start} to {end}" — comma optional
+  m = text.match(new RegExp(`runn?(?:ing|s)?\\s+from\\s+(?:and\\s+including\\s+)?${d},?\\s+(?:until|to)\\s+(?:and\\s+including\\s+)?${d}`, 'i'));
   if (m) return { start: parseDate(m[1]), end: parseDate(m[2]) };
 
   // "ran between {start} and {end}"
@@ -144,13 +144,17 @@ function parseProgramMax(text) {
   const m1 = text.match(new RegExp(prefixRe.source + CCY + '\\s*([\\d,. ]+)\\s*(million|billion|mn|bn)?', 'i'));
   // "X,XXX,XXX [million] CCY" — groups: 1=number, 2=mult, 3=CCY
   const m2 = text.match(new RegExp(prefixRe.source + '([\\d,. ]+)\\s*(million|billion|mn|bn)?\\s*' + CCY, 'i'));
-  const m = m1 || m2;
-  if (!m) return null;
-  const numStr  = m1 ? m[2] : m[1];
-  const mult_s  = m1 ? (m[3] || '') : (m[2] || '');
-  const mult = /billion|bn/i.test(mult_s) ? 1e9 : /million|mn/i.test(mult_s) ? 1e6 : 1;
-  const n = parseFloat(String(numStr).replace(/[\s,]/g, '').replace(/\.$/, ''));
-  if (!isNaN(n) && n * mult > 10000) return Math.round(n * mult);
+  // Standalone "SEK 1.25bn" / "DKK 20 million" without a recognised prefix (SEB, Swedbank style)
+  const m3 = text.match(new RegExp('\\b' + CCY + '\\s*([\\d]+(?:[.,]\\d+)?)\\s*(bn|billion|mn|million)\\b', 'i'));
+
+  for (const [m, isCCYFirst] of [[m1, true], [m2, false], [m3, true]]) {
+    if (!m) continue;
+    const numStr = isCCYFirst ? m[2] : m[1];
+    const mult_s = isCCYFirst ? (m[3] || '') : (m[2] || '');
+    const mult = /billion|bn/i.test(mult_s) ? 1e9 : /million|mn/i.test(mult_s) ? 1e6 : 1;
+    const n = parseFloat(String(numStr).replace(/[\s,]/g, '').replace(/\.$/, ''));
+    if (!isNaN(n) && n * mult > 10000) return Math.round(n * mult);
+  }
   return null;
 }
 

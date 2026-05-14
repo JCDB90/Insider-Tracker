@@ -1346,7 +1346,11 @@ function BuybackPrograms({ rows, loading }) {
                     || null;
 
       const programMax   = Number(enriched?.total_value)  || null;
-      const spentCumul   = Number(enriched?.spent_value || enriched?.cumulative_value) || null;
+      // spentCumul: take the highest cumulative_value seen across all rows (explicitly stated cumulative),
+      // or fall back to summing spent_value (which stores the weekly amount for SEB-style reports)
+      const maxCumVal = Math.max(0, ...sorted.map(r => Number(r.cumulative_value) || 0));
+      const sumSpent  = sorted.reduce((s, r) => s + (Number(r.spent_value) || 0), 0);
+      const spentCumul = maxCumVal > 0 ? maxCumVal : (sumSpent > 0 ? sumSpent : null);
       const cumShares    = Number(enriched?.cumulative_shares) || null;
       const programEnd   = sorted.find(r => r.program_end)?.program_end || null;
 
@@ -1371,7 +1375,7 @@ function BuybackPrograms({ rows, loading }) {
       // Status: only Active reaches the card — Expired/Completed are filtered
       const hasFutureEnd = programEnd && programEnd >= today;
       const isStale = !hasFutureEnd && lastDate < cutoffDate;
-      const status = completionPct >= 95 ? 'Completed'
+      const status = completionPct >= 100 ? 'Completed'
                    : isStale            ? 'Expired'
                    : latest?.status === 'Active' ? 'Active'
                    : 'Expired'; // treat Announced/unknown as Expired

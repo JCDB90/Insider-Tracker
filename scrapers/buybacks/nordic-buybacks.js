@@ -142,14 +142,18 @@ function parseBuybackText(text, pub) {
   // "total maximum amount of SEK 2,500,000,000"
   // "for an amount of up to DKK 20 million"
   // "up to SEK 275,000,000"
+  // "the SEK 1.25bn share buyback program"  (standalone CCY+amount, SEB style)
   const CCY = '(SEK|EUR|DKK|NOK|ISK|GBP|USD)';
   let programMax = null;
   const prefixRe = /(?:total\s+maximum\s+amount\s+of\s+|for\s+a\s+(?:total\s+)?(?:maximum\s+)?amount\s+of\s+up\s+to\s+|up\s+to\s+(?:a\s+total\s+(?:maximum\s+)?amount\s+of\s+)?)/i;
   const maxM1 = text.match(new RegExp(prefixRe.source + CCY + '\\s*([\\d,.\\s]+)\\s*(million|billion|mn|bn)?', 'i'));
   const maxM2 = text.match(new RegExp(prefixRe.source + '([\\d,.\\s]+)\\s*(million|billion|mn|bn)?\\s*' + CCY, 'i'));
-  for (const m of [maxM1, maxM2].filter(Boolean)) {
-    const num = m === maxM1 ? m[2] : m[1];
-    const multStr = m === maxM1 ? m[3] : m[2];
+  // "the SEK 1.25bn" / "a SEK 500 million" — standalone amount without "up to" prefix
+  const maxM3 = text.match(new RegExp('\\b' + CCY + '\\s*([\\d]+(?:[.,]\\d+)?)\\s*(bn|billion|mn|million)\\b', 'i'));
+  for (const m of [maxM1, maxM2, maxM3].filter(Boolean)) {
+    const isCCY3 = m === maxM3;
+    const num = isCCY3 ? m[2] : (m === maxM1 ? m[2] : m[1]);
+    const multStr = isCCY3 ? m[3] : (m === maxM1 ? m[3] : m[2]);
     const mult = /billion|bn/i.test(multStr||'') ? 1e9 : /million|mn/i.test(multStr||'') ? 1e6 : 1;
     const v = parseNum(num);
     if (v && v * mult > 10000) { programMax = Math.round(v * mult); break; }
@@ -157,9 +161,10 @@ function parseBuybackText(text, pub) {
 
   // ── Program dates ─────────────────────────────────────────────────────────────
   // "runs between 7 May 2026 and 19 August 2026"
+  // "running between 30 April and 13 July 2026"   (SEB style)
   // "runs from 4 March 2026"
-  const periodM = text.match(/runs?\s+between\s+([\d\s\w]+?)\s+and\s+([\d\s\w]+\d{4})/i)
-               || text.match(/runs?\s+from\s+([\d\s\w]+?\d{4})\s+(?:to|and|until)\s+([\d\s\w]+\d{4})/i);
+  const periodM = text.match(/runn?(?:ing|s)?\s+between\s+([\d\s\w]+?)\s+and\s+([\d\s\w]+\d{4})/i)
+               || text.match(/runn?(?:ing|s)?\s+from\s+([\d\s\w]+?\d{4})\s+(?:to|and|until)\s+([\d\s\w]+\d{4})/i);
   const programStart = periodM ? parseProseDate(periodM[1]) : null;
   const programEnd   = periodM ? parseProseDate(periodM[2]) : null;
 
@@ -237,6 +242,7 @@ function parseBuybackText(text, pub) {
       weeklyValue  = parseNum(genTab[3]) ? Math.round(parseNum(genTab[3])) : null;
     }
   }
+
 
   // Validate: avgPrice shouldn't exceed share count
   if (sharesBought && avgPrice && avgPrice > sharesBought) {
@@ -431,14 +437,20 @@ async function scrapeNordicBuybacks() {
       shares_bought:  result.shares_bought,
       avg_price:      result.avg_price,
       currency:       ccy,
-      status:         result.completion_pct != null && result.completion_pct >= 95 ? 'Completed' : 'Active',
+      status:         result.completion_pct != null && result.completion_pct >= 100 ? 'Completed' : 'Active',
       filing_url:     item.messageUrl,
       source_url:     item.messageUrl,
       source:         SOURCE,
       total_value:    result.program_max || null,
     };
 
-    if (result.cumulative_value != null)  { row.spent_value = result.cumulative_value; row.cumulative_value = result.cumulative_value; }
+    if (result.cumulative_value != null) {
+      row.spent_value = result.cumulative_value;
+      row.cumulative_value = result.cumulative_value;
+    } else if (result.weekly_value != null) {
+      // Weekly amount only (SEB style) — stored as spent_value so frontend can sum across weeks
+      row.spent_value = result.weekly_value;
+    }
     if (result.cumulative_shares != null) row.cumulative_shares  = result.cumulative_shares;
     if (result.completion_pct != null)    { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }
     if (result.program_start != null)     row.announced_date     = result.program_start;
