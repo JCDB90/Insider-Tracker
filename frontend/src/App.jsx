@@ -769,8 +769,9 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
       {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginRight: 32, flexShrink: 0 }}>
         <svg width="32" height="32" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <rect width="200" height="200" rx="22" fill="#ffffff"/>
-          <rect x="24" y="0" width="22" height="200" fill="#1a2545"/>
+          <rect width="200" height="200" rx="22" fill="#1a2545"/>
+          <rect x="12" y="12" width="176" height="176" rx="14" fill="#ffffff"/>
+          <rect x="36" y="12" width="22" height="176" fill="#1a2545"/>
           <path d="M 109 72 L 190 200 L 28 200 Z" fill="#1a2545"/>
           <path d="M 109 113 L 164 200 L 54 200 Z" fill="#ffffff"/>
         </svg>
