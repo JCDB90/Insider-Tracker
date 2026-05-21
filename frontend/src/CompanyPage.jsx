@@ -354,12 +354,7 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
         height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0', gap: 6,
       }}>
-        <span style={{ color: '#9CA3AF', fontSize: 13 }}>Chart data unavailable</span>
-        {triedSymbols?.length > 0 && (
-          <span style={{ color: '#D1D5DB', fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
-            Tried: {triedSymbols.slice(0, 4).join(', ')}
-          </span>
-        )}
+        <span style={{ color: '#9CA3AF', fontSize: 13 }}>Chart not available for this stock</span>
       </div>
     );
   }
