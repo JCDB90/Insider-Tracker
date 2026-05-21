@@ -277,7 +277,7 @@ const COUNTRY_FLAGS = {
   BE: '🇧🇪', CH: '🇨🇭', DE: '🇩🇪', DK: '🇩🇰',
   ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
   IT: '🇮🇹', KR: '🇰🇷', NL: '🇳🇱', NO: '🇳🇴',
-  SE: '🇸🇪',
+  SE: '🇸🇪', SG: '🇸🇬',
 };
 
 const COUNTRY_NAMES = {
@@ -285,7 +285,7 @@ const COUNTRY_NAMES = {
   DK: 'Denmark',        ES: 'Spain',        FI: 'Finland',
   FR: 'France',         GB: 'United Kingdom', IT: 'Italy',
   KR: 'South Korea',    NL: 'Netherlands',  NO: 'Norway',
-  SE: 'Sweden',
+  SE: 'Sweden',         SG: 'Singapore',
 };
 
 const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
