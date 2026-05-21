@@ -354,7 +354,7 @@ function parseBody(raw) {
   const totalM =
     text.match(/total\s+(?:value|consideration)\s+(?:of\s+)?(?:NOK|EUR|SEK|DKK)\s*([\d,. ]+)/i) ||
     text.match(/total\s+of\s+(?:NOK|EUR|SEK|DKK)\s*([\d,. ]+)/i) ||
-    text.match(/(?:verdi|value)\s*[:\-]\s*(?:NOK|EUR|SEK|DKK)?\s*([\d,. ]+)/i);
+    text.match(/\bverdi\s*[:\-]\s*(?:NOK|EUR|SEK|DKK)?\s*([\d,. ]+)/i);
   if (totalM) {
     const t = parseNum(totalM[1].trim());
     if (t && t > 0) total = Math.round(t);
