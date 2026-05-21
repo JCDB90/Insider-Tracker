@@ -2447,7 +2447,7 @@ function DashboardPage({
 
         {/* Recent Trades section */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="trades-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em' }}>
                 {activeTab === 'trades' ? 'Recent Insider Trades' : 'Buyback Programs'}
@@ -2461,7 +2461,7 @@ function DashboardPage({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* Tab toggle */}
-              <div style={{
+              <div className="trades-toggle-wrap" style={{
                 display: 'flex', alignItems: 'center',
                 background: '#f8f8f8', border: '1px solid #f0f0f0',
                 borderRadius: 7, padding: 3, gap: 2,
@@ -2486,7 +2486,7 @@ function DashboardPage({
                 ))}
               </div>
               {!isLoading && (
-                <span style={{
+                <span className="trades-count" style={{
                   fontSize: 12, color: '#9CA3AF', background: '#f8f8f8',
                   border: '1px solid #f0f0f0', borderRadius: 6, padding: '4px 10px',
                 }}>

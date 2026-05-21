@@ -9,6 +9,10 @@
 
 @media (max-width: 768px) {
 
+  /* ── Prevent horizontal overflow on narrow screens ──────────────────────── */
+  body          { overflow-x: hidden !important; }
+  #root         { overflow-x: hidden !important; }
+
   /* ── Navigation ─────────────────────────────────────────────────────────── */
 
   .topbar {
@@ -111,21 +115,17 @@
     justify-content: center !important;
   }
 
-  /* Selected flag pill: dark ring */
+  /* Selected flag pill: dark ring (matches inline background: ACCENT+'10') */
   .sidebar-item[style*="10)"] {
     border-color: #0f1117 !important;
     background: #fff !important;
   }
 
   /* Hide the checkbox square (1st span child) */
-  .sidebar-item > span:nth-child(1) {
-    display: none !important;
-  }
+  .sidebar-item > span:nth-child(1) { display: none !important; }
 
   /* Hide the country name text (3rd span child) */
-  .sidebar-item > span:nth-child(3) {
-    display: none !important;
-  }
+  .sidebar-item > span:nth-child(3) { display: none !important; }
 
   /* Flag icon size inside circular pill */
   .sidebar-item .fi {
@@ -158,7 +158,7 @@
     border: 1.5px solid #0f1117;
     background: #fff;
     cursor: pointer;
-    font-family: "'Inter', sans-serif";
+    font-family: 'Inter', sans-serif;
   }
 
   .mobile-chip-x {
@@ -178,129 +178,181 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    font-family: "'Inter', sans-serif";
+    font-family: 'Inter', sans-serif;
     white-space: nowrap;
   }
 
-  /* ── Main content padding ────────────────────────────────────────────────── */
-  .dashboard-main    { padding: 14px 14px !important; }
-  .company-page-main { padding: 14px 14px !important; }
-  .profile-main      { padding: 14px 14px !important; }
-  .page-main         { padding: 14px 14px !important; }
+  /* ── Main content padding (reduced for 360px) ───────────────────────────── */
+  .dashboard-main    { padding: 10px !important; }
+  .company-page-main { padding: 10px !important; }
+  .profile-main      { padding: 10px !important; }
+  .page-main         { padding: 10px !important; }
 
-  /* ── KPI cards → 2×2 grid ───────────────────────────────────────────────── */
+  /* ── KPI cards → compact 2×2 grid ──────────────────────────────────────── */
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 10px !important;
-    margin-bottom: 20px !important;
+    gap: 8px !important;
+    margin-bottom: 16px !important;
   }
 
-  /* ── Trades table → Card view ───────────────────────────────────────────── */
-
-  /* Disable the scroll wrapper — cards don't scroll horizontally */
-  .trades-table-scroll {
-    overflow-x: visible !important;
+  /* Card container: tighter padding */
+  .kpi-grid > div {
+    padding: 10px !important;
+    gap: 3px !important;
   }
 
-  /* Table becomes a block container */
-  .trades-table {
-    display: block !important;
-    width: 100% !important;
-  }
-  .trades-table colgroup,
-  .trades-table col {
-    display: none !important;
-  }
-  .trades-table thead {
-    display: none !important;
-  }
-  .trades-table tbody {
-    display: block !important;
+  /* Icon emoji */
+  .kpi-grid > div > div:first-child > span:first-child {
+    font-size: 11px !important;
   }
 
-  /* Each row becomes a flex card */
-  .trades-table tbody tr {
-    display: flex !important;
-    flex-wrap: wrap !important;
+  /* Label (uppercase text above the number) */
+  .kpi-grid > div > div:first-child > span:last-child {
+    font-size: 9px !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  /* Big number value */
+  .kpi-grid > div > span {
+    font-size: 19px !important;
+    line-height: 1.1 !important;
+  }
+
+  /* Sub-label below the number */
+  .kpi-grid > div > div:last-child {
+    font-size: 9px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* ── Trades section header → stack on mobile ────────────────────────────── */
+  .trades-header {
+    flex-direction: column !important;
     align-items: flex-start !important;
-    padding: 11px 14px !important;
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Tighten the h2 on mobile */
+  .trades-header h2 {
+    font-size: 16px !important;
+  }
+
+  /* Compact toggle tab buttons */
+  .trades-toggle-wrap button {
+    padding: 5px 10px !important;
+    font-size: 11px !important;
+  }
+
+  /* Hide the "1,095 / 6,502" count pill — saves width */
+  .trades-count { display: none !important; }
+
+  /* ── Trades table → 2-column CSS grid card view ─────────────────────────── */
+
+  /* Disable horizontal scroll — grid cards don't need it */
+  .trades-table-scroll { overflow-x: visible !important; }
+
+  /* Convert table + children to block layout */
+  .trades-table                  { display: block !important; width: 100% !important; }
+  .trades-table colgroup,
+  .trades-table col              { display: none !important; }
+  .trades-table thead            { display: none !important; }
+  .trades-table tbody            { display: block !important; }
+
+  /*
+   * Card layout — 2-column CSS grid on each <tr>:
+   *
+   * col 1 (1fr)   │  col 2 (auto — sized by widest right-col content)
+   * ──────────────┼─────────────────────────────────────────────────
+   * Company name  │  BUY/SELL badge + signals (stacked)
+   * Insider·role  │  🇸🇪 SE
+   * € Value       │  11 May
+   */
+  .trades-table tbody tr {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-areas:
+      "company  type"
+      "insider  country"
+      "value    date" !important;
+    padding: 10px 12px !important;
+    gap: 2px 8px !important;
+    align-items: start !important;
     width: 100% !important;
     box-sizing: border-box;
-    /* border-bottom kept from inline style — acts as card divider */
   }
 
-  /* Reset cell padding — each col-* controls its own spacing */
+  /* Reset all cell padding — grid-area controls position */
   .trades-table tbody td {
     padding: 0 !important;
     border: none !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     white-space: normal !important;
     text-align: left !important;
   }
 
-  /*
-   * Card layout (390px phone):
-   *
-   * [Company name (bold)]   [BUY / SELL badge + signals]   ← row 1
-   * [Insider name · role]                                   ← row 2
-   * [€ 2.8M]  [🇸🇪 SE]  [11 May]                           ← row 3
-   */
-
-  /* Row 1 left: company name + ticker */
+  /* Company: row 1 left — bold, truncated */
   .col-company {
-    order: 1 !important;
-    width: calc(100% - 100px) !important;
-    padding-right: 8px !important;
-    padding-bottom: 3px !important;
+    grid-area: company !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
+  /* Remove desktop truncation so text is readable in the 1fr column */
+  .col-company button,
+  .col-company div { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 100% !important; }
 
-  /* Row 1 right: type badge + signal badges */
+  /* Type: row 1 right — BUY/SELL badge, then signals below it */
   .col-type {
-    order: 2 !important;
-    width: 100px !important;
+    grid-area: type !important;
     display: flex !important;
-    justify-content: flex-end !important;
-    align-items: flex-start !important;
-    padding-bottom: 3px !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 3px !important;
+    justify-self: end;
+  }
+  /* Signals div inside col-type: wrap if needed */
+  .col-type > div {
+    display: flex !important;
     flex-wrap: wrap !important;
+    justify-content: flex-end !important;
     gap: 2px !important;
   }
 
-  /* Row 2: insider name + role (full width) */
+  /* Insider: row 2 left */
   .col-insider {
-    order: 3 !important;
-    width: 100% !important;
-    padding-bottom: 5px !important;
+    grid-area: insider !important;
+    overflow: hidden !important;
   }
+  .col-insider button,
+  .col-insider div { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 100% !important; }
 
-  /* Row 3 left: total value */
-  .col-value {
-    order: 4 !important;
-    flex: 1 !important;
-    text-align: left !important;
-    font-weight: 600 !important;
-    font-size: 13px !important;
-  }
-
-  /* Row 3 middle: country flag */
+  /* Country: row 2 right */
   .col-country {
-    order: 5 !important;
-    padding: 0 10px !important;
+    grid-area: country !important;
+    justify-self: end;
+  }
+  .col-country > div { justify-content: flex-end !important; }
+
+  /* Value: row 3 left */
+  .col-value {
+    grid-area: value !important;
+    font-weight: 600 !important;
+    font-size: 12px !important;
+    text-align: left !important;
   }
 
-  /* Row 3 right: date */
+  /* Date: row 3 right */
   .col-date {
-    order: 6 !important;
-    margin-left: auto !important;
-    text-align: right !important;
-    color: #6B7280 !important;
+    grid-area: date !important;
     font-size: 11px !important;
+    color: #6B7280 !important;
+    text-align: right !important;
+    white-space: nowrap !important;
+    justify-self: end;
   }
 
-  /* Price: hidden — value is the important number */
-  .col-price {
-    display: none !important;
-  }
+  /* Price: hidden */
+  .col-price { display: none !important; }
 
   /* ── Pricing page → stack vertically, Pro card first ───────────────────── */
   .pricing-grid {
@@ -309,23 +361,16 @@
   }
 
   /* Promote Pro card (2nd child) to top of the stack */
-  .pricing-grid > div:nth-child(2) {
-    order: -1 !important;
-  }
+  .pricing-grid > div:nth-child(2) { order: -1 !important; }
 
-  /* Remove the desktop lift on all cards (no vertical space for translateY) */
-  .pricing-grid > div {
-    transform: none !important;
-  }
+  /* Remove the desktop lift on all cards */
+  .pricing-grid > div { transform: none !important; }
 
-  /* ── Tax calculator grids → stack inputs above chart ───────────────────── */
-  .calc-body-grid {
-    grid-template-columns: 1fr !important;
-  }
+  /* ── Tax calculator grids → stack ──────────────────────────────────────── */
+  .calc-body-grid { grid-template-columns: 1fr !important; }
 
-  /* ── Insider/Top-insiders profile KPI grids → 2×2 ──────────────────────── */
-  .profile-main .kpi-grid,
-  .profile-main [style*="repeat(4, 1fr)"] {
+  /* ── Profile page KPI grids → 2×2 ─────────────────────────────────────── */
+  .profile-main .kpi-grid {
     grid-template-columns: repeat(2, 1fr) !important;
   }
 
