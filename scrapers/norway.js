@@ -347,12 +347,16 @@ function parseBody(raw) {
   }
 
   // ── Total value ──
+  // NOTE: currency is REQUIRED in "total of" form to avoid matching the post-transaction
+  // boilerplate "holds a total of 140 472 shares" — without currency the number would be
+  // the share count, not the NOK amount (Norwegian space-thousands truncates at first group).
   let total = null;
   const totalM =
-    text.match(/total\s+(?:value|of|consideration)\s+(?:of\s+)?(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)/i) ||
-    text.match(/(?:verdi|value)\s*[:\-]\s*(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)/i);
+    text.match(/total\s+(?:value|consideration)\s+(?:of\s+)?(?:NOK|EUR|SEK|DKK)\s*([\d,. ]+)/i) ||
+    text.match(/total\s+of\s+(?:NOK|EUR|SEK|DKK)\s*([\d,. ]+)/i) ||
+    text.match(/(?:verdi|value)\s*[:\-]\s*(?:NOK|EUR|SEK|DKK)?\s*([\d,. ]+)/i);
   if (totalM) {
-    const t = parseNum(totalM[1]);
+    const t = parseNum(totalM[1].trim());
     if (t && t > 0) total = Math.round(t);
   }
   if (!total && shares && price) total = Math.round(shares * price);
