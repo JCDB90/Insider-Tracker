@@ -571,7 +571,7 @@ export default function CompanyPage({
   );
 
   return (
-    <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0, background: '#ffffff' }}>
+    <main className="company-page-main" style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0, background: '#ffffff' }}>
 
       {/* Back */}
       <button onClick={onBack} style={{

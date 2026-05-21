@@ -1,0 +1,138 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   InsidersAlpha — Mobile Responsiveness
+   All rules scoped to max-width:768px — zero desktop regressions.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Base state: hamburger hidden, mobile nav hidden (desktop default) */
+.topbar-hamburger { display: none; }
+.topbar-mobile-nav { display: none; }
+
+@media (max-width: 768px) {
+
+  /* ── Navigation ─────────────────────────────────────────────────────────── */
+
+  .topbar {
+    padding: 0 14px !important;
+  }
+
+  /* Hide desktop search and nav links */
+  .topbar-search { display: none !important; }
+  .topbar-nav    { display: none !important; }
+
+  /* Show hamburger button */
+  .topbar-hamburger {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    margin-left: auto;
+    border: 1px solid #f0f0f0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 18px;
+    color: #374151;
+    font-family: inherit;
+    padding: 0;
+  }
+
+  /* Mobile nav dropdown — shown via React state (mobileNavOpen) */
+  .topbar-mobile-nav {
+    display: flex !important;
+    flex-direction: column;
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+    z-index: 99;
+    padding: 6px 0 10px;
+  }
+
+  /* ── Dashboard layout ───────────────────────────────────────────────────── */
+
+  /* Stack sidebar above main content */
+  .dashboard-layout {
+    flex-direction: column !important;
+    overflow: visible !important;
+  }
+
+  /* Country sidebar → horizontal scrollable pill strip */
+  .country-sidebar {
+    width: 100% !important;
+    min-height: unset !important;
+    border-right: none !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    padding: 10px 14px !important;
+    overflow: visible !important;
+  }
+
+  .sidebar-header  { display: none !important; }
+  .sidebar-divider { display: none !important; }
+  .sidebar-footer  { display: none !important; }
+
+  .sidebar-items {
+    flex-direction: row !important;
+    overflow-x: auto  !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px !important;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .sidebar-items::-webkit-scrollbar { display: none; }
+
+  .sidebar-item {
+    flex-shrink: 0    !important;
+    white-space: nowrap !important;
+    border-radius: 20px !important;
+    padding: 5px 12px !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  /* Reduce main content padding on mobile */
+  .dashboard-main  { padding: 16px 14px !important; }
+  .company-page-main { padding: 16px 14px !important; }
+  .profile-main    { padding: 16px 14px !important; }
+  .page-main       { padding: 16px 14px !important; }
+
+  /* ── KPI cards → 2×2 ───────────────────────────────────────────────────── */
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* ── Tables → horizontal scroll ────────────────────────────────────────── */
+  .trades-table-scroll,
+  .company-trades-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Pricing cards → stack vertically ──────────────────────────────────── */
+  .pricing-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Pro card: undo the desktop lift on mobile (no room for translateY) */
+  .pricing-grid > div {
+    transform: none !important;
+  }
+
+  /* ── Calculator input/chart grids → stack ───────────────────────────────── */
+  .calc-body-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Typography & touch targets ─────────────────────────────────────────── */
+  /* Ensure minimum 44px tap targets on key interactive elements */
+  .topbar-mobile-nav button {
+    min-height: 44px;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+}

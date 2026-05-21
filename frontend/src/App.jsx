@@ -750,7 +750,8 @@ function computeInsiderScorecard(trades, performance) {
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
 function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin, isElite, onLogin, onSignOut }) {
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showUserMenu,  setShowUserMenu]  = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const navItems = [
     { label: 'Dashboard',    key: 'dashboard' },
     { label: 'Watchlist',    key: 'watchlist', dot: alertCount > 0 },
@@ -760,7 +761,7 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
   ];
 
   return (
-    <header style={{
+    <header className="topbar" style={{
       position: 'sticky', top: 0, zIndex: 100,
       background: '#fff', borderBottom: '1px solid #f0f0f0',
       display: 'flex', alignItems: 'center', gap: 0,
@@ -781,7 +782,7 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
       </div>
 
       {/* Search */}
-      <div style={{ position: 'relative', flex: 1, maxWidth: 320, marginRight: 'auto' }}>
+      <div className="topbar-search" style={{ position: 'relative', flex: 1, maxWidth: 320, marginRight: 'auto' }}>
         <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }}
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111318" strokeWidth="2" strokeLinecap="round">
           <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -801,7 +802,7 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
       </div>
 
       {/* Nav */}
-      <nav style={{ display: 'flex', gap: 2, marginLeft: 24 }}>
+      <nav className="topbar-nav" style={{ display: 'flex', gap: 2, marginLeft: 24 }}>
         {navItems.map(item => {
           const isActive = page === item.key;
           return (
@@ -889,6 +890,43 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
           fontFamily: "'Inter', sans-serif",
         }}>Sign in</button>
       )}
+
+      {/* Hamburger — hidden on desktop, shown on mobile via CSS */}
+      <button
+        className="topbar-hamburger"
+        onClick={() => setMobileNavOpen(o => !o)}
+        aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+      >
+        {mobileNavOpen ? '✕' : '☰'}
+      </button>
+
+      {/* Mobile nav dropdown — position:fixed below the topbar */}
+      {mobileNavOpen && (
+        <div className="topbar-mobile-nav">
+          {navItems.map(item => {
+            const isActive = page === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
+                style={{
+                  padding: '13px 20px', border: 'none', width: '100%', textAlign: 'left',
+                  background: isActive ? '#f8f8f8' : 'transparent',
+                  color: isActive ? ACCENT : '#374151',
+                  fontWeight: isActive ? 600 : 400, fontSize: 15,
+                  cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {item.label}
+                {item.dot && (
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#DC2626', display: 'inline-block' }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </header>
   );
 }
@@ -897,14 +935,14 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
 
 function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCounts }) {
   return (
-    <aside style={{
+    <aside className="country-sidebar" style={{
       width: 210, flexShrink: 0, padding: '20px 14px',
       borderRight: '1px solid #f0f0f0', background: '#fff',
       minHeight: 'calc(100vh - 56px)', overflowY: 'auto',
     }}>
       {/* Country filter */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             Country
           </span>
@@ -915,13 +953,14 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
             }}>Clear</button>
           )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <div className="sidebar-items" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {TRACKED_MARKETS.map(code => {
             const checked = selectedCountries.has(code);
             const count = countryCounts[code] || 0;
             return (
               <button
                 key={code}
+                className="sidebar-item"
                 onClick={() => toggleCountry(code)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
@@ -959,10 +998,10 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
       </div>
 
       {/* Divider */}
-      <div style={{ height: 1, background: '#f0f0f0', margin: '16px 0' }} />
+      <div className="sidebar-divider" style={{ height: 1, background: '#f0f0f0', margin: '16px 0' }} />
 
       {/* Live data indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' }}>
+      <div className="sidebar-footer" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' }}>
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A', display: 'inline-block', flexShrink: 0 }} />
         <span style={{ fontSize: 11, color: '#9CA3AF' }}>Updated daily</span>
       </div>
@@ -1143,6 +1182,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
 
   return (
     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+      <div className="trades-table-scroll">
       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: 95 }} />   {/* Date */}
@@ -1300,6 +1340,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
           )}
         </tbody>
       </table>
+      </div>{/* /trades-table-scroll */}
       {!loading && page != null && onPageChange && (
         <Pagination page={page} totalRows={rows.length} onChange={onPageChange} />
       )}
@@ -1842,7 +1883,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
   }, [buybacks, watchlist]);
 
   return (
-    <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
+    <main className="page-main" style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
       {/* Add stock modal */}
       {showAddModal && (
         <div style={{
@@ -2344,17 +2385,17 @@ function DashboardPage({
   }, [filteredBuybacks]);
 
   return (
-    <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+    <div className="dashboard-layout" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       <Sidebar
         selectedCountries={selectedCountries}
         toggleCountry={toggleCountry}
         clearCountries={clearCountries}
         countryCounts={countryCounts}
       />
-      <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
+      <main className="dashboard-main" style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
 
         {/* Signal KPI row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
+        <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
           {kpis.map((k, i) => (
             <div key={i} style={{
               background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
@@ -2567,7 +2608,7 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
   }
 
   return (
-    <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
+    <main className="profile-main" style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
         {/* Back */}
         <button onClick={onBack} style={{
@@ -2789,7 +2830,7 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
   }
 
   return (
-    <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
+    <main className="profile-main" style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111318', letterSpacing: '-0.02em', marginBottom: 4 }}>
@@ -3599,7 +3640,7 @@ function DKCalculator() {
       </div>
 
       {/* Body */}
-      <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
+      <div className="calc-body-grid" style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
         {/* Inputs */}
         <div>
           <InputRow label="Initial investment (DKK)">
@@ -3783,7 +3824,7 @@ function SEKCalculator() {
         </div>
       </div>
 
-      <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
+      <div className="calc-body-grid" style={{ padding: '20px', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 24, alignItems: 'start' }}>
         <div>
           <InputRow label="Initial investment (SEK)">
             <input type="number" value={initial} min="0" step="10000"
@@ -4267,7 +4308,7 @@ function PricingPage({ session, onLogin }) {
 
       <div style={{ maxWidth: 1080, margin: '0 auto', padding: '52px 32px' }}>
         {/* Pricing cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18, alignItems: 'stretch', marginBottom: 80 }}>
+        <div className="pricing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18, alignItems: 'stretch', marginBottom: 80 }}>
           {plans.map(plan => {
             const price = billing === 'annual' ? plan.annual : plan.monthly;
             const isH = plan.highlight;
