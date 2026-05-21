@@ -7,6 +7,9 @@
 .topbar-hamburger { display: none; }
 .topbar-mobile-nav { display: none; }
 
+/* mobile-price hidden by default (desktop) — revealed inside @media below */
+.mobile-price { display: none; }
+
 @media (max-width: 768px) {
 
   /* ── Prevent horizontal overflow on narrow screens ──────────────────────── */
@@ -358,8 +361,23 @@
     justify-self: end;
   }
 
-  /* Price: hidden */
+  /* Price: hidden (shown inline inside .col-value as .mobile-price instead) */
   .col-price { display: none !important; }
+
+  /* Inline price shown next to value: "€40,236 · @€14.50" */
+  .mobile-price {
+    display: inline !important;
+    font-size: 10px !important;
+    color: #9CA3AF !important;
+    font-weight: 400 !important;
+    margin-left: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+  }
+  .mobile-value {
+    font-weight: 600;
+    font-size: 13px;
+  }
 
   /* ── Pricing page → stack vertically, Pro card first ───────────────────── */
   .pricing-grid {

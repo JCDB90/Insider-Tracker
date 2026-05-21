@@ -1348,11 +1348,18 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
                       : formatPrice(row.price_per_share, row.currency)}
                   </td>
-                  {/* Value */}
+                  {/* Value — on mobile also shows price inline: "€40,236 · @€14.50" */}
                   <td className="col-value" style={{ padding: rowPad, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    {locked
-                      ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
-                      : formatValue(row.total_value, row.currency)}
+                    {locked ? (
+                      <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
+                    ) : (
+                      <>
+                        <span className="mobile-value">{formatValue(row.total_value, row.currency)}</span>
+                        {row.price_per_share && (
+                          <span className="mobile-price">· @{formatPrice(row.price_per_share, row.currency)}</span>
+                        )}
+                      </>
+                    )}
                   </td>
                   {/* Country */}
                   <td className="col-country" style={{ padding: rowPad, overflow: 'hidden' }}>

@@ -798,14 +798,17 @@ export default function CompanyPage({
                         {fmtShares(t.shares)}
                       </td>
 
-                      {/* Price */}
-                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {/* Price — hidden on mobile (shown inline in Value cell instead) */}
+                      <td className="col-price" style={{ padding: '10px 14px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {fmtPrice(t.price_per_share, t.currency)}
                       </td>
 
-                      {/* Value */}
-                      <td style={{ padding: '10px 14px', fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {fmtVal(t.total_value, t.currency)}
+                      {/* Value — on mobile also shows price inline: "€40,236 · @€14.50" */}
+                      <td className="col-value" style={{ padding: '10px 14px', fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span className="mobile-value">{fmtVal(t.total_value, t.currency)}</span>
+                        {t.price_per_share && (
+                          <span className="mobile-price">· @{fmtPrice(t.price_per_share, t.currency)}</span>
+                        )}
                       </td>
 
                       {/* vs Market */}
