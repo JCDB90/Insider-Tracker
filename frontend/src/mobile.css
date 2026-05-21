@@ -69,53 +69,117 @@
     overflow: visible !important;
   }
 
-  /* ─ Country sidebar → compact flag-pill strip (wraps to 2-3 rows) ────── */
+  /* ─ Country sidebar → single-row horizontally scrollable flag strip ───── */
   .country-sidebar {
     width: 100% !important;
     min-height: unset !important;
     border-right: none !important;
     border-bottom: 1px solid #f0f0f0 !important;
-    padding: 10px 14px 8px !important;
-    overflow: visible !important;
+    padding: 0 !important;
+    overflow: hidden !important;
   }
 
-  /* Hide "COUNTRY" label + "Clear" header, divider, and footer on mobile */
+  /* Hide desktop-only elements */
   .sidebar-header  { display: none !important; }
   .sidebar-divider { display: none !important; }
   .sidebar-footer  { display: none !important; }
 
-  /* Pill container: wrap into multiple rows, no horizontal scroll */
+  /* Single scrollable row of flag pills */
   .sidebar-items {
     flex-direction: row !important;
-    flex-wrap: wrap !important;
-    overflow-x: visible !important;
-    gap: 5px !important;
-    padding-bottom: 0;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px !important;
+    padding: 9px 14px !important;
     scrollbar-width: none;
   }
+  .sidebar-items::-webkit-scrollbar { display: none; }
 
-  /* Each country pill: compact, flag-only */
+  /* Each flag pill: circular, compact touch target */
   .sidebar-item {
     flex-shrink: 0 !important;
-    border-radius: 8px !important;
-    padding: 5px 8px !important;
-    border: 1.5px solid #e5e7eb !important;
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    border: 2px solid #e5e7eb !important;
+    background: #f8f8f8 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
-  /* Hide the checkbox square (1st span child of each pill) */
+  /* Selected flag pill: dark ring */
+  .sidebar-item[style*="10)"] {
+    border-color: #0f1117 !important;
+    background: #fff !important;
+  }
+
+  /* Hide the checkbox square (1st span child) */
   .sidebar-item > span:nth-child(1) {
     display: none !important;
   }
 
-  /* Hide the full country name text (3rd span child = last span) */
+  /* Hide the country name text (3rd span child) */
   .sidebar-item > span:nth-child(3) {
     display: none !important;
   }
 
-  /* Flag icon: nudge size for compact display */
+  /* Flag icon size inside circular pill */
   .sidebar-item .fi {
-    width: 22px !important;
-    height: 16px !important;
+    width: 20px !important;
+    height: 15px !important;
+    border-radius: 2px;
+  }
+
+  /* ─ Active filter chip bar (replaces flag strip when countries selected) ─ */
+  .mobile-active-filter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .mobile-active-filter::-webkit-scrollbar { display: none; }
+
+  .mobile-active-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    padding: 5px 10px;
+    border-radius: 20px;
+    border: 1.5px solid #0f1117;
+    background: #fff;
+    cursor: pointer;
+    font-family: "'Inter', sans-serif";
+  }
+
+  .mobile-chip-x {
+    font-size: 13px;
+    color: #9CA3AF;
+    margin-left: 1px;
+  }
+
+  .mobile-clear-btn {
+    flex-shrink: 0;
+    margin-left: 4px;
+    background: #0f1117;
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: "'Inter', sans-serif";
+    white-space: nowrap;
   }
 
   /* ── Main content padding ────────────────────────────────────────────────── */

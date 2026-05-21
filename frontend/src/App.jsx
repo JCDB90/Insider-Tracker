@@ -931,71 +931,98 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
   );
 }
 
+// ─── useIsMobile ──────────────────────────────────────────────────────────────
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  return isMobile;
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCounts }) {
+  const isMobile = useIsMobile();
   return (
     <aside className="country-sidebar" style={{
       width: 210, flexShrink: 0, padding: '20px 14px',
       borderRight: '1px solid #f0f0f0', background: '#fff',
       minHeight: 'calc(100vh - 56px)', overflowY: 'auto',
     }}>
-      {/* Country filter */}
-      <div>
-        <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-            Country
-          </span>
-          {selectedCountries.size > 0 && (
-            <button onClick={clearCountries} style={{
-              fontSize: 11, color: ACCENT, background: 'none', border: 'none',
-              cursor: 'pointer', fontFamily: "'Inter'", padding: 0,
-            }}>Clear</button>
-          )}
+      {/* Mobile + countries active: compact chip bar replaces flag strip */}
+      {isMobile && selectedCountries.size > 0 ? (
+        <div className="mobile-active-filter">
+          {[...selectedCountries].map(cc => (
+            <button key={cc} className="mobile-active-chip" onClick={() => toggleCountry(cc)}>
+              <Flag code={cc} />
+              <span style={{ fontSize: 12 }}>{COUNTRY_NAMES[cc] || cc}</span>
+              <span className="mobile-chip-x">×</span>
+            </button>
+          ))}
+          <button className="mobile-clear-btn" onClick={clearCountries}>Clear all</button>
         </div>
-        <div className="sidebar-items" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {TRACKED_MARKETS.map(code => {
-            const checked = selectedCountries.has(code);
-            const count = countryCounts[code] || 0;
-            return (
-              <button
-                key={code}
-                className="sidebar-item"
-                onClick={() => toggleCountry(code)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '5px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  background: checked ? ACCENT + '10' : 'transparent',
-                  fontFamily: "'Inter', sans-serif", textAlign: 'left',
-                  transition: 'background 0.1s', width: '100%',
-                }}
-              >
-                <span style={{
-                  width: 14, height: 14, borderRadius: 3, flexShrink: 0,
-                  border: '1.5px solid ' + (checked ? ACCENT : '#D1D5DB'),
-                  background: checked ? ACCENT : '#fff',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {checked && (
-                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
-                      <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </span>
-                <Flag code={code} />
-                <span style={{
-                  fontSize: 12, flex: 1,
-                  color: checked ? '#111318' : '#374151',
-                  fontWeight: checked ? 500 : 400,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {COUNTRY_NAMES[code] || code}
-                </span>
-              </button>
-            );
-          })}
+      ) : (
+        /* Desktop sidebar or mobile flag strip (no active filter) */
+        <div>
+          <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Country
+            </span>
+            {selectedCountries.size > 0 && (
+              <button onClick={clearCountries} style={{
+                fontSize: 11, color: ACCENT, background: 'none', border: 'none',
+                cursor: 'pointer', fontFamily: "'Inter'", padding: 0,
+              }}>Clear</button>
+            )}
+          </div>
+          <div className="sidebar-items" style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {TRACKED_MARKETS.map(code => {
+              const checked = selectedCountries.has(code);
+              const count = countryCounts[code] || 0;
+              return (
+                <button
+                  key={code}
+                  className="sidebar-item"
+                  onClick={() => toggleCountry(code)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '5px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    background: checked ? ACCENT + '10' : 'transparent',
+                    fontFamily: "'Inter', sans-serif", textAlign: 'left',
+                    transition: 'background 0.1s', width: '100%',
+                  }}
+                >
+                  <span style={{
+                    width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                    border: '1.5px solid ' + (checked ? ACCENT : '#D1D5DB'),
+                    background: checked ? ACCENT : '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {checked && (
+                      <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                        <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                  <Flag code={code} />
+                  <span style={{
+                    fontSize: 12, flex: 1,
+                    color: checked ? '#111318' : '#374151',
+                    fontWeight: checked ? 500 : 400,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {COUNTRY_NAMES[code] || code}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Divider */}
       <div className="sidebar-divider" style={{ height: 1, background: '#f0f0f0', margin: '16px 0' }} />
