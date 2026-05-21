@@ -10,8 +10,11 @@
 @media (max-width: 768px) {
 
   /* ── Prevent horizontal overflow on narrow screens ──────────────────────── */
-  body          { overflow-x: hidden !important; }
-  #root         { overflow-x: hidden !important; }
+  /* NOTE: overflow-x:hidden on body/html blocks touch-scroll on ALL children
+     in iOS Safari — do NOT set it there. Use overflow:hidden on specific
+     inner containers instead. */
+  .dashboard-main    { overflow-x: hidden; }
+  .dashboard-layout  { max-width: 100vw; }
 
   /* ── Navigation ─────────────────────────────────────────────────────────── */
 
@@ -80,7 +83,9 @@
     border-right: none !important;
     border-bottom: 1px solid #f0f0f0 !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    /* No overflow:hidden here — it would clip/block the .sidebar-items scroll
+       container and prevent touch-scroll on iOS/Android */
+    overflow: visible !important;
   }
 
   /* Hide desktop-only elements */
@@ -269,11 +274,13 @@
    */
   .trades-table tbody tr {
     display: grid !important;
-    grid-template-columns: 1fr auto !important;
+    /* Explicit 80px right column — 'auto' collapses to 0 in some browsers
+       when the cell is a flex column container with align-items:flex-end */
+    grid-template-columns: 1fr 80px !important;
     grid-template-areas:
       "company  type"
       "insider  country"
-      "value    date" !important;
+      "value    date";
     padding: 10px 12px !important;
     gap: 2px 8px !important;
     align-items: start !important;
