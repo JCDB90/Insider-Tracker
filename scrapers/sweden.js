@@ -115,6 +115,7 @@ const TICKERS = {
   'humana ab': 'HUMA',
   'nordnet': 'NORDNET',
   'flowscape': 'FLOW-B',
+  'greater than': 'GREAT',
 };
 function getTicker(n) {
   if (!n) return null;
