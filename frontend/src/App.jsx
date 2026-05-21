@@ -1183,7 +1183,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
   return (
     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
       <div className="trades-table-scroll">
-      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+      <table className="trades-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: 95 }} />   {/* Date */}
           <col style={{ width: 145 }} />  {/* Company */}
@@ -1250,11 +1250,11 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   {/* Date */}
-                  <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td className="col-date" style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatDateShort(row.transaction_date)}
                   </td>
                   {/* Company */}
-                  <td style={{ padding: rowPad, overflow: 'hidden' }} title={row.company}>
+                  <td className="col-company" style={{ padding: rowPad, overflow: 'hidden' }} title={row.company}>
                     {onCompanyClick ? (
                       <button onClick={() => onCompanyClick(row.ticker, row.company, row.country_code)} style={{
                         background: 'none', border: 'none', padding: 0, cursor: 'pointer',
@@ -1269,7 +1269,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                     )}
                   </td>
                   {/* Insider */}
-                  <td style={{ padding: rowPad, overflow: 'hidden' }}>
+                  <td className="col-insider" style={{ padding: rowPad, overflow: 'hidden' }}>
                     {name ? (
                       <>
                         {onInsiderClick ? (
@@ -1302,7 +1302,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                     )}
                   </td>
                   {/* Type + signal badges — blurred on locked pages */}
-                  <td style={{ padding: rowPad }}>
+                  <td className="col-type" style={{ padding: rowPad }}>
                     {locked ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <TypeChip type={row.transaction_type} />
@@ -1316,19 +1316,19 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                     )}
                   </td>
                   {/* Price */}
-                  <td style={{ padding: rowPad, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td className="col-price" style={{ padding: rowPad, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {locked
                       ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
                       : formatPrice(row.price_per_share, row.currency)}
                   </td>
                   {/* Value */}
-                  <td style={{ padding: rowPad, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <td className="col-value" style={{ padding: rowPad, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {locked
                       ? <span style={{ filter: 'blur(4px)', userSelect: 'none', color: '#9CA3AF' }}>€ ···</span>
                       : formatValue(row.total_value, row.currency)}
                   </td>
                   {/* Country */}
-                  <td style={{ padding: rowPad, overflow: 'hidden' }}>
+                  <td className="col-country" style={{ padding: rowPad, overflow: 'hidden' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Flag code={row.country_code} />
                       <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
