@@ -4305,7 +4305,7 @@ function PricingPage({ session, onLogin }) {
                   }}>{plan.tier}</div>
                   <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 24 }}>{plan.tagline}</div>
 
-                  <div style={{ marginBottom: 24, paddingBottom: 22, borderBottom: '1px solid #f0f0f0' }}>
+                  <div style={{ marginBottom: 24, paddingBottom: 22, borderBottom: '1px solid #f0f0f0', minHeight: 92 }}>
                     {plan.monthly === 0 ? (
                       <div style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-0.04em', color: '#0C0F1A', lineHeight: 1, fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>Free</div>
                     ) : (
@@ -4326,7 +4326,6 @@ function PricingPage({ session, onLogin }) {
                     )}
                   </div>
 
-                  <div style={{ flex: 1 }} />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 24 }}>
                     {plan.bullets.map((b, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -4336,6 +4335,7 @@ function PricingPage({ session, onLogin }) {
                     ))}
                   </div>
 
+                  <div style={{ flex: 1 }} />
                   <button style={{
                     width: '100%', padding: '11px 0', borderRadius: 8,
                     border: isH ? 'none' : '1.5px solid #f0f0f0',
