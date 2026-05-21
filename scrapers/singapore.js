@@ -225,12 +225,12 @@ async function fetchFilingDetails(page, filingUrl) {
     const html = await page.content();
     const text = await page.evaluate(() => document.body.innerText);
 
-    // Find PDF download link
+    // SGX PDF hrefs are hash-based (e.g. .../889780_FORM) — .pdf only appears in innerText
     const pdfLink = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll('a[href]'));
       const pdf = links.find(a =>
-        a.href.toLowerCase().includes('.pdf') &&
-        !a.href.includes('_') // avoid the "alternate" underscore links
+        a.innerText.toLowerCase().includes('.pdf') &&
+        a.href.includes('links.sgx.com')
       );
       return pdf ? pdf.href : null;
     });
