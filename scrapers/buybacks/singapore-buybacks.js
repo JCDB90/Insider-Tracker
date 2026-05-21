@@ -252,21 +252,19 @@ async function scrapeSGBuybacks() {
         country_code:      COUNTRY_CODE,
         ticker,
         company,
-        isin,
         currency:          CURRENCY,
         source:            SOURCE,
         filing_url:        filingUrl,
         status:            parsed_data.completionPct >= 95 ? 'Completed' : 'Active',
 
-        // Program-level fields
+        // Program-level fields (announced_date = mandate start)
         announced_date:    parsed_data.mandateStart || subDate,
-        program_start:     parsed_data.mandateStart || null,
 
         // This execution
         execution_date:    parsed_data.purchaseDate || subDate,
         shares_bought:     parsed_data.sharesPurchased,
         avg_price:         parsed_data.avgPrice,
-        spent_value:       parsed_data.totalConsideration,
+        spent_value:       parsed_data.totalConsideration ? Math.round(parsed_data.totalConsideration) : null,
 
         // Cumulative
         cumulative_shares: parsed_data.cumulativeShares,
