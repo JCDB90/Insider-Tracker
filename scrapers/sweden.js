@@ -99,12 +99,12 @@ const TICKERS = {
   'vitec': 'VIT-B',
   // Extended — companies that hit 6-char truncation bug or have special tickers
   'indutrade': 'INDT',
-  'dometic': 'DOMETIC',
+  'dometic': 'DOM',          // DOM.ST (was wrongly DOMETIC)
   'eeducation albert': 'ALBER',
   'medicover': 'MCOV-B',
   'avanza bank': 'AZA',
   'avanza': 'AZA',
-  'scandic hotels': 'SCAND',
+  'scandic hotels': 'SCST', // SCST.ST (was wrongly SCAND)
   'diös fastigheter': 'DIOS',
   'dios fastigheter': 'DIOS',
   'cellavision': 'CEVI',
@@ -116,6 +116,47 @@ const TICKERS = {
   'nordnet': 'NORDNET',
   'flowscape': 'FLOW-B',
   'greater than': 'GREAT',
+
+  // ── Broken-ticker fixes (confirmed correct Yahoo Finance symbols) ──────────
+  // Previously these companies had no working chart because the auto-derived
+  // ticker (6-char name truncation) didn't match any Yahoo Finance symbol.
+  'lindab': 'LIAB',         // LIAB.ST  (was LINDAB — no Yahoo listing)
+  'alleima': 'ALLEI',       // ALLEI.ST (Sandvik spin-off, was ALLEIM)
+  'proact it': 'PACT',      // PACT.ST  (was PROACT)
+  'proact': 'PACT',
+  'nederman': 'NMAN',       // NMAN.ST  (was NEDERM)
+  'fagerhult': 'FAG',       // FAG.ST   (was FAGERH)
+  'ework group': 'EWRK',    // EWRK.ST  (was EWORK)
+  'ework': 'EWRK',
+  'invisio': 'IVSO',        // IVSO.ST  (was INVISI)
+  'bonesupport': 'BONEX',   // BONEX.ST (was BONESU)
+  'teqnion': 'TEQ',         // TEQ.ST   (was TEQNIO)
+  'pandox': 'PNDX-B',       // PNDX-B.ST (was PANDOX)
+  'samhällsbyggnadsbolaget': 'SBB-B', // SBB-B.ST (was SAMHÄL with ä)
+  'samhallsbyggnadsbolaget': 'SBB-B', // ASCII fallback
+  'addlife': 'ALIF-B',      // ALIF-B.ST (was ADDLIF)
+  'add life': 'ALIF-B',
+
+  // ── Fallback-to-primary fixes (chart loaded via alt symbol, now use correct) ─
+  // These companies' charts worked but loaded via a secondary candidate symbol.
+  // Setting the correct primary avoids the extra API calls.
+  'assa abloy': 'ASSA-B',   // ASSA-B.ST  (was ASSA → tries ASSA-B.ST 3rd)
+  'ncc ': 'NCC-B',          // NCC-B.ST   (trailing space avoids matching "BNCC")
+  'securitas': 'SECU-B',    // SECU-B.ST  (was SECURI)
+  'billerud': 'BILL',       // BILL.ST    (was BILLER)
+  'sweco': 'SWEC-B',        // SWEC-B.ST  (was SWECO)
+  'trelleborg': 'TREL-B',   // TREL-B.ST  (was TRELLE)
+  'truecaller': 'TRUE-B',   // TRUE-B.ST  (was TRUECA)
+  'wallenstam': 'WALL-B',   // WALL-B.ST  (was WALLEN)
+  'storytel': 'STORY-B',    // STORY-B.ST (was STORYT; STOR-B.ST is Storskogen)
+  'dustin': 'DUST',         // DUST.ST    (was DUSTIN)
+  'holmen': 'HOLM-B',       // HOLM-B.ST  (was HOLMEN)
+  'rejlers': 'REJL-B',      // REJL-B.ST  (was REJLER)
+  'ratos': 'RATO-B',        // RATO-B.ST  (was RATOS)
+  'nobia': 'NOBI',          // NOBI.ST    (was NOBIA)
+  'logistea': 'LOGIST-B',   // LOGIST-B.ST (was LOGIST)
+  'knowit': 'KNOW',         // KNOW.ST    (was KNOWIT)
+  'bergman & beving': 'BERG-B', // BERG-B.ST
 };
 function getTicker(n) {
   if (!n) return null;
