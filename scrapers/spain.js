@@ -276,17 +276,19 @@ function parsePdfText(text) {
   // CNMV PDFs: data row format is:
   //   ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
   // e.g.: ES0105229001 Acción Otros 09/04/2026 XOFF 115513,00 0,63 EUR
-  let isin = null, shares = null, price = null, currency = CURRENCY;
+  let isin = null, shares = null, price = null, currency = CURRENCY, txDateFromPdf = null;
 
   // Primary: ISIN-anchored row pattern (handles 1–4 words between ISIN and date)
+  // Row format: ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
   const rowMatch = text.match(
-    /([A-Z]{2}[A-Z0-9]{10})\s+\S+(?:\s+\S+){1,4}\s+\d{2}\/\d{2}\/\d{4}\s+\S+\s+([\d.,]+)\s+([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/
+    /([A-Z]{2}[A-Z0-9]{10})\s+\S+(?:\s+\S+){1,4}\s+(\d{2}\/\d{2}\/\d{4})\s+\S+\s+([\d.,]+)\s+([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/
   );
   if (rowMatch) {
-    isin     = rowMatch[1];
-    shares   = Math.round(parseEsNum(rowMatch[2]) || 0) || null;
-    price    = parseEsNum(rowMatch[3]);
-    currency = rowMatch[4];
+    isin          = rowMatch[1];
+    txDateFromPdf = cnmvToIso(rowMatch[2]);  // actual transaction date, more accurate than listing date
+    shares        = Math.round(parseEsNum(rowMatch[3]) || 0) || null;
+    price         = parseEsNum(rowMatch[4]);
+    currency      = rowMatch[5];
   }
 
   // Fallback ISIN: look near "Código de identificación" label
@@ -314,7 +316,7 @@ function parsePdfText(text) {
     if (currMatch) currency = currMatch[1];
   }
 
-  return { txType, isin, price, shares, currency };
+  return { txType, isin, price, shares, currency, txDateFromPdf };
 }
 
 async function parsePdfFromUrl(docUrl) {
@@ -381,7 +383,7 @@ async function scrapeES() {
         insider_name:     f.insiderName,
         insider_role:     translateRole(f.role) || 'Not disclosed',
         transaction_type: pdf.txType,
-        transaction_date: f.txDate,
+        transaction_date: pdf.txDateFromPdf || f.txDate,
         shares,
         price_per_share:  price,
         total_value:      (price != null && shares) ? Math.round(price * shares) : null,

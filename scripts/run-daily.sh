@@ -22,6 +22,14 @@ NODE_BIN="$(which node)"
 
 # ── Sanity checks ────────────────────────────────────────────────────────────
 
+# ── Lock (prevent concurrent runs) ───────────────────────────────────────────
+LOCK_FILE="/tmp/insider-tracker-daily.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "$(date -u '+%Y-%m-%d %H:%M UTC') — Already running, skipping." >&2
+  exit 0
+fi
+
 if [ ! -d "$APP_DIR" ]; then
   echo "ERROR: $APP_DIR does not exist. Run deploy.sh first." >&2
   exit 1
