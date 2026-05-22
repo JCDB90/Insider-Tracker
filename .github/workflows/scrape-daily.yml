@@ -40,6 +40,7 @@ jobs:
   scrape:
     name: Scrape all markets
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 90     # Hard cap; full run should finish in ~60 min
 
     steps:

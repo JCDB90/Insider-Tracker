@@ -136,18 +136,24 @@ function parseDetailPage(html, slug) {
   // "Declarer Related Persons" lists the PDMR(s) that the notifying person is associated with
   const relatedPersonsRaw = $('.field--name-field-ct-description .field__item').first().text().trim();
 
-  // If the notifying party is a company (e.g. a holding vehicle), use the PDMR name as
-  // insider_name and the company as via_entity.  If it's a person, use it directly.
+  // If the notifying party is a company (e.g. a holding vehicle) OR is a "closely
+  // associated person", use the PDMR from "Declarer Related Persons" as insider_name
+  // and the notifying party as via_entity.
+  // "Closely associated" (Declarer Type) means the filer is acting on behalf of a PDMR —
+  // the PDMR is listed in "Declarer Related Persons", not in "Notifying person".
+  // "closely associated" Declarer Type means the notifying person is acting on behalf of
+  // a PDMR; the actual PDMR is listed in "Declarer Related Persons".
+  const isCloselyAssociated = /closely associated/i.test(roleRaw);
   let insiderName = notifyingPerson;
   let viaEntity   = null;
-  if (notifyingPerson && looksLikeCorp(notifyingPerson)) {
-    viaEntity   = notifyingPerson;
-    insiderName = null;
-    // Use the PDMR name when it's a single unambiguous person
+  if (notifyingPerson && (looksLikeCorp(notifyingPerson) || isCloselyAssociated)) {
+    viaEntity = notifyingPerson;
+    // Use the PDMR name when there's exactly one unambiguous natural person
     const parts = relatedPersonsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
     if (parts.length === 1 && parts[0] && !looksLikeCorp(parts[0])) {
       insiderName = parts[0];
     }
+    // If multiple PDMRs or none resolved, keep entity name so the row isn't lost
   }
   const isin       = extractField($, 'field-ct-instrument-isin-code');
   const txTypeRaw  = extractField($, 'field-ct-transaction-type');
