@@ -40,10 +40,6 @@ jobs:
         continue-on-error: true
         run: node scrapers/buybacks/belgium-buybacks.js
 
-      - name: 🇸🇬 Singapore Buybacks (SGX STI 30 - ANNC13)
-        continue-on-error: true
-        run: node scrapers/buybacks/singapore-buybacks.js
-
       - name: 📋 Watchlist IR Monitor (keyword detector)
         continue-on-error: true
         run: node scrapers/buybacks/watchlist-buybacks.js
