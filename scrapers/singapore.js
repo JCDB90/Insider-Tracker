@@ -276,7 +276,6 @@ async function scrapeSGDirectorDealings() {
         country_code:     COUNTRY_CODE,
         ticker,
         company,
-        isin,
         insider_name:     dirName,
         insider_role:     null,
         transaction_type: txType,
