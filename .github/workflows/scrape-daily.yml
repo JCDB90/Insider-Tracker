@@ -29,13 +29,8 @@ on:
         required: false
         default: ''
 
-# Pass Supabase credentials to every step via env
 env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-  DART_API_KEY: ${{ secrets.DART_API_KEY }}
   NODE_ENV: production
-  LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '' }}
 
 jobs:
   scrape:
@@ -43,6 +38,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 90     # Hard cap; full run should finish in ~60 min
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '' }}
 
     steps:
       # ── Setup ──────────────────────────────────────────────────────────────
