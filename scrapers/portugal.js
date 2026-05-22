@@ -229,14 +229,30 @@ function parsePdfFields(text) {
     const esmaBlock = text.match(/c\)\s*Price\(s\)\s*and\s*volume\(s\)([\s\S]+?)d\)\s/i)?.[1] || '';
     if (esmaBlock) {
       if (pricePerShare == null) {
-        const eurM = esmaBlock.match(/€\s*([\d,\.]+)/);
+        // Try with € prefix first, then bare decimal number (e.g. "9.8700\n\n4 700")
+        const eurM = esmaBlock.match(/€\s*([\d,\.]+)/)
+          || esmaBlock.match(/\b(\d+[.,]\d{2,4})\s*\n+\s*[\d,]{3,}/);
         if (eurM) pricePerShare = parseFloat(eurM[1].replace(',', '.'));
       }
       if (!shares || isNaN(shares)) {
         // Volume appears after the price (€...) in the block — skip the price digits
-        const volM = esmaBlock.match(/€[\d.,]+\s*\n+\s*([\d,]+)/)
+        const volM = esmaBlock.match(/€[\d.,]+\s*\n+\s*([\d,\s]+)/)
+          || esmaBlock.match(/\b\d+[.,]\d+\s*\n+\s*([\d,\s]{3,})/)
           || esmaBlock.match(/Volume\(s\)\s*\n[\s\S]*?\n\s*([\d]{1,3}(?:,[\d]{3})+)\s*\n/i);
-        if (volM) shares = parseInt(volM[1].replace(/,/g, ''), 10);
+        if (volM) shares = parseInt(volM[1].replace(/[,\s]/g, ''), 10);
+      }
+    }
+  }
+
+  // Format D: ESMA aggregated table — "N.NNNN EUR   N,NNN" on same/adjacent lines
+  if (pricePerShare == null) {
+    const aggM = text.match(/(\d+[.,]\d{2,4})\s+EUR\s+(\d[\d,\s]+)/i);
+    if (aggM) {
+      const p = parseFloat(aggM[1].replace(',', '.'));
+      if (p > 0) pricePerShare = p;
+      if (!shares || isNaN(shares)) {
+        const s = parseInt(aggM[2].replace(/[,\s]/g, ''), 10);
+        if (s > 0) shares = s;
       }
     }
   }

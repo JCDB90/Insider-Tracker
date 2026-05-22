@@ -97,6 +97,11 @@ jobs:
         continue-on-error: true
         run: node scrapers/spain.js
 
+      - name: 🇵🇹 Portugal (CMVM)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'PT' }}
+        continue-on-error: true
+        run: node scrapers/portugal.js
+
       - name: 🇧🇪 Belgium (FSMA)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'BE' }}
         continue-on-error: true
