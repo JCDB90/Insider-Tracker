@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
+import { createClient } from '@supabase/supabase-js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
@@ -21,6 +22,8 @@ function useMetaTags(page, selectedCompany, selectedInsider) {
     } else if (page === 'insiders' && selectedInsider) {
       title = `${selectedInsider} Insider Trading History | InsidersAlpha`;
       desc  = `Insider trading track record for ${selectedInsider}. Historical buys, win rate, and average returns.`;
+    } else if (page === 'admin') {
+      title = 'Admin — InsidersAlpha';
     } else if (page === 'pricing') {
       title = 'Pricing — InsidersAlpha';
       desc  = 'InsidersAlpha plans: Free, Pro (€9.99/mo), Elite (€19.99/mo). Unlock full European insider trading data.';
@@ -872,6 +875,14 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
                   }}>Admin</span>
                 )}
               </div>
+              {isAdmin && (
+                <button onClick={() => setPage('admin')} style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '9px 16px', background: 'none', border: 'none',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#B45309',
+                  fontFamily: "'Inter', sans-serif",
+                }}>⚙ Admin Panel</button>
+              )}
               {!isElite && (
                 <button onClick={() => setPage('pricing')} style={{
                   display: 'block', width: '100%', textAlign: 'left',
@@ -4170,6 +4181,171 @@ function InsightsPage({ trades, tradesLoading }) {
   );
 }
 
+// ─── AdminPage ────────────────────────────────────────────────────────────────
+
+const ADMIN_SUPABASE_URL = 'https://loqmxllfjvdwamwicoow.supabase.co';
+const ADMIN_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+function PlanBadge({ plan }) {
+  const styles = {
+    visitor: { bg: '#F3F4F6', color: '#6B7280', label: 'Free' },
+    pro:     { bg: '#EFF6FF', color: '#2563EB', label: 'Pro' },
+    elite:   { bg: '#FFFBEB', color: '#D97706', label: 'Elite' },
+    admin:   { bg: '#FEF3C7', color: '#B45309', label: 'Admin' },
+  };
+  const s = styles[plan] || styles.visitor;
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 5,
+      fontSize: 11, fontWeight: 700, background: s.bg, color: s.color,
+      textTransform: 'uppercase', letterSpacing: '0.05em',
+    }}>{s.label}</span>
+  );
+}
+
+function AdminPage({ session }) {
+  const [users,   setUsers]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState({});
+
+  const adminSb = useMemo(() => {
+    if (!ADMIN_KEY) return null;
+    return createClient(ADMIN_SUPABASE_URL, ADMIN_KEY);
+  }, []);
+
+  useEffect(() => {
+    if (!adminSb) { setLoading(false); return; }
+    adminSb
+      .from('user_profiles')
+      .select('id, email, plan, created_at, last_notified_at')
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (!error) setUsers(data || []);
+        setLoading(false);
+      });
+  }, [adminSb]);
+
+  async function changePlan(userId, newPlan) {
+    if (!adminSb) return;
+    setSaving(s => ({ ...s, [userId]: true }));
+    await adminSb.from('user_profiles').update({ plan: newPlan }).eq('id', userId);
+    setUsers(u => u.map(r => r.id === userId ? { ...r, plan: newPlan } : r));
+    setSaving(s => ({ ...s, [userId]: false }));
+  }
+
+  const total  = users.length;
+  const pros   = users.filter(u => u.plan === 'pro').length;
+  const elites = users.filter(u => u.plan === 'elite').length;
+  const mrr    = (pros * 9.99 + elites * 14.99).toFixed(2);
+
+  const cardStyle = {
+    background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+    padding: '20px 24px', flex: 1, minWidth: 0,
+  };
+
+  if (!ADMIN_KEY) return (
+    <main style={{ flex: 1, overflowY: 'auto', padding: '48px 40px' }}>
+      <div style={{ color: '#DC2626', fontSize: 14 }}>
+        ⚠ VITE_SUPABASE_SERVICE_ROLE_KEY not set in Vercel env vars.
+      </div>
+    </main>
+  );
+
+  return (
+    <main style={{ flex: 1, overflowY: 'auto', background: '#f9fafb' }}>
+      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 32px 80px' }}>
+
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#111318', marginBottom: 32, letterSpacing: '-0.02em' }}>
+          Admin Panel
+        </h1>
+
+        {/* ── Stats row ── */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 32, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Total users',      value: loading ? '…' : total,        sub: 'registered accounts' },
+            { label: 'Pro subscribers',  value: loading ? '…' : pros,         sub: '€9.99/mo' },
+            { label: 'Elite subscribers',value: loading ? '…' : elites,       sub: '€14.99/mo' },
+            { label: 'Est. MRR',         value: loading ? '…' : `€${mrr}`,    sub: 'monthly recurring revenue' },
+          ].map(c => (
+            <div key={c.label} style={cardStyle}>
+              <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#111318', letterSpacing: '-0.03em', lineHeight: 1 }}>{c.value}</div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{c.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── User table ── */}
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#111318' }}>Users</span>
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>{total} total</span>
+          </div>
+
+          {loading ? (
+            <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
+          ) : users.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No users found</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f9fafb' }}>
+                  {['Email', 'Plan', 'Signed up', 'Last notified', 'Change plan'].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 16px', textAlign: 'left', fontSize: 11,
+                      fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
+                      letterSpacing: '0.05em', borderBottom: '1px solid #f0f0f0',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u, i) => (
+                  <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? '1px solid #f8f8f8' : 'none' }}>
+                    <td style={{ padding: '11px 16px', color: '#111318', fontWeight: 500 }}>
+                      {u.email || <span style={{ color: '#9CA3AF' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      <PlanBadge plan={u.plan || 'visitor'} />
+                    </td>
+                    <td style={{ padding: '11px 16px', color: '#6B7280' }}>
+                      {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                    <td style={{ padding: '11px 16px', color: '#6B7280' }}>
+                      {u.last_notified_at || '—'}
+                    </td>
+                    <td style={{ padding: '11px 16px' }}>
+                      <select
+                        value={u.plan || 'visitor'}
+                        disabled={saving[u.id]}
+                        onChange={e => changePlan(u.id, e.target.value)}
+                        style={{
+                          fontSize: 12, padding: '4px 8px', border: '1px solid #e5e7eb',
+                          borderRadius: 6, background: '#fff', color: '#374151',
+                          cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+                          opacity: saving[u.id] ? 0.5 : 1,
+                        }}
+                      >
+                        {['visitor', 'pro', 'elite', 'admin'].map(p => (
+                          <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 16 }}>
+          Logged in as: {session?.user?.email}
+        </p>
+      </div>
+    </main>
+  );
+}
+
 // ─── PricingPage ──────────────────────────────────────────────────────────────
 
 const PLAN_FEATURES_GRID = [
@@ -4860,6 +5036,7 @@ export default function App() {
           <InsightsPage trades={trades} tradesLoading={tradesLoading} />
         )}
         {page === 'pricing' && <PricingPage session={session} onLogin={() => setShowLoginModal(true)} />}
+        {page === 'admin' && access.isAdmin && <AdminPage session={session} />}
         {page === 'company' && selectedCompany && (
           <Suspense fallback={
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: 13 }}>
