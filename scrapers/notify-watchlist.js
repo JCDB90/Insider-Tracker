@@ -63,8 +63,8 @@ function fmtValue(val, currency = 'EUR') {
 function signalLine(t) {
   const badges = [];
   if (t.is_cluster_buy)    badges.push('🔄 Cluster buy');
-  if (t.is_repeated_buy)   badges.push('🔁 Repeated buy');
-  if (t.is_price_dip_buy)  badges.push('📉 Price dip buy');
+  if (t.is_repetitive_buy)   badges.push('🔁 Repeated buy');
+  if (t.is_price_dip)  badges.push('📉 Price dip buy');
   if (t.is_pre_earnings)   badges.push('📅 Pre-earnings');
   return badges.length ? badges.join(' · ') : null;
 }
@@ -226,7 +226,7 @@ async function notifyWatchlist() {
   const allTickers = [...new Set(wlRows.map(w => w.ticker).filter(Boolean))];
   const { data: todayTrades, error: tradesErr } = await sb
     .from('insider_transactions')
-    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repeated_buy, is_price_dip_buy, is_pre_earnings')
+    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
     .in('ticker', allTickers)
     .eq('transaction_date', today)
     .in('transaction_type', ['BUY', 'SELL']);
@@ -262,7 +262,7 @@ async function notifyGlobal(today) {
 
   const { data: todayTrades, error } = await sb
     .from('insider_transactions')
-    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repeated_buy, is_price_dip_buy, is_pre_earnings')
+    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
     .in('ticker', tickers)
     .eq('transaction_date', today)
     .in('transaction_type', ['BUY', 'SELL']);
