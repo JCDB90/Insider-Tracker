@@ -286,7 +286,6 @@ async function scrapeSGDirectorDealings() {
         currency:         CURRENCY,
         filing_url:       filingUrl,
         source:           SOURCE,
-        yahoo_ticker:     ticker ? `${ticker}.SI` : null,
       };
 
       dbRows.push(row);
