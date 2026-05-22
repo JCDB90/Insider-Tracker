@@ -109,9 +109,12 @@ function parsePdfFields(text) {
 
   // Format B: "hereby informs on the transaction of ... shares by Name, Role"
   // Name may wrap to the next line (e.g. "Manuel António Neto Portugal\nRamalho Eanes,")
+  // Use non-greedy [\s\S]+? to match the FIRST "by" occurrence, not the last.
+  // The old [^b]+ would stop at any 'b' char then greedily backtrack to the rightmost
+  // "by", which could be "...by With purchase instruction transmitted on..." in NOS PDFs.
   if (!insiderName) {
     const enNameMatch = text.match(
-      /hereby informs on the transaction of [^b]+by ([^,]+),/i
+      /hereby informs on the transaction of [\s\S]+?by ([^,\n]{3,80}),/i
     );
     if (enNameMatch) insiderName = enNameMatch[1].trim().replace(/\s+/g, ' ');
   }
@@ -126,6 +129,18 @@ function parsePdfFields(text) {
   if (!insiderName) {
     const sec1a = text.match(/\ba\)\s*Nome\s*\n\s*([A-Z][^\n]{5,80})/);
     if (sec1a) insiderName = sec1a[1].trim();
+  }
+
+  // Post-extraction: reject names that contain transaction instruction/mechanism text.
+  // NOS PDFs can write "...by With purchase instruction transmitted on YYYY-MM-DD – HHhMM,"
+  // (describing the order execution method) which the Format B regex would pick up.
+  if (insiderName) {
+    const ARTIFACT_RE = /\binstruction\b|\btransmitted\b|\bpurchase\s+order\b/i;
+    const ARTIFACT_START = /^(?:with|following|pursuant|per|order|via)\s+/i;
+    if (ARTIFACT_RE.test(insiderName) || ARTIFACT_START.test(insiderName)) {
+      console.log(`    ⚠  Discarding name artifact: "${insiderName.slice(0, 70)}"`);
+      insiderName = null;
+    }
   }
 
   // ── Role ─────────────────────────────────────────────────────────────────────
