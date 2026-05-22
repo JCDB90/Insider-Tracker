@@ -147,9 +147,16 @@ function LoginModal({ onClose }) {
           fontSize: 20, color: '#9CA3AF', lineHeight: 1, padding: 2,
         }}>×</button>
 
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', margin: '0 0 22px' }}>
-          {mode === 'signin' ? 'Sign in to InsidersAlpha' : 'Create your account'}
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', margin: '0 0 4px' }}>
+          {mode === 'signin' ? 'Sign in to InsidersAlpha' : 'Create your free account'}
         </h2>
+        {mode === 'signup' && (
+          <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 18, lineHeight: 1.6 }}>
+            ✓ Personal watchlist (up to 5 stocks)<br />
+            ✓ Daily email alerts when insiders buy your stocks<br />
+            ✓ No credit card required
+          </div>
+        )}
 
         {done ? (
           <div style={{ textAlign: 'center', padding: '12px 0 20px' }}>
@@ -4173,15 +4180,16 @@ const PLAN_FEATURES_GRID = [
     { label: 'Data updates',            analyst: 'Daily',         strategist: 'Daily',          terminal: 'Daily' },
   ]},
   { category: 'Signals & Alerts', rows: [
-    { label: 'Conviction scoring',      analyst: 'First 50 rows', strategist: true,             terminal: true },
+    { label: 'Conviction scoring',          analyst: 'First 50 rows', strategist: true,         terminal: true },
     { label: 'Signal badges (📉 🔁 🔄 📅)', analyst: 'First 50 rows', strategist: true,         terminal: true },
-    { label: 'Alerts feed',             analyst: false,           strategist: true,             terminal: true },
-    { label: 'Cluster buy detection',   analyst: false,           strategist: true,             terminal: true },
+    { label: 'Alerts feed',                 analyst: false,           strategist: true,         terminal: true },
+    { label: 'Cluster buy detection',       analyst: false,           strategist: true,         terminal: true },
+    { label: 'Daily watchlist email alerts',analyst: true,            strategist: true,         terminal: true },
   ]},
   { category: 'Tools & Research', rows: [
     { label: 'Top Insiders leaderboard', analyst: 'Top 10',      strategist: 'Full',           terminal: 'Full' },
     { label: 'Insider performance profiles', analyst: false,     strategist: true,             terminal: true },
-    { label: 'Personal watchlist',      analyst: 'Demo only',    strategist: 'Unlimited',      terminal: 'Unlimited' },
+    { label: 'Personal watchlist',      analyst: '5 stocks',     strategist: 'Unlimited',      terminal: 'Unlimited' },
     { label: 'Buyback program tracking', analyst: true,          strategist: true,             terminal: true },
     { label: 'Tax calculators',         analyst: true,           strategist: true,             terminal: true },
   ]},
@@ -4256,7 +4264,8 @@ function PricingPage({ session, onLogin }) {
         'First 50 insider trades with full data',
         'Last 3 transactions on company pages',
         'Top 10 insiders on leaderboard',
-        'Demo watchlist (7 pre-loaded stocks)',
+        'Personal watchlist (up to 5 stocks)',
+        'Daily email alerts when insiders buy your stocks',
         'Stock charts with trade markers',
         'All tax calculators & education',
         '13 European markets',
@@ -4270,7 +4279,8 @@ function PricingPage({ session, onLogin }) {
         'Unlimited insider transactions (180 days)',
         'Full company transaction history',
         'Full Top Insiders leaderboard',
-        'Personal watchlist — unlimited stocks',
+        'Unlimited watchlist stocks',
+        'Daily email alerts for all watched stocks',
         'Full alerts feed (conviction, cluster, large)',
         'All signal badges & conviction scores',
         'Insider performance profiles & track records',
@@ -4641,7 +4651,9 @@ export default function App() {
   }, []);
 
   async function addToWatchlist(stock) {
-    const { error } = await supabase.from('watchlist').insert([stock]);
+    const userId = session?.user?.id;
+    const row = userId ? { ...stock, user_id: userId } : stock;
+    const { error } = await supabase.from('watchlist').insert([row]);
     if (error) return false;
     setWatchlist(prev => [...prev, stock]);
     track('add_to_watchlist', { ticker: stock.ticker, company: stock.company });

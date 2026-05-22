@@ -83,6 +83,10 @@ echo "── Scoring & Performance ───────────────
 "$NODE_BIN" scrapers/track-performance.js
 "$NODE_BIN" scrapers/flag-signals.js
 
+echo ""
+echo "── Watchlist Notifications ────────────────────────────"
+"$NODE_BIN" scrapers/notify-watchlist.js || true  # non-fatal
+
 set -e
 
 # ── Post-run ─────────────────────────────────────────────────────────────────
