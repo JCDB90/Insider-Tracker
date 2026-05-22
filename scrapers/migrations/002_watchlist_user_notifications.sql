@@ -9,9 +9,8 @@ ALTER TABLE watchlist
 CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON watchlist(user_id);
 
 -- 2. Extend user_profiles for notifications
---    (table already exists but may be empty — add missing columns)
+--    (table already exists — only add the new columns)
 ALTER TABLE user_profiles
-  ADD COLUMN IF NOT EXISTS id UUID PRIMARY KEY DEFAULT auth.uid(),
   ADD COLUMN IF NOT EXISTS email TEXT,
   ADD COLUMN IF NOT EXISTS last_notified_at DATE,
   ADD COLUMN IF NOT EXISTS notification_opt_in BOOLEAN DEFAULT TRUE;
