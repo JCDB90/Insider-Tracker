@@ -96,8 +96,8 @@ function useAccess(plan) {
 
 // ─── LoginModal ───────────────────────────────────────────────────────────────
 
-function LoginModal({ onClose }) {
-  const [mode, setMode]       = useState('signin');
+function LoginModal({ onClose, initialMode = 'signin' }) {
+  const [mode, setMode]       = useState(initialMode);
   const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -4605,16 +4605,18 @@ function PricingPage({ session, onLogin }) {
                     fontWeight: 600, fontSize: 14, cursor: 'pointer',
                     fontFamily: "'Inter', sans-serif", transition: 'all 0.15s',
                     boxShadow: isH ? '0 4px 14px ' + ACCENT + '40' : 'none',
-                  }} onClick={() => plan.monthly > 0 && startCheckout(plan)}
-                     disabled={checkoutLoading === plan.id}>
+                  }} onClick={() => {
+                    if (plan.monthly === 0) { onLogin?.('signup'); }
+                    else startCheckout(plan);
+                  }} disabled={checkoutLoading === plan.id}>
                     {plan.monthly === 0
-                      ? 'Get started free'
+                      ? 'Get Started Free'
                       : checkoutLoading === plan.id
                         ? 'Redirecting…'
                         : plan.id === 'elite' ? 'Start Elite →' : 'Start Pro →'}
                   </button>
                   <div style={{ textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>
-                    {plan.monthly === 0 ? 'No account required' : 'Cancel any time'}
+                    {plan.monthly === 0 ? 'No credit card required' : 'Cancel any time'}
                   </div>
                 </div>
               </div>
@@ -4751,7 +4753,7 @@ export default function App() {
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [session, setSession] = useState(null);
   const [userPlan, setUserPlan] = useState('visitor');
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false); // false | 'signin' | 'signup'
   const [checkoutSuccess, setCheckoutSuccess] = useState(
     () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('checkout') === 'success'
   );
@@ -4961,7 +4963,7 @@ export default function App() {
         onLogin={() => setShowLoginModal(true)}
         onSignOut={handleSignOut}
       />
-      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} initialMode={showLoginModal === 'signup' ? 'signup' : 'signin'} />}
       {checkoutSuccess && (
         <div style={{
           background: '#F0FDF4', borderBottom: '1px solid #BBF7D0',
@@ -5035,7 +5037,7 @@ export default function App() {
         {page === 'insights' && (
           <InsightsPage trades={trades} tradesLoading={tradesLoading} />
         )}
-        {page === 'pricing' && <PricingPage session={session} onLogin={() => setShowLoginModal(true)} />}
+        {page === 'pricing' && <PricingPage session={session} onLogin={mode => setShowLoginModal(mode || 'signin')} />}
         {page === 'admin' && access.isAdmin && <AdminPage session={session} />}
         {page === 'company' && selectedCompany && (
           <Suspense fallback={
