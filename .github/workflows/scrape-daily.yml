@@ -14,9 +14,10 @@
 name: Daily Scraper
 
 on:
+  push:
+    branches: [main]        # Accept push events so runs don't fail; job guard skips execution
   schedule:
     - cron: '0 22 * * *'   # 22:00 UTC = 23:00 CET (UTC+1)
-
   workflow_dispatch:        # Manual trigger from the Actions tab
     inputs:
       country:
@@ -34,7 +35,7 @@ env:
   SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
   DART_API_KEY: ${{ secrets.DART_API_KEY }}
   NODE_ENV: production
-  LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+  LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '' }}
 
 jobs:
   scrape:
