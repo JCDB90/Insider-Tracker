@@ -1,4 +1,7 @@
 'use strict';
+// Load .env from repo root — works whether run manually or via run-daily.sh
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 /**
  * Watchlist Email Notifier
  *
