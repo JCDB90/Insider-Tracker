@@ -25,7 +25,7 @@ on:
         required: false
         default: ''
       lookback_days:
-        description: 'Override LOOKBACK_DAYS for all scrapers (default: each scraper's own default)'
+        description: "Override LOOKBACK_DAYS for all scrapers (default: each scraper's own default)"
         required: false
         default: ''
 
