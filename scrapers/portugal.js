@@ -46,6 +46,18 @@ const CURRENCY       = 'EUR';
 // concurrent Puppeteer pages cause the server to return wrong cached PDFs.
 const CONCURRENCY    = 1;
 
+// CMVM portal is hard-capped at 30 most recent TRAN items (OutSystems DataActionGetReports,
+// MaxRecords: 30). Pagination via StartIndex returns HTTP 403 server-side; date filters
+// in the UI cannot be activated from Puppeteer (OutSystems React state management requires
+// internal event propagation that dispatchEvent does not trigger). If Portuguese insider
+// transaction volume exceeds ~30 filings per RETENTION_DAYS window, older items will be
+// silently truncated. This check detects that condition and triggers an alert.
+const CMVM_ITEM_CAP       = 30;
+// Threshold: warn if oldest visible item is fewer than this many days old
+const CAP_WARN_DAYS       = 14;
+const CAP_ALERT_DAYS      = 7;
+const ALERT_EMAIL         = process.env.NOTIFY_OWNER_EMAIL || 'jcdeboer@yahoo.com';
+
 // CMVM SDI Emitentes page (parent of Transações de dirigentes)
 const CMVM_SDI_URL = 'https://www.cmvm.pt/PInstitucional/Content?Input=2B37E09A59A0DF80BE92EC680DBABCB75C076B608267088F60A006ACD2620D69';
 
@@ -295,6 +307,43 @@ function translatePtRole(raw) {
   return translateRole(raw);
 }
 
+// ─── Cap alert ────────────────────────────────────────────────────────────────
+
+async function sendCapAlert(daysOld, oldestDate) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('  ⚠  RESEND_API_KEY not set — cannot send cap alert email');
+    return;
+  }
+  const subject = `InsidersAlpha: Portugal CMVM cap overflow detected`;
+  const html = `
+<p><strong>CMVM 30-item cap overflow detected</strong></p>
+<p>The oldest visible TRAN filing is only <strong>${daysOld} days old</strong>
+(${oldestDate}), meaning transactions from earlier dates are being silently
+truncated by the portal's 30-item limit.</p>
+<p><strong>Action required:</strong> Check
+<a href="https://www.cmvm.pt/PInstitucional/Content?Input=2B37E09A59A0DF80BE92EC680DBABCB75C076B608267088F60A006ACD2620D69">CMVM SDI portal</a>
+manually to identify any missed filings.</p>
+<p style="color:#9CA3AF;font-size:12px">InsidersAlpha · Portugal scraper</p>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'InsidersAlpha Alerts <alerts@insidersalpha.com>',
+        to: [ALERT_EMAIL],
+        subject,
+        html,
+      }),
+    });
+    if (res.ok) console.log(`  📧 Cap alert email sent to ${ALERT_EMAIL}`);
+    else console.warn(`  ⚠  Failed to send cap alert email: ${res.status}`);
+  } catch(e) {
+    console.warn(`  ⚠  Cap alert email error: ${e.message}`);
+  }
+}
+
 // ─── Puppeteer navigation ─────────────────────────────────────────────────────
 
 async function fetchTranList(browser) {
@@ -422,6 +471,28 @@ async function scrapePT() {
     }
 
     console.log(`  Found ${allItems.length} TRAN items in portal`);
+
+    // ── Cap overflow check ────────────────────────────────────────────────────
+    // The CMVM portal hard-limits responses to CMVM_ITEM_CAP (30) most recent items.
+    // If we're AT the cap, check how old the oldest item is. If it's very recent,
+    // higher-volume periods may be truncating older filings we need.
+    if (allItems.length >= CMVM_ITEM_CAP) {
+      const tranOnly = allItems.filter(i => i.PDF_FACT?.startsWith('TRAN') && i.DATA_FACT);
+      if (tranOnly.length > 0) {
+        const oldest = tranOnly.reduce((a, b) => a.DATA_FACT < b.DATA_FACT ? a : b);
+        const daysOld = Math.floor((Date.now() - new Date(oldest.DATA_FACT).getTime()) / 86_400_000);
+        console.log(`  Oldest TRAN item: ${oldest.DATA_FACT} (${daysOld} days ago, PDF: ${oldest.PDF_FACT})`);
+
+        if (daysOld < CAP_ALERT_DAYS) {
+          console.warn(`  🚨 CAP OVERFLOW: oldest item only ${daysOld}d old — filings beyond day ${daysOld} are hidden`);
+          await sendCapAlert(daysOld, oldest.DATA_FACT);
+        } else if (daysOld < CAP_WARN_DAYS) {
+          console.warn(`  ⚠  CAP WARNING: oldest item ${daysOld}d old — approaching 30-item limit (alert at < ${CAP_ALERT_DAYS}d)`);
+        } else {
+          console.log(`  ✓  Cap OK: ${daysOld} days of coverage visible`);
+        }
+      }
+    }
 
     // Step 2: Filter to TRAN items within date range.
     // CMVM publishes each notification in two languages (EN + PT) with consecutive PDF numbers.
