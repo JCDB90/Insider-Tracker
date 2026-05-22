@@ -41,6 +41,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { isinToTicker }            = require('./lib/isinToTicker');
 const { looksLikeCorp }           = require('./lib/entityUtils');
+const { contentId }               = require('./lib/contentId');
 
 const COUNTRY_CODE   = 'BE';
 const SOURCE         = 'FSMA Belgium';
@@ -314,8 +315,11 @@ async function scrapeBE() {
     const dateForFilter = d.txDate || d.pubDate;
     if (dateForFilter && dateForFilter < cutoffIso) continue;
 
-    const slug = d.slug.replace(/^\/en\/manager-transaction\//, '');
-    const fid  = `BE-${slug}`;
+    // Content-based ID: stable across runs regardless of FSMA result position
+    const fid = contentId(
+      COUNTRY_CODE, d.company, d.insiderName, d.txType,
+      d.txDate || d.pubDate, d.shares, d.price
+    );
     if (seen.has(fid)) continue;
     seen.add(fid);
 

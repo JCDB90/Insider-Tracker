@@ -14,6 +14,7 @@ const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
+const { contentId }              = require('./lib/contentId');
 
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
@@ -233,8 +234,10 @@ async function scrapeSE() {
     const txIso = isoDate(txDate);
     const shares = parseNum(r.volume), price = parseNum(r.price);
     const total = (shares && price) ? Math.round(shares * price) : null;
-    const slug = (r.insider || '').replace(/\W/g, '').slice(0, 10).toLowerCase();
-    const fid  = `SE-${r.isin || 'X'}-${txIso}-${slug}-${Math.round(shares||0)}`;
+    // Content-based ID: excludes ISIN to prevent duplicate entries when the same
+    // person/transaction matches two different instrument ISINs in the FI search.
+    const txType = mapType(r.nature);
+    const fid = contentId(COUNTRY_CODE, r.company, r.insider, txType, txIso, shares, price);
     if (seen.has(fid)) continue;
     seen.add(fid);
 
@@ -250,7 +253,7 @@ async function scrapeSE() {
       ticker: getTicker(r.company), _isin: r.isin || null,
       company: r.company || null,
       insider_name: r.insider || null, insider_role: translateRole(r.position) || null,
-      transaction_type: mapType(r.nature), transaction_date: txIso,
+      transaction_type: txType, transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
       price_per_share: price, total_value: total, currency: r.currency,
       filing_url: `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,

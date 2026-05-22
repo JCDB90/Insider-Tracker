@@ -29,6 +29,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { splitFrPersonLiee }       = require('./lib/entityUtils');
 const { isinToTicker }            = require('./lib/isinToTicker');
+const { contentId }               = require('./lib/contentId');
 
 const COUNTRY_CODE   = 'FR';
 const SOURCE         = 'AMF France / BDIF';
@@ -323,13 +324,9 @@ async function scrapeFR() {
   let nPdf = 0, nParsed = 0, nSkipped = 0;
 
   for (const r of allItems) {
-    const numero = r.numero || r.numeroConcatene || String(r.id || '');
-    const fid    = `FR-${numero}`;
-    if (seen.has(fid)) continue;
-    seen.add(fid);
-
-    const txIso     = (r.dateInformation || r.datePublication || '').slice(0, 10) || from;
-    const company   = r.societes?.length > 0 ? r.societes[0].raisonSociale : null;
+    const numero  = r.numero || r.numeroConcatene || String(r.id || '');
+    const txIso   = (r.dateInformation || r.datePublication || '').slice(0, 10) || from;
+    const company = r.societes?.length > 0 ? r.societes[0].raisonSociale : null;
     const filingUrl = `https://bdif.amf-france.org/Registre-BDIF/Resultat-de-recherche?docId=${numero}`;
 
     // ── Get PDF path from list response (already included as r.documents[0]) ─
@@ -353,6 +350,11 @@ async function scrapeFR() {
 
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
     const price  = parsed.price  || null;
+
+    // Content-based ID: generated after PDF parse so type/shares/price are known
+    const fid = contentId(COUNTRY_CODE, company, parsed.insiderName, parsed.txType, txIso, shares, price);
+    if (seen.has(fid)) continue;
+    seen.add(fid);
 
     // Ticker: exchange ticker from PDF > ISIN lookup; company-name fallback omitted
     // (European tickers rarely match company name — empty string is cleaner than a bad guess)

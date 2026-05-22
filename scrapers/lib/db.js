@@ -120,6 +120,20 @@ async function saveInsiderTransactions(rows, options = {}) {
     .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
+    // Unique constraint violation: a content-hash ID matched an existing row's
+    // natural key. Retry with ignoreDuplicates so we skip the conflicting rows
+    // rather than failing the whole batch.
+    if (error.code === '23505' || /unique/i.test(error.message)) {
+      console.log('  ℹ  Unique constraint hit — retrying batch with ignoreDuplicates');
+      const { error: retryErr } = await supabase
+        .from('insider_transactions')
+        .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: true });
+      if (retryErr) {
+        console.error('  DB error (insider_transactions):', retryErr.message);
+        return { inserted: 0, error: retryErr };
+      }
+      return { inserted: complete.length };
+    }
     console.error('  DB error (insider_transactions):', error.message);
     return { inserted: 0, error };
   }
