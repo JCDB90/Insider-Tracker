@@ -96,11 +96,12 @@ function parsePdfFields(text) {
   }
 
   // Format B: "hereby informs on the transaction of ... shares by Name, Role"
+  // Name may wrap to the next line (e.g. "Manuel António Neto Portugal\nRamalho Eanes,")
   if (!insiderName) {
     const enNameMatch = text.match(
-      /hereby informs on the transaction of [^b]+by ([^,\n]+),/i
+      /hereby informs on the transaction of [^b]+by ([^,]+),/i
     );
-    if (enNameMatch) insiderName = enNameMatch[1].trim();
+    if (enNameMatch) insiderName = enNameMatch[1].trim().replace(/\s+/g, ' ');
   }
 
   // Fallback: ESMA standard English form section 1a "a) Name"
