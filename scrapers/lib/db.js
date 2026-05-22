@@ -40,7 +40,8 @@ async function hasViaEntityColumn() {
  * @param {Array} rows - array of insider_transactions rows
  * @returns {{ inserted: number, error: any }}
  */
-async function saveInsiderTransactions(rows) {
+async function saveInsiderTransactions(rows, options = {}) {
+  const { allowPartial = false } = options;
   if (!rows || rows.length === 0) return { inserted: 0 };
 
   // Only save rows with a clear direction — drop OTHER, UNKNOWN, etc.
@@ -79,6 +80,14 @@ async function saveInsiderTransactions(rows) {
       return false;
     }
     const hasName   = r.insider_name && r.insider_name.trim() !== '';
+    if (allowPartial) {
+      // allowPartial: only require insider_name (shares/price may be null for encrypted-PDF sources like SGX)
+      if (!hasName) {
+        console.log(`  ⚠  Skipping nameless row (${r.company || '?'} ${r.transaction_date || '?'})`);
+        return false;
+      }
+      return true;
+    }
     const hasShares = r.shares != null && r.shares > 0;
     const hasPrice  = r.price_per_share != null && r.price_per_share > 0;
     if (!hasName || !hasShares || !hasPrice) {

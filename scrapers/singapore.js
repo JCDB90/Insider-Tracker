@@ -317,19 +317,21 @@ async function scrapeSGDirectorDealings() {
     return { saved: 0 };
   }
 
-  const { error } = await saveInsiderTransactions(dbRows);
+  // allowPartial: SGX PDFs are AES-encrypted; shares/price cannot be extracted
+  const { error, inserted } = await saveInsiderTransactions(dbRows, { allowPartial: true });
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
   const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
+  const actualSaved = inserted ?? dbRows.length;
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ✅ ${elapsed}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL)`);
+  console.log(`  ✅ ${elapsed}s — ${actualSaved} saved (${buys} BUY, ${sells} SELL)`);
   if (dbRows.length > 0) {
     console.log('  Sample:', dbRows.slice(0, 3).map(r =>
       `${r.company}: ${r.insider_name||'?'} ${r.transaction_type} (${r.transaction_date})`
     ).join(' | '));
   }
-  return { saved: dbRows.length };
+  return { saved: actualSaved ?? 0 };
 }
 
 scrapeSGDirectorDealings().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
