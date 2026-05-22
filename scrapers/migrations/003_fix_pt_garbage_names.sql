@@ -10,6 +10,7 @@
 --
 -- Run in Supabase SQL Editor.
 
+-- Fix insider_name artifacts (delete rows where name is garbage)
 DELETE FROM insider_transactions
 WHERE country_code = 'PT'
 AND (
@@ -21,6 +22,18 @@ AND (
   OR insider_name ILIKE 'Pursuant%'
 );
 
+-- Fix company artifacts (trim instruction prefix, keep the real company name)
+-- PT-1285613 example: "With purchase instruction transmitted on ... NOS, SGPS, S.A."
+UPDATE insider_transactions
+SET company = regexp_replace(
+  company,
+  '^With\s+(purchase\s+)?instruction\s+transmitted\s+on\s+[\d\-]+\s+[^\s]+\s+',
+  '',
+  'i'
+)
+WHERE country_code = 'PT'
+AND company ILIKE 'With%instruction%transmitted%';
+
 -- Verify: should return 0 rows after migration
 SELECT id, insider_name, company, transaction_date
 FROM insider_transactions
@@ -29,4 +42,5 @@ AND (
   insider_name ILIKE '%instruction%'
   OR insider_name ILIKE '%transmitted%'
   OR insider_name ILIKE 'With %'
+  OR company    ILIKE '%instruction transmitted%'
 );
