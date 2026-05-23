@@ -405,7 +405,9 @@ async function scrapeLU() {
     const txt = pdfBufToText(buf);
     const f   = parsePdf(txt);
 
-    const company = f.issuerName || sub.issuerName || null;
+    // Strip HOS-2 label artifacts that leak into OAM metadata (e.g. "Name4   Grand City Properties")
+    const stripLabel = s => s ? s.replace(/^Name\d[\s\t]+/i, '').trim() || null : null;
+    const company = stripLabel(f.issuerName) || stripLabel(sub.issuerName) || null;
     const isin    = f.isin || '';
     const txDate  = f.txDate || refIso || publishIso || from;
     const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
@@ -421,7 +423,7 @@ async function scrapeLU() {
       country_code:     COUNTRY_CODE,
       ticker,
       company,
-      insider_name:     f.insiderName || 'Company Officer',
+      insider_name:     stripLabel(f.insiderName) || 'Company Officer',
       insider_role:     f.role,
       transaction_type: txType,
       transaction_date: txDate,
