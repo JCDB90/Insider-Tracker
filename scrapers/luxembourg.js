@@ -169,21 +169,22 @@ function pdfBufToText(buf) {
   finally { try { fs.unlinkSync(tmp); } catch (_) {} }
 }
 
-// ─── HOS-2 form parser ────────────────────────────────────────────────────────
+// ─── PDF form parsers ─────────────────────────────────────────────────────────
 
 /*
- * pdftotext -layout produces column-aligned rows:
- *   "Label text          <3+ spaces>          Value text"
- * Multi-line values continue on lines with 30+ leading spaces.
+ * Two PDF formats used by LuxSE filers:
  *
- * Field labels (ESMA HOS-2 form):
- *   Name1            → insider name (PDMR or closely-associated person)
- *   Name4            → issuer name
- *   Position/status2 → role description
- *   Nature of the transaction8 → Acquisition / Disposal
- *   Aggregated volume10        → shares (units)
- *   Price11                    → total value EUR (price × volume aggregate)
- *   Date of the transaction12  → transaction date (YYYY-MM-DD)
+ * 1. HOS-2 form (standard CSSF format, most filers):
+ *    "Label text          <3+ spaces>   Value text"
+ *    Fields: Name1, Name4, Position/status2, Nature of the transaction8,
+ *            Aggregated volume10, Price11 (= total value EUR), Date of the transaction12
+ *
+ * 2. UK/English notification format (Eurofins, SES, etc.):
+ *    "a)    Name                         Laurent Lebras"
+ *    "b)    Nature of the transaction    Acquisition"
+ *    "      — Aggregated volume          1000"
+ *    "d)    — Price                      EUR 62.00"   ← per-share price
+ *    "e)    Date of the transaction      2026-05-21"
  */
 function parsePdf(text) {
   if (!text) return {};
@@ -192,31 +193,7 @@ function parsePdf(text) {
   const body = notesIdx > 0 ? text.slice(0, notesIdx) : text;
   const lines = body.split('\n');
 
-  function getField(labelRe) {
-    for (let i = 0; i < lines.length; i++) {
-      if (!labelRe.test(lines[i])) continue;
-      const m = lines[i].match(/\s{3,}(.+)$/);
-      let val = m ? m[1].trim() : '';
-      for (let j = i + 1; j < lines.length; j++) {
-        const nl = lines[j];
-        if (!nl.trim()) continue;
-        if (/^\s{30,}/.test(nl)) val += ' ' + nl.trim();
-        else break;
-      }
-      return val.trim() || null;
-    }
-    return null;
-  }
-
-  const insiderName = getField(/\bName1\b/);
-  const issuerName  = getField(/\bName4\b/);
-
-  const roleRaw = getField(/Position\/status\d/) || '';
-  let role = null;
-  const rm = roleRaw.match(/\b(CEO|CFO|COO|CTO|Chairman|President|Director|Secretary|Manager|Partner|Member)\b/i);
-  if (rm) role = rm[1];
-  else if (/closely associated/i.test(roleRaw)) role = 'Closely Associated';
-
+  // ISIN extraction is format-agnostic
   let isin = null;
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/ISIN[:\s]+([A-Z]{2}[A-Z0-9]{10})/);
@@ -229,6 +206,85 @@ function parsePdf(text) {
       break;
     }
   }
+
+  function getField(labelRe, minSpaces) {
+    const sp = minSpaces || 3;
+    const gapRe = new RegExp(`\\s{${sp},}(.+)$`);
+    for (let i = 0; i < lines.length; i++) {
+      if (!labelRe.test(lines[i])) continue;
+      const m = lines[i].match(gapRe);
+      let val = m ? m[1].trim() : '';
+      for (let j = i + 1; j < lines.length; j++) {
+        const nl = lines[j];
+        if (!nl.trim()) continue;
+        if (/^\s{30,}/.test(nl)) val += ' ' + nl.trim();
+        else break;
+      }
+      return val.trim() || null;
+    }
+    return null;
+  }
+
+  // Detect UK/English notification format by presence of a)/b) section labels
+  const isEnFormat = /^\s*a\)\s+Name\b/m.test(body) || /^\s*b\)\s+Nature of the transaction/m.test(body);
+
+  if (isEnFormat) {
+    const insiderName = getField(/^\s*a\)\s+Name\b/, 2);
+    const issuerName  = getField(/Name of (?:the )?issuer/i, 2) || getField(/^\s*d\)\s+Name\b/, 2);
+
+    const natureTxt = getField(/^\s*b\)\s+Nature of the transaction/i, 2) || '';
+    let txType = 'UNKNOWN';
+    const natLow = natureTxt.toLowerCase();
+    if (/dispos|sale\b|sell/.test(natLow))                          txType = 'SELL';
+    else if (/acqui|purchas|subscri|exercise|award|grant/.test(natLow)) txType = 'BUY';
+
+    let shares = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (/[—–-]\s*Aggregated volume/i.test(lines[i])) {
+        const m = lines[i].match(/([\d,]+(?:\.\d+)?)\s*$/);
+        if (m) shares = parseFloat(m[1].replace(/,/g, '')) || null;
+        break;
+      }
+    }
+
+    // — Price is per-share price in EN format (e.g. "EUR 62.00")
+    let pricePerShare = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (/[—–-]\s*Price\b/i.test(lines[i])) {
+        const mEur = lines[i].match(/EUR\s+([\d,]+\.?\d*)/i);
+        const mNum = lines[i].match(/([\d,]+\.?\d*)\s*(?:EUR|USD)?\s*$/i);
+        const raw = mEur ? mEur[1] : (mNum ? mNum[1] : null);
+        if (raw) pricePerShare = parseFloat(raw.replace(/,/g, '')) || null;
+        break;
+      }
+    }
+
+    let totalValue = null;
+    if (pricePerShare && shares && shares > 0) {
+      totalValue = parseFloat((pricePerShare * shares).toFixed(2));
+    }
+
+    const dateTxt = getField(/^\s*e\)\s+Date of the transaction/i, 2) || '';
+    let txDate = null;
+    const dmIso = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dmIso) txDate = dmIso[1];
+    if (!txDate) {
+      const dmDmy = dateTxt.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+      if (dmDmy) txDate = `${dmDmy[3]}-${dmDmy[2].padStart(2,'0')}-${dmDmy[1].padStart(2,'0')}`;
+    }
+
+    return { insiderName, issuerName, isin, role: null, txType, shares, totalValue, pricePerShare, txDate };
+  }
+
+  // Standard HOS-2 form
+  const insiderName = getField(/\bName1\b/);
+  const issuerName  = getField(/\bName4\b/);
+
+  const roleRaw = getField(/Position\/status\d/) || '';
+  let role = null;
+  const rm = roleRaw.match(/\b(CEO|CFO|COO|CTO|Chairman|President|Director|Secretary|Manager|Partner|Member)\b/i);
+  if (rm) role = rm[1];
+  else if (/closely associated/i.test(roleRaw)) role = 'Closely Associated';
 
   const natureTxt = getField(/Nature of the transaction\d/) || '';
   let txType = 'UNKNOWN';
