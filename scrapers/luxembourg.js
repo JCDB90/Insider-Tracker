@@ -229,14 +229,45 @@ function parsePdf(text) {
   const isEnFormat = /^\s*a\)\s+Name\b/m.test(body) || /^\s*b\)\s+Nature of the transaction/m.test(body);
 
   if (isEnFormat) {
-    const insiderName = getField(/^\s*a\)\s+Name\b/, 2);
-    const issuerName  = getField(/Name of (?:the )?issuer/i, 2) || getField(/^\s*d\)\s+Name\b/, 2);
+    // EN format uses lower continuation threshold — value often sits ~15-20 spaces in
+    function getEnField(labelRe, minSpaces) {
+      const sp = minSpaces || 2;
+      const gapRe = new RegExp(`\\s{${sp},}(.+)$`);
+      for (let i = 0; i < lines.length; i++) {
+        if (!labelRe.test(lines[i])) continue;
+        const m = lines[i].match(gapRe);
+        let val = m ? m[1].trim() : '';
+        for (let j = i + 1; j < lines.length; j++) {
+          const nl = lines[j];
+          if (!nl.trim()) continue;
+          if (/^\s{15,}/.test(nl) && !/^\s*[a-f]\)/.test(nl.trim())) val += ' ' + nl.trim();
+          else break;
+        }
+        return val.trim() || null;
+      }
+      return null;
+    }
 
-    const natureTxt = getField(/^\s*b\)\s+Nature of the transaction/i, 2) || '';
+    const insiderName = getEnField(/^\s*a\)\s+Name\b/);
+    const issuerName  = getEnField(/Name of (?:the )?issuer/i) || getEnField(/^\s*d\)\s+Name\b/);
+
+    // Nature text: try b) label first, then bare label fallback
+    const natureTxt = getEnField(/^\s*b\)\s+Nature of the transaction/i)
+                   || getEnField(/\bNature of the transaction\b/i)
+                   || '';
     let txType = 'UNKNOWN';
     const natLow = natureTxt.toLowerCase();
-    if (/dispos|sale\b|sell/.test(natLow))                          txType = 'SELL';
-    else if (/acqui|purchas|subscri|exercise|award|grant/.test(natLow)) txType = 'BUY';
+    if (/dispos|sale\b|sell/.test(natLow))                              txType = 'SELL';
+    else if (/acqui|purchas|subscri|exercise|award|grant|vest/.test(natLow)) txType = 'BUY';
+
+    // Final fallback: broad scan for transaction type keywords
+    if (txType === 'UNKNOWN') {
+      for (const line of lines) {
+        const ll = line.toLowerCase();
+        if (/\bdisposal\b|\bsale of\b|\bselling\b/.test(ll)) { txType = 'SELL'; break; }
+        if (/\bacquisition\b|\bpurchase of\b|\bexercise of\b/.test(ll)) { txType = 'BUY'; break; }
+      }
+    }
 
     let shares = null;
     for (let i = 0; i < lines.length; i++) {
@@ -247,24 +278,25 @@ function parsePdf(text) {
       }
     }
 
-    // — Price is per-share price in EN format (e.g. "EUR 62.00")
-    let pricePerShare = null;
+    // — Price = aggregate total value in EN format (same semantics as HOS-2 Price11)
+    // pricePerShare derived as totalValue / shares
+    let totalValue = null;
     for (let i = 0; i < lines.length; i++) {
       if (/[—–-]\s*Price\b/i.test(lines[i])) {
         const mEur = lines[i].match(/EUR\s+([\d,]+\.?\d*)/i);
         const mNum = lines[i].match(/([\d,]+\.?\d*)\s*(?:EUR|USD)?\s*$/i);
         const raw = mEur ? mEur[1] : (mNum ? mNum[1] : null);
-        if (raw) pricePerShare = parseFloat(raw.replace(/,/g, '')) || null;
+        if (raw) totalValue = parseFloat(raw.replace(/,/g, '')) || null;
         break;
       }
     }
 
-    let totalValue = null;
-    if (pricePerShare && shares && shares > 0) {
-      totalValue = parseFloat((pricePerShare * shares).toFixed(2));
+    let pricePerShare = null;
+    if (totalValue && shares && shares > 0) {
+      pricePerShare = parseFloat((totalValue / shares).toFixed(6));
     }
 
-    const dateTxt = getField(/^\s*e\)\s+Date of the transaction/i, 2) || '';
+    const dateTxt = getEnField(/^\s*e\)\s+Date of the transaction/i) || '';
     let txDate = null;
     const dmIso = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
     if (dmIso) txDate = dmIso[1];
