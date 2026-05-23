@@ -309,8 +309,9 @@ function parsePdf(text) {
   }
 
   // Standard HOS-2 form
-  const insiderName = getField(/\bName1\b/);
-  const issuerName  = getField(/\bName4\b/);
+  // Fallback to 1-space gap for narrow-column PDFs (e.g. Grand City Properties)
+  const insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1);
+  const issuerName  = getField(/\bName4\b/) || getField(/\bName4\b/, 1);
 
   const roleRaw = getField(/Position\/status\d/) || '';
   let role = null;
