@@ -430,7 +430,7 @@ async function scrapeLU() {
       country_code:     COUNTRY_CODE,
       ticker,
       company,
-      insider_name:     insiderName || 'Company Officer',
+      insider_name:     insiderName || null,
       via_entity:       viaEntity,
       insider_role:     f.role,
       transaction_type: txType,

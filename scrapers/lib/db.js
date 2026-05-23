@@ -79,9 +79,10 @@ async function saveInsiderTransactions(rows, options = {}) {
       console.log(`  ℹ  Rejecting garbage name: "${r.insider_name}" — ${r.company || '?'}`);
       return false;
     }
-    const hasName   = r.insider_name && r.insider_name.trim() !== '';
+    // A row has sufficient identity if it has a person name OR a via_entity (corporate disclosure)
+    const hasName   = (r.insider_name && r.insider_name.trim() !== '') || !!r.via_entity;
     if (allowPartial) {
-      // allowPartial: only require insider_name (shares/price may be null for encrypted-PDF sources like SGX)
+      // allowPartial: only require insider identity (shares/price may be null for encrypted-PDF sources like SGX)
       if (!hasName) {
         console.log(`  ⚠  Skipping nameless row (${r.company || '?'} ${r.transaction_date || '?'})`);
         return false;

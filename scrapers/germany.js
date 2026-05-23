@@ -94,6 +94,8 @@ const TICKER_MAP = {
   'all for one':              'A1OS',
   'schaeffler':               'SHA0',
   'stock3':                   'ST3',
+  'simona aktiengesellschaft': 'SIM',
+  'simona ag':                'SIM',
 };
 
 function getTicker(companyName) {
