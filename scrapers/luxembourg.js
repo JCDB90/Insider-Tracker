@@ -24,8 +24,9 @@ const https        = require('https');
 const { execSync } = require('child_process');
 const fs           = require('fs');
 const path         = require('path');
-const { saveInsiderTransactions } = require('./lib/db');
-const { isinToTicker }            = require('./lib/isinToTicker');
+const { saveInsiderTransactions }      = require('./lib/db');
+const { isinToTicker }                 = require('./lib/isinToTicker');
+const { looksLikeCorp, looksLikeAddress } = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'LU';
 const SOURCE         = 'LuxSE — Manager Transactions';
@@ -408,6 +409,12 @@ async function scrapeLU() {
     // Strip HOS-2 label artifacts that leak into OAM metadata (e.g. "Name4   Grand City Properties")
     const stripLabel = s => s ? s.replace(/^Name\d[\s\t]+/i, '').trim() || null : null;
     const company = stripLabel(f.issuerName) || stripLabel(sub.issuerName) || null;
+
+    // Resolve insider identity: address or corporate entity → via_entity, not insider_name
+    const rawInsider = stripLabel(f.insiderName);
+    const isEntity = rawInsider && (looksLikeCorp(rawInsider) || looksLikeAddress(rawInsider));
+    const insiderName = isEntity ? null : rawInsider;
+    const viaEntity   = isEntity ? rawInsider : null;
     const isin    = f.isin || '';
     const txDate  = f.txDate || refIso || publishIso || from;
     const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
@@ -423,7 +430,8 @@ async function scrapeLU() {
       country_code:     COUNTRY_CODE,
       ticker,
       company,
-      insider_name:     stripLabel(f.insiderName) || 'Company Officer',
+      insider_name:     insiderName || 'Company Officer',
+      via_entity:       viaEntity,
       insider_role:     f.role,
       transaction_type: txType,
       transaction_date: txDate,
