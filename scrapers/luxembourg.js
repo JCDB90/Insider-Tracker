@@ -229,9 +229,9 @@ function parsePdf(text) {
   const isEnFormat = /^\s*a\)\s+Name\b/m.test(body) || /^\s*b\)\s+Nature of the transaction/m.test(body);
 
   if (isEnFormat) {
-    // EN format uses lower continuation threshold — value often sits ~15-20 spaces in
+    // EN format: value columns are typically 5+ spaces after the label keyword
     function getEnField(labelRe, minSpaces) {
-      const sp = minSpaces || 2;
+      const sp = minSpaces || 5;
       const gapRe = new RegExp(`\\s{${sp},}(.+)$`);
       for (let i = 0; i < lines.length; i++) {
         if (!labelRe.test(lines[i])) continue;
