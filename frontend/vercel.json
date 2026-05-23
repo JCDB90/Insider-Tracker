@@ -24,6 +24,7 @@
     { "source": "/market/switzerland-insider-transactions",    "destination": "/market/switzerland-insider-transactions.html" },
     { "source": "/market/united-kingdom-insider-transactions", "destination": "/market/united-kingdom-insider-transactions.html" },
     { "source": "/market/portugal-insider-transactions",       "destination": "/market/portugal-insider-transactions.html" },
+    { "source": "/market/luxembourg-insider-transactions",      "destination": "/market/luxembourg-insider-transactions.html" },
     { "source": "/market/south-korea-insider-transactions",    "destination": "/market/south-korea-insider-transactions.html" },
     { "source": "/signals/cluster-buying",                     "destination": "/signals/cluster-buying.html" },
     { "source": "/signals/repeated-insider-buying",            "destination": "/signals/repeated-insider-buying.html" },

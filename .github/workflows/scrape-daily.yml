@@ -107,6 +107,11 @@ jobs:
         continue-on-error: true
         run: node scrapers/belgium.js
 
+      - name: 🇱🇺 Luxembourg (LuxSE)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'LU' }}
+        continue-on-error: true
+        run: node scrapers/luxembourg.js
+
       - name: 🇬🇧 United Kingdom (FCA NSM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
         continue-on-error: true
