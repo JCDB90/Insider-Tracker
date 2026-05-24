@@ -2378,29 +2378,41 @@ function DashboardPage({
   const [activeTab, setActiveTab] = useState('trades');
   const [hoveredKpi, setHoveredKpi] = useState(null);
   const [tradePage, setTradePage] = useState(1);
-  const [avgReturn30d, setAvgReturn30d] = useState(null);
+  const [winRate30d, setWinRate30d] = useState(null);
 
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
   useEffect(() => { setTradePage(1); }, [filteredTrades]);
 
-  // Fetch avg 30d return from insider_performance (profitable trades only)
+  // Compute win rate: profitable buys / total buys at 30 days
+  // Deduplicated by ticker+date so one stock event counts once regardless of how
+  // many insiders bought the same day. Excludes non-market-price rows (price <= 0).
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      let sum = 0, count = 0, from = 0;
+      const all = [];
+      let from = 0;
       while (true) {
         const { data } = await supabase
           .from('insider_performance')
-          .select('return_30d')
+          .select('ticker, transaction_date, hit_rate_30d')
           .not('return_30d', 'is', null)
-          .eq('hit_rate_30d', true)
+          .gt('transaction_price', 0)
           .range(from, from + 999);
         if (!data || data.length === 0) break;
-        for (const r of data) { sum += Math.min(Number(r.return_30d), 2.0); count++; }
+        all.push(...data);
         if (data.length < 1000) break;
         from += 1000;
       }
-      if (!cancelled) setAvgReturn30d(count > 0 ? sum / count : null);
+      const seen = new Set();
+      let wins = 0, total = 0;
+      for (const r of all) {
+        const key = `${r.ticker}|${r.transaction_date}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        total++;
+        if (r.hit_rate_30d) wins++;
+      }
+      if (!cancelled) setWinRate30d(total > 0 ? wins / total : null);
     }
     load();
     return () => { cancelled = true; };
@@ -2459,9 +2471,9 @@ function DashboardPage({
     },
     {
       icon: '📈',
-      label: 'Avg Insider Return',
-      value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
-      sub: '30d avg (profitable trades)',
+      label: 'Insider Win Rate',
+      value: winRate30d === null ? '…' : Math.round(winRate30d * 100) + '%',
+      sub: 'of buys profitable at 30 days',
       color: '#15803D',
       action: () => onNavigate && onNavigate('insiders'),
     },
