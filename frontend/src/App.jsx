@@ -2474,7 +2474,7 @@ function DashboardPage({
       icon: '📈',
       label: 'Avg 30d Return',
       value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
-      sub: 'across all tracked buy signals',
+      sub: 'avg across all tracked signals',
       color: '#15803D',
       action: () => onNavigate && onNavigate('insiders'),
     },
@@ -4713,6 +4713,10 @@ function PricingPage({ session, onLogin }) {
         'Insider performance profiles & track records',
         'Buyback program tracking',
       ],
+      perfNote: {
+        stat: 'Avg. 30d return on tracked insider buys: +8.4%*',
+        disclaimer: '*Based on 1,092 signals. Past performance does not guarantee future results.',
+      },
     },
     {
       id: 'elite', tier: 'Elite',
@@ -4730,7 +4734,7 @@ function PricingPage({ session, onLogin }) {
   const annualSave = 17; // ~17% saving: €9.99/mo vs €12/mo
 
   const proofItems = [
-    { label: 'Avg 30d return (profitable buys)', value: '+18.8%', sub: 'from our database',  color: '#16A34A' },
+    { label: 'Avg 30d return', value: '+8.4%', sub: 'across 1,092 tracked signals', color: '#16A34A' },
     { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
     { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
     { label: 'Markets covered',                   value: '15',    sub: '15 markets across Europe and Asia', color: '#6B7280' },
@@ -4838,7 +4842,7 @@ function PricingPage({ session, onLogin }) {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 16 }}>
                     {plan.bullets.map((b, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                         <Check />
@@ -4846,6 +4850,16 @@ function PricingPage({ session, onLogin }) {
                       </div>
                     ))}
                   </div>
+
+                  {plan.perfNote && (
+                    <div style={{
+                      marginBottom: 16, padding: '10px 12px',
+                      background: '#F0FDF4', borderRadius: 7, border: '1px solid #BBF7D0',
+                    }}>
+                      <div style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>{plan.perfNote.stat}</div>
+                      <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3, lineHeight: 1.4 }}>{plan.perfNote.disclaimer}</div>
+                    </div>
+                  )}
 
                   <div style={{ flex: 1 }} />
                   <button style={{
