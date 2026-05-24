@@ -3,9 +3,10 @@
    All rules scoped to max-width:768px — zero desktop regressions.
    ───────────────────────────────────────────────────────────────────────────── */
 
-/* Base state: hamburger hidden, mobile nav hidden (desktop default) */
+/* Base state: hamburger hidden, mobile nav hidden, mobile search hidden (desktop default) */
 .topbar-hamburger { display: none; }
 .topbar-mobile-nav { display: none; }
+.topbar-mobile-search { display: none; }
 
 /* mobile-price hidden by default (desktop) — revealed inside @media below */
 .mobile-price { display: none; }
@@ -28,6 +29,19 @@
   /* Hide desktop search bar and nav links */
   .topbar-search { display: none !important; }
   .topbar-nav    { display: none !important; }
+
+  /* Mobile search bar — sticky row directly below topbar */
+  .topbar-mobile-search {
+    display: flex !important;
+    align-items: center;
+    position: sticky;
+    top: 56px;
+    z-index: 98;
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    padding: 8px 14px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  }
 
   /* Show hamburger button */
   .topbar-hamburger {

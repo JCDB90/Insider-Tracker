@@ -771,6 +771,7 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
   ];
 
   return (
+  <>
     <header className="topbar" style={{
       position: 'sticky', top: 0, zIndex: 100,
       background: '#fff', borderBottom: '1px solid #f0f0f0',
@@ -946,6 +947,29 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
         </div>
       )}
     </header>
+
+    {/* Mobile search bar — sticky row below topbar, hidden on desktop */}
+    <div className="topbar-mobile-search">
+      <div style={{ position: 'relative', flex: 1 }}>
+        <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.4, pointerEvents: 'none' }}
+          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111318" strokeWidth="2" strokeLinecap="round">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Search company, ticker or insider…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            width: '100%', padding: '8px 12px 8px 32px', boxSizing: 'border-box',
+            border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14,
+            fontFamily: "'Inter', sans-serif", color: '#111318', background: '#f8f8f8',
+            outline: 'none',
+          }}
+        />
+      </div>
+    </div>
+  </>
   );
 }
 
@@ -4715,13 +4739,7 @@ function PricingPage({ session, onLogin }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ia_page') || 'dashboard';
-      // 'company' cannot be restored on reload (selectedCompany is transient state)
-      return saved === 'company' ? 'dashboard' : saved;
-    } catch { return 'dashboard'; }
-  });
+  const [page, setPage] = useState('dashboard');
   const [search, setSearch] = useState('');
   const [selectedCountries, setSelectedCountries] = useState(() => {
     // Pre-select country if ?country=XX is in the URL (e.g. from SEO landing pages)
@@ -4792,9 +4810,6 @@ export default function App() {
     setUserPlan('visitor');
   }
 
-  useEffect(() => {
-    try { localStorage.setItem('ia_page', page); } catch {}
-  }, [page]);
 
   async function fetchAll(table, orderCol) {
     const PAGE = 1000;

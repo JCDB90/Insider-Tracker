@@ -24,6 +24,18 @@ const COUNTRY_YAHOO_SUFFIX = {
   CH:'.SW', GB:'.L',
 };
 
+// LU-registered companies trade on multiple EU exchanges — explicit Yahoo Finance symbol overrides.
+const LU_TICKER_OVERRIDES = {
+  'MT':    'MT.AS',      // ArcelorMittal → Euronext Amsterdam
+  'APAM':  'APAM.AS',   // Aperam → Euronext Amsterdam
+  'ERF':   'ERF.PA',    // Eurofins Scientific → Euronext Paris
+  'SESG':  'SESG.PA',   // SES → Euronext Paris
+  'INPST': 'INPST.AS',  // InPost → Euronext Amsterdam
+  'GYC':   'GYC.DE',    // Grand City Properties → Xetra Frankfurt
+  'GCP':   'GYC.DE',    // Grand City Properties (alt ticker)
+  'BREB':  'BREB.BR',   // Brederode → Euronext Brussels
+};
+
 // ─── Signal icon helpers (shared with App.jsx concept, inlined here) ─────────
 
 const IcoTrendDown = () => (
@@ -192,6 +204,21 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
       bare + '.MI',
       bare + '.BR',
       bare,
+    );
+  }
+
+  // Luxembourg-registered companies trade on Amsterdam, Paris, Brussels, or other EU exchanges.
+  // Check explicit overrides first; otherwise try all common EU exchange suffixes.
+  if (countryCode === 'LU') {
+    const override = LU_TICKER_OVERRIDES[base] || LU_TICKER_OVERRIDES[bare];
+    if (override) return [override];
+    candidates.push(
+      base + '.AS', bare + '.AS',
+      base + '.PA', bare + '.PA',
+      base + '.BR', bare + '.BR',
+      base + '.DE', bare + '.DE',
+      base + '.MI', bare + '.MI',
+      base,
     );
   }
 
