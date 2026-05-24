@@ -385,9 +385,13 @@ async function scrapeKR() {
     const filingUrl = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}`;
 
     // Determine if filer is an institution (5+ Hangul chars = corporate entity)
-    const hangulCount = name ? [...name].filter(c => /[가-힯]/.test(c)).length : 0;
+    const hangulCount = name ? [...name].filter(c => /[가-힣]/.test(c)).length : 0;
     const isCorporateFiler = hangulCount > 4;
     const romanizedName = romanizeKoreanName(name);
+    // If romanization failed and the result still contains Hangul, treat as null
+    // (these are department/role descriptions like "AI서비스디자인 성과리더", not person names)
+    const hasResidualHangul = romanizedName ? /[가-힣]/.test(romanizedName) : false;
+    const cleanName = hasResidualHangul ? null : romanizedName;
 
     // One DB row per transaction (filings can contain multiple trade dates)
     return result.txns.map((txn, idx) => ({
@@ -396,7 +400,7 @@ async function scrapeKR() {
       source:           SOURCE,
       ticker:           sc || listing.corp_code || null,
       company,
-      insider_name:     isCorporateFiler ? null : romanizedName,
+      insider_name:     isCorporateFiler ? null : cleanName,
       via_entity:       isCorporateFiler ? romanizedName : null,
       insider_role:     translateRole(role),
       transaction_type: txn.txType,

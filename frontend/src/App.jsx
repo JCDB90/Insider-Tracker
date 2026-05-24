@@ -1091,9 +1091,9 @@ function Sidebar({ selectedCountries, toggleCountry, clearCountries, countryCoun
 
 function InsiderCard({ row }) {
   const [hovered, setHovered] = useState(false);
-  const name = row.insider_name && row.insider_name !== 'Not disclosed'
-    ? row.insider_name
-    : (row.via_entity || 'Not disclosed');
+  const isViaEntity = !row.insider_name || row.insider_name === 'Not disclosed';
+  const name = isViaEntity ? (row.via_entity || 'Not disclosed') : row.insider_name;
+  const displayName = isViaEntity && row.via_entity ? `Via ${row.via_entity}` : name;
 
   return (
     <div
@@ -1143,7 +1143,7 @@ function InsiderCard({ row }) {
           <div style={{
             fontWeight: 500, fontSize: 12, color: '#111318',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150,
-          }}>{name}</div>
+          }}>{displayName}</div>
           {row.insider_role && (
             <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>{row.insider_role}</div>
           )}
@@ -1370,7 +1370,7 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
                       </>
                     ) : entityFallback ? (
                       <>
-                        <div style={{ fontWeight: 500, fontSize: 13, ...truncCell }} title={entityFallback}>{entityFallback}</div>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: '#6B7280', ...truncCell }} title={entityFallback}>Via {entityFallback}</div>
                         {row.insider_role && (
                           <div style={{ fontSize: 11, color: '#9CA3AF', ...truncCell }}>{row.insider_role}</div>
                         )}
@@ -2169,7 +2169,8 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                 <div style={{ background: '#F9FAFB', borderRadius: 6, padding: '8px 10px', borderLeft: '3px solid #16A34A' }}>
                   <div style={{ fontSize: 11, color: '#374151', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {latestBuy.insider_name && latestBuy.insider_name !== 'Not disclosed'
-                      ? latestBuy.insider_name : (latestBuy.via_entity || 'Insider')}
+                      ? latestBuy.insider_name
+                      : latestBuy.via_entity ? `Via ${latestBuy.via_entity}` : 'Insider'}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
                     <span style={{ fontSize: 11, color: '#9CA3AF' }}>{formatDateShort(latestBuy.transaction_date)}</span>
@@ -2334,7 +2335,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
                             <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
                           )
                         ) : (
-                          <div style={{ fontSize: 13, color: '#9CA3AF' }}>{t.via_entity || 'Not disclosed'}</div>
+                          <div style={{ fontSize: 13, color: '#9CA3AF' }}>{t.via_entity ? `Via ${t.via_entity}` : 'Not disclosed'}</div>
                         )}
                         {t.insider_role && (
                           <div style={{ fontSize: 11, color: '#9CA3AF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.insider_role}</div>
@@ -2370,8 +2371,7 @@ function DashboardPage({
   buybackSort, setBuybackSort,
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
-  countryCounts, selectedSector, setSelectedSector,
-  onInsiderClick, onCompanyClick,
+  countryCounts, onInsiderClick, onCompanyClick,
   access, onLogin, onUpgrade,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
@@ -2470,15 +2470,6 @@ function DashboardPage({
     return keys.size;
   }, [filteredBuybacks]);
 
-  // Distinct sectors present in the current trade set (for filter pills)
-  const availableSectors = useMemo(() => {
-    const isBuyTrade = t => (t.transaction_type || '').toUpperCase() === 'BUY';
-    const counts = {};
-    for (const t of trades) {
-      if (isBuyTrade(t) && t.sector) counts[t.sector] = (counts[t.sector] || 0) + 1;
-    }
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([s]) => s);
-  }, [trades]);
 
   return (
     <div className="dashboard-layout" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -2567,40 +2558,9 @@ function DashboardPage({
             </div>
           </div>
 
-          {/* Sector filter pills — shown only on trades tab when sector data is available */}
-          {activeTab === 'trades' && availableSectors.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-              <button
-                onClick={() => setSelectedSector(null)}
-                style={{
-                  padding: '4px 10px', borderRadius: 20, border: '1px solid',
-                  borderColor: selectedSector === null ? '#111318' : '#e5e7eb',
-                  background: selectedSector === null ? '#111318' : '#fff',
-                  color: selectedSector === null ? '#fff' : '#6B7280',
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap',
-                }}
-              >All Sectors</button>
-              {availableSectors.map(s => (
-                <button
-                  key={s}
-                  onClick={() => setSelectedSector(selectedSector === s ? null : s)}
-                  style={{
-                    padding: '4px 10px', borderRadius: 20, border: '1px solid',
-                    borderColor: selectedSector === s ? '#111318' : '#e5e7eb',
-                    background: selectedSector === s ? '#111318' : '#fff',
-                    color: selectedSector === s ? '#fff' : '#6B7280',
-                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                    fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap',
-                  }}
-                >{s}</button>
-              ))}
-            </div>
-          )}
-
           {activeTab === 'trades' ? (
             <TradesTable
-              key={[...selectedCountries].sort().join(',') + '|' + (selectedSector || '')}
+              key={[...selectedCountries].sort().join(',')}
               rows={filteredTrades}
               loading={tradesLoading}
               sortBy={tradeSort.by}
@@ -3155,6 +3115,7 @@ const ALERT_TYPES = [
 function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded, access, onUpgrade }) {
   watchlistTickers = watchlistTickers || new Set();
   const [activeFilter, setActiveFilter] = useState('all');
+  function switchFilter(f) { setActiveFilter(f); if (f !== 'sectors') setDrillSector(null); }
 
   function timeAgo(dateStr) {
     if (!dateStr) return '';
@@ -3237,9 +3198,17 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
         buyCount:    g.trades.length,
         industries:  [...g.industries].slice(0, 3),
         countries:   [...g.countries],
+        trades:      g.trades,
       }))
       .sort((a, b) => b.totalValue - a.totalValue);
   }, [trades, cutoff30d]);
+
+  const [drillSector, setDrillSector] = useState(null);
+  const drillTrades = useMemo(() => {
+    if (!drillSector) return [];
+    return sectorGroups.find(g => g.sector === drillSector)?.trades
+      .slice().sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)) || [];
+  }, [drillSector, sectorGroups]);
 
   // Total unique alert count for nav badge (deduped by id)
   const alertIds = useMemo(() => {
@@ -3294,7 +3263,9 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
   }
 
   function TradeAlertCard({ t, icon, accentColor, borderColor, bgColor, tag }) {
-    const name = (t.insider_name && t.insider_name !== 'Not disclosed') ? t.insider_name : (t.via_entity || null);
+    const isViaEntity = !t.insider_name || t.insider_name === 'Not disclosed';
+    const name = isViaEntity ? (t.via_entity || null) : t.insider_name;
+    const displayName = isViaEntity && name ? `Via ${name}` : name;
     const dir  = isBuy(t) ? 'bought' : 'sold';
     return (
       <AlertCard
@@ -3313,7 +3284,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
             <span
               onClick={e => { e.stopPropagation(); onInsiderClick && onInsiderClick(name); }}
               style={{ fontWeight: 500, color: '#374151', cursor: onInsiderClick ? 'pointer' : 'default' }}
-            >{name}</span>
+            >{displayName}</span>
           ) : <span style={{ color: '#9CA3AF', fontStyle: 'italic' }}>Insider</span>}
           {' '}{dir}{' '}
           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
@@ -3430,7 +3401,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           {ALERT_TYPES.map(at => (
             <button
               key={at.key}
-              onClick={() => setActiveFilter(at.key)}
+              onClick={() => switchFilter(at.key)}
               style={{
                 padding: '5px 12px', borderRadius: 6, border: 'none',
                 background: activeFilter === at.key ? '#fff' : 'transparent',
@@ -3532,60 +3503,97 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
 
             {/* ── Sector Trends ── */}
             {showSectors && sectorGroups.length > 0 && (
-              <Section title="Sector Trends (14 days)" count={sectorGroups.length}>
-                {sectorGroups.map((g, i) => {
-                  const icon = SECTOR_ICONS[g.sector] || '📈';
-                  return (
-                    <div key={i} style={{
-                      background: '#fff', border: '1px solid #f0f0f0',
-                      borderLeft: '3px solid #6366F1',
-                      borderRadius: 8, padding: '12px 16px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <span style={{ fontSize: 16 }}>{icon}</span>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#111318' }}>{g.sector}</span>
+              drillSector ? (
+                <div>
+                  <button
+                    onClick={() => setDrillSector(null)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 13, fontWeight: 600, color: '#6B7280',
+                      padding: '0 0 16px 0', fontFamily: "'Inter', sans-serif",
+                    }}
+                  >
+                    ← All Sectors
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                    <span style={{ fontSize: 20 }}>{SECTOR_ICONS[drillSector] || '📈'}</span>
+                    <h2 style={{ fontSize: 15, fontWeight: 700, color: '#111318', margin: 0 }}>{drillSector}</h2>
+                    <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{drillTrades.length} transactions · 14 days</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {drillTrades.map(t => (
+                      <TradeAlertCard key={t.id} t={t}
+                        icon={SECTOR_ICONS[drillSector] || '📈'} tag={drillSector}
+                        accentColor="#6366F1" borderColor="#C7D2FE" bgColor="#EEF2FF"
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <Section title="Sector Trends (14 days)" count={sectorGroups.length}>
+                  {sectorGroups.map((g, i) => {
+                    const icon = SECTOR_ICONS[g.sector] || '📈';
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => setDrillSector(g.sector)}
+                        style={{
+                          background: '#fff', border: '1px solid #f0f0f0',
+                          borderLeft: '3px solid #6366F1',
+                          borderRadius: 8, padding: '12px 16px',
+                          cursor: 'pointer', transition: 'all 0.12s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#fafafa'; e.currentTarget.style.borderColor = '#e0e0e0'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#f0f0f0'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ fontSize: 16 }}>{icon}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#111318' }}>{g.sector}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                              background: '#EEF2FF', color: '#4338CA', borderRadius: 3, padding: '2px 7px',
+                            }}>{g.buyCount} buys</span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                              background: '#F0FDF4', color: '#15803D', borderRadius: 3, padding: '2px 7px',
+                            }}>{g.companies.length} co.</span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                            background: '#EEF2FF', color: '#4338CA', borderRadius: 3, padding: '2px 7px',
-                          }}>{g.buyCount} buys</span>
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                            background: '#F0FDF4', color: '#15803D', borderRadius: 3, padding: '2px 7px',
-                          }}>{g.companies.length} companies</span>
+                        <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
+                          {g.companies.slice(0, 4).map(c => c.company).join(' · ')}
+                          {g.companies.length > 4 ? ` +${g.companies.length - 4} more` : ''}
                         </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
-                        {g.companies.slice(0, 4).map(c => c.company).join(' · ')}
-                        {g.companies.length > 4 ? ` +${g.companies.length - 4} more` : ''}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        {g.totalValue > 0 && (
-                          <span style={{ fontSize: 12, color: '#6B7280' }}>
-                            Total{' '}
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
-                              {formatValue(g.totalValue, 'EUR')}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          {g.totalValue > 0 && (
+                            <span style={{ fontSize: 12, color: '#6B7280' }}>
+                              Total{' '}
+                              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
+                                {formatValue(g.totalValue, 'EUR')}
+                              </span>
+                              {' '}insider buying
                             </span>
-                            {' '}insider buying
-                          </span>
-                        )}
-                        {g.countries.length > 1 && (
-                          <div style={{ display: 'flex', gap: 3 }}>
-                            {g.countries.slice(0, 5).map(cc => <Flag key={cc} code={cc} />)}
+                          )}
+                          {g.countries.length > 1 && (
+                            <div style={{ display: 'flex', gap: 3 }}>
+                              {g.countries.slice(0, 5).map(cc => <Flag key={cc} code={cc} />)}
+                            </div>
+                          )}
+                        </div>
+                        {g.industries.length > 0 && (
+                          <div style={{ marginTop: 5, fontSize: 11, color: '#9CA3AF' }}>
+                            {g.industries.join(' · ')}
                           </div>
                         )}
                       </div>
-                      {g.industries.length > 0 && (
-                        <div style={{ marginTop: 5, fontSize: 11, color: '#9CA3AF' }}>
-                          {g.industries.join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </Section>
+                    );
+                  })}
+                </Section>
+              )
             )}
           </>
         )}
@@ -4922,8 +4930,7 @@ export default function App() {
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
   const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
-  const [tickerMeta, setTickerMeta]           = useState([]);
-  const [selectedSector, setSelectedSector]   = useState(null);
+  const [tickerMeta, setTickerMeta] = useState([]);
 
   // ── Dynamic meta tags ──────────────────────────────────────────────────────
   useMetaTags(page, selectedCompany, selectedInsider);
@@ -5045,11 +5052,13 @@ export default function App() {
   );
 
   // applyFilters is a pure module-level function — no closure capture needed
-  const filteredTrades = useMemo(() => {
-    let rows = applyFilters(tradesWithSector, ['company', 'ticker', 'insider_name', 'via_entity'], selectedCountries, search);
-    if (selectedSector) rows = rows.filter(r => r.sector === selectedSector);
-    return sortRows(rows, tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']);
-  }, [tradesWithSector, selectedCountries, search, tradeSort, selectedSector]);
+  const filteredTrades = useMemo(
+    () => sortRows(
+      applyFilters(tradesWithSector, ['company', 'ticker', 'insider_name', 'via_entity'], selectedCountries, search),
+      tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']
+    ),
+    [tradesWithSector, selectedCountries, search, tradeSort]
+  );
 
   const filteredBuybacks = useMemo(
     () => sortRows(
@@ -5182,8 +5191,6 @@ export default function App() {
             toggleCountry={toggleCountry}
             clearCountries={clearCountries}
             countryCounts={countryCounts}
-            selectedSector={selectedSector}
-            setSelectedSector={setSelectedSector}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
             access={access}
