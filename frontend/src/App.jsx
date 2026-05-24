@@ -1910,7 +1910,7 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab, access, onUpgrade, onLogin }) {
+function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab, initialAlertFilter, access, onUpgrade, onLogin }) {
   const [tab, setTab] = useState(initialTab || 'stocks');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
@@ -2101,6 +2101,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           watchlist={watchlist} watchlistTickers={watchlistTickers}
           onCompanyClick={onCompanyClick} onInsiderClick={onInsiderClick}
           access={access} onUpgrade={onUpgrade}
+          initialFilter={initialAlertFilter}
           embedded
         />
       )}
@@ -2372,9 +2373,10 @@ function DashboardPage({
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
   countryCounts, onInsiderClick, onCompanyClick,
-  access, onLogin, onUpgrade,
+  access, onLogin, onUpgrade, onNavigate,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
+  const [hoveredKpi, setHoveredKpi] = useState(null);
   const [tradePage, setTradePage] = useState(1);
   const [avgReturn30d, setAvgReturn30d] = useState(null);
 
@@ -2439,18 +2441,21 @@ function DashboardPage({
       label: 'High Conviction Buys',
       value: tradesLoading ? '…' : highConvictionBuys.toLocaleString(),
       sub: 'Last 14 days',
+      action: () => onNavigate && onNavigate('conviction'),
     },
     {
       icon: '🔄',
       label: 'Cluster Signals',
       value: tradesLoading ? '…' : clusterSignals.toLocaleString(),
       sub: 'Companies with cluster buying',
+      action: () => onNavigate && onNavigate('cluster'),
     },
     {
       icon: '🔁',
       label: 'Repeat Buyers',
       value: tradesLoading ? '…' : repeatBuyers.toLocaleString(),
       sub: 'Active repeat buyers',
+      action: () => onNavigate && onNavigate('repetitive'),
     },
     {
       icon: '📈',
@@ -2458,6 +2463,7 @@ function DashboardPage({
       value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
       sub: '30d avg (profitable trades)',
       color: '#15803D',
+      action: () => onNavigate && onNavigate('insiders'),
     },
   ];
 
@@ -2484,16 +2490,33 @@ function DashboardPage({
         {/* Signal KPI row */}
         <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
           {kpis.map((k, i) => (
-            <div key={i} style={{
-              background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
-              padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 2,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontSize: 13, lineHeight: 1 }}>{k.icon}</span>
+            <div
+              key={i}
+              onClick={k.action}
+              onMouseEnter={() => setHoveredKpi(i)}
+              onMouseLeave={() => setHoveredKpi(null)}
+              style={{
+                background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
+                padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 2,
+                cursor: 'pointer',
+                transform: hoveredKpi === i ? 'translateY(-2px)' : 'none',
+                boxShadow: hoveredKpi === i ? '0 4px 12px rgba(0,0,0,0.08)' : 'none',
+                transition: 'transform 0.1s, box-shadow 0.1s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 13, lineHeight: 1 }}>{k.icon}</span>
+                  <span style={{
+                    fontSize: 10, color: '#9CA3AF', fontWeight: 600,
+                    textTransform: 'uppercase', letterSpacing: '0.07em',
+                  }}>{k.label}</span>
+                </div>
                 <span style={{
-                  fontSize: 10, color: '#9CA3AF', fontWeight: 600,
-                  textTransform: 'uppercase', letterSpacing: '0.07em',
-                }}>{k.label}</span>
+                  fontSize: 12, color: '#9CA3AF',
+                  opacity: hoveredKpi === i ? 1 : 0,
+                  transition: 'opacity 0.1s',
+                }}>→</span>
               </div>
               <span style={{
                 fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
@@ -3108,13 +3131,14 @@ const ALERT_TYPES = [
   { key: 'watchlist',      label: '⭐ Watchlist' },
   { key: 'conviction',     label: '🔥 High Conviction' },
   { key: 'cluster',        label: '🔄 Cluster' },
+  { key: 'repetitive',     label: '🔁 Repeat' },
   { key: 'large',          label: '💰 Large' },
   { key: 'sectors',        label: '📊 Sectors' },
 ];
 
-function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded, access, onUpgrade }) {
+function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded, access, onUpgrade, initialFilter }) {
   watchlistTickers = watchlistTickers || new Set();
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState(initialFilter || 'all');
   function switchFilter(f) { setActiveFilter(f); if (f !== 'sectors') setDrillSector(null); }
 
   function timeAgo(dateStr) {
@@ -3171,6 +3195,15 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
       .filter(t => isBuy(t) && Number(t.total_value || 0) >= 500000 && t.transaction_date >= cutoff7d)
       .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
     [trades, cutoff7d],
+  );
+
+  // Repeat Buyers — insiders with is_repetitive_buy flag, last 14 days
+  const cutoff14dAlerts = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10); }, []);
+  const repetitiveAlerts = useMemo(() =>
+    trades
+      .filter(t => isBuy(t) && t.is_repetitive_buy && t.transaction_date >= cutoff14dAlerts)
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
+    [trades, cutoff14dAlerts],
   );
 
   // Sector Trends — BUY transactions with sector data, last 14 days
@@ -3321,18 +3354,20 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
 
   // ── Filter logic ──────────────────────────────────────────────────────────
 
-  const showConviction = activeFilter === 'all' || activeFilter === 'conviction';
-  const showWatchlist  = activeFilter === 'all' || activeFilter === 'watchlist';
-  const showCluster    = activeFilter === 'all' || activeFilter === 'cluster';
-  const showLarge      = activeFilter === 'all' || activeFilter === 'large';
-  const showSectors    = activeFilter === 'all' || activeFilter === 'sectors';
+  const showConviction  = activeFilter === 'all' || activeFilter === 'conviction';
+  const showWatchlist   = activeFilter === 'all' || activeFilter === 'watchlist';
+  const showCluster     = activeFilter === 'all' || activeFilter === 'cluster';
+  const showRepetitive  = activeFilter === 'all' || activeFilter === 'repetitive';
+  const showLarge       = activeFilter === 'all' || activeFilter === 'large';
+  const showSectors     = activeFilter === 'all' || activeFilter === 'sectors';
 
   const isEmpty = !tradesLoading && (
-    (showConviction && convictionAlerts.length === 0) &&
-    (showWatchlist  && watchlistAlerts.length === 0) &&
-    (showCluster    && clusterGroups.length === 0) &&
-    (showLarge      && largeAlerts.length === 0) &&
-    (showSectors    && sectorGroups.length === 0)
+    (showConviction  && convictionAlerts.length === 0) &&
+    (showWatchlist   && watchlistAlerts.length === 0) &&
+    (showCluster     && clusterGroups.length === 0) &&
+    (showRepetitive  && repetitiveAlerts.length === 0) &&
+    (showLarge       && largeAlerts.length === 0) &&
+    (showSectors     && sectorGroups.length === 0)
   );
 
   // Visitor teaser — show counts but not content
@@ -3350,6 +3385,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           {[
             { icon: '🔥', label: `${convictionAlerts.length} High Conviction buys` },
             { icon: '🔄', label: `${clusterGroups.length} Cluster signals` },
+            { icon: '🔁', label: `${repetitiveAlerts.length} Repeat buyer trades` },
             { icon: '💰', label: `${largeAlerts.length} Large purchases (≥€500K)` },
             { icon: '⭐', label: `${watchlistAlerts.length} Watchlist transactions` },
             { icon: '📊', label: `${sectorGroups.length} Active sector trends` },
@@ -3486,6 +3522,18 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
                     </AlertCard>
                   );
                 })}
+              </Section>
+            )}
+
+            {/* ── Repeat Buyers ── */}
+            {showRepetitive && repetitiveAlerts.length > 0 && (
+              <Section title="Repeat Buyers" count={repetitiveAlerts.length}>
+                {repetitiveAlerts.map(t => (
+                  <TradeAlertCard key={t.id} t={t}
+                    icon="🔁" tag="Repeat Buyer"
+                    accentColor="#7C3AED" borderColor="#DDD6FE" bgColor="#F5F3FF"
+                  />
+                ))}
               </Section>
             )}
 
@@ -4906,6 +4954,7 @@ function PricingPage({ session, onLogin }) {
 
 export default function App() {
   const [page, setPage] = useState('dashboard');
+  const [alertInitialFilter, setAlertInitialFilter] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedCountries, setSelectedCountries] = useState(() => {
     // Pre-select country if ?country=XX is in the URL (e.g. from SEO landing pages)
@@ -5155,7 +5204,7 @@ export default function App() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>
       <TopBar
         page={page}
-        setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); }}
+        setPage={p => { setPage(p); setNavStack([]); setSelectedInsider(null); setSelectedCompany(null); setAlertInitialFilter(null); }}
         search={search} setSearch={setSearch}
         alertCount={alertCount}
         session={session}
@@ -5196,6 +5245,14 @@ export default function App() {
             access={access}
             onLogin={() => setShowLoginModal(true)}
             onUpgrade={() => setPage('pricing')}
+            onNavigate={(dest) => {
+              if (dest === 'insiders') {
+                setPage('insiders');
+              } else {
+                setAlertInitialFilter(dest);
+                setPage('watchlist');
+              }
+            }}
           />
         )}
         {page === 'watchlist' && (
@@ -5209,6 +5266,8 @@ export default function App() {
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
             alertCount={alertCount}
+            initialTab={alertInitialFilter ? 'alerts' : undefined}
+            initialAlertFilter={alertInitialFilter}
             access={access}
             onUpgrade={() => setPage('pricing')}
             onLogin={() => setShowLoginModal(true)}
