@@ -38,10 +38,10 @@ function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
   // SELL first: "tilbagekøb" (buyback) contains "køb" (buy) — check disposal/salg before køb/buy
-  if (l.includes('dispos') || l.includes('sale') || l.includes('sell') ||
+  if (l.includes('dispos') || l.includes('sale') || l.includes('sell') || l.includes('sold') ||
       l.includes('salg') || l.includes('afstå') || l.includes('tilbagekøb')) return 'SELL';
   if (l.includes('acqui') || l.includes('purchas') || l.includes('receipt') || l.includes('grant') ||
-      l.includes('subscribe') || l.includes('exercise') ||
+      l.includes('subscribe') || l.includes('exercise') || l.includes('bought') ||
       /\bbuy\b/.test(l) || /\bkøb\b/.test(l) ||
       l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
   return 'OTHER';
@@ -87,9 +87,10 @@ function parseNotificationText(text) {
     /1\.1\s+\S[^\n]*?([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*$/m,
     /1\.1\b[^\n]*\n[ \t]*([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*\n/m,
     // Tabular ESMA form: "a)   Name                     John Smith"
-    /\ba\)\s+Name\s{2,}([^\n]{2,80})/im,
+    // Also Vestas-style PDF: "a)    Name:                    Henrik Andersen" (colon present)
+    /\ba\)\s+Name:?\s{2,}([^\n]{2,80})/im,
     // Danish ESMA form: "a)   Navn\n                      Christian Herskind Jørgensen"
-    /\ba\)\s+Navn\s*\n\s+([A-ZÆØÅ][^\n]{1,80})/im,
+    /\ba\)\s+Navn:?\s*\n\s+([A-ZÆØÅ][^\n]{1,80})/im,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
     /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
     /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
@@ -223,8 +224,9 @@ function parseNotificationText(text) {
 
   // Tabular ESMA form: "DKK 285.36                              2,160" on one line
   // Also Danish: "DKK 61,7088                         22.345" (comma=decimal, period=thousands in volume)
+  // Allow optional trailing word (e.g. "shares") after the volume: "DKK 197.24   111,551 shares"
   if (!shares) {
-    const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,\.]+)\s*$/im);
+    const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,\.]+)\s*(?:[a-zA-Z]+\s*)?$/im);
     if (priceVolLine) {
       const pv = parseNum(priceVolLine[1]);
       const sv = parseNum(priceVolLine[2]);
@@ -293,9 +295,13 @@ function parseNotificationText(text) {
 
   // Total value: "for a total amount of DKK X" or "at a total price of DKK X"
   // Also tabular: "DKK 616,377.60\n      — Price" or Danish "Aggregeret pris: DKK 1.378.883"
+  // PDF ESMA form: "- Price     DKK 22,002,018.05" (after aggregated volume line)
+  // Inline HTML stripped: "Aggregated volume: 17,641 shares Price: 3,529,399.588 DKK"
   const totalRaw = grabAfter(text,
     /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s*\n[^\n]*—\s*Price/im,
     /Aggregeret\s+pris[^\n]*(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/im,  // Danish aggregated price
+    /-\s*Price\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/im,             // PDF ESMA: "- Price   DKK X"
+    /Aggregated\s+volume[^\n]*?\bPrice:\s*([\d,\.]+)\s*(?:DKK|EUR|SEK|NOK|CHF)/im,  // inline: "...Price: X DKK" (non-greedy to hit first match)
     /total\s+(?:amount|price|consideration)\s+of\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
     /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s+(?:total|in total|aggregate)/i,
     /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:total|in total)\b/i,
@@ -460,8 +466,9 @@ async function fetchNotificationDetails(messageUrl) {
     const rawHtml = res.body;
     const inline  = parseNotificationText(stripHtml(rawHtml));
 
-    // If we already have shares and price from inline HTML, return immediately
-    if (inline.shares && inline.price) return [inline];
+    // Only skip PDF when we have all key fields including a known transaction type.
+    // Vestas-style notifications embed numbers in inline HTML but put nature/name in the PDF.
+    if (inline.shares && inline.price && inline.transactionType !== 'UNKNOWN') return [inline];
 
     // Extract PDF attachment URLs from raw HTML
     // Nasdaq viewer embeds links like: https://attachment.news.eu.nasdaq.com/abc123
