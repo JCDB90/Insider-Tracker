@@ -669,6 +669,15 @@ function computePeriodStats(perfRows, capReturn = null) {
   });
 }
 
+// Approximate FX rates to EUR — used for cross-currency aggregation only
+const TO_EUR = {
+  EUR: 1, GBP: 1 / 0.85, USD: 1 / 1.08, SEK: 1 / 11.5,
+  NOK: 1 / 11.5, DKK: 1 / 7.5, CHF: 1 / 0.93, KRW: 1 / 1300,
+};
+function toEUR(value, currency) {
+  return Number(value || 0) * (TO_EUR[currency] ?? 1);
+}
+
 // Minimum trade size per currency — filters grants/awards; ~€1,500 equivalent
 const LEADERBOARD_THRESH = {
   EUR: 1500, GBP: 1300, USD: 1650, SEK: 17000, DKK: 11000,
@@ -3212,8 +3221,9 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
     for (const t of raw) {
       if (!map[t.sector]) map[t.sector] = { sector: t.sector, companies: new Map(), trades: [], industries: new Set(), countries: new Set() };
       const g = map[t.sector];
+      const eurVal = toEUR(t.total_value, t.currency);
       if (!g.companies.has(t.company)) g.companies.set(t.company, { company: t.company, ticker: t.ticker, country_code: t.country_code, value: 0 });
-      g.companies.get(t.company).value += Number(t.total_value || 0);
+      g.companies.get(t.company).value += eurVal;
       g.trades.push(t);
       if (t.industry) g.industries.add(t.industry);
       if (t.country_code) g.countries.add(t.country_code);
@@ -3223,11 +3233,10 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
       .map(g => ({
         sector:      g.sector,
         companies:   [...g.companies.values()].sort((a, b) => b.value - a.value),
-        totalValue:  g.trades.reduce((s, t) => s + Number(t.total_value || 0), 0),
+        totalValue:  g.trades.reduce((s, t) => s + toEUR(t.total_value, t.currency), 0),
         buyCount:    g.trades.length,
         industries:  [...g.industries].slice(0, 3),
         countries:   [...g.countries],
-        currency:    g.trades[0]?.currency || 'EUR',
       }))
       .sort((a, b) => b.totalValue - a.totalValue);
   }, [trades, cutoff30d]);
@@ -3557,7 +3566,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
                           <span style={{ fontSize: 12, color: '#6B7280' }}>
                             Total{' '}
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
-                              {formatValue(g.totalValue, g.currency)}
+                              {formatValue(g.totalValue, 'EUR')}
                             </span>
                             {' '}insider buying
                           </span>
