@@ -2361,7 +2361,8 @@ function DashboardPage({
   buybackSort, setBuybackSort,
   tradeStats, buybackStats,
   selectedCountries, toggleCountry, clearCountries,
-  countryCounts, onInsiderClick, onCompanyClick,
+  countryCounts, selectedSector, setSelectedSector,
+  onInsiderClick, onCompanyClick,
   access, onLogin, onUpgrade,
 }) {
   const [activeTab, setActiveTab] = useState('trades');
@@ -2460,6 +2461,16 @@ function DashboardPage({
     return keys.size;
   }, [filteredBuybacks]);
 
+  // Distinct sectors present in the current trade set (for filter pills)
+  const availableSectors = useMemo(() => {
+    const isBuyTrade = t => (t.transaction_type || '').toUpperCase() === 'BUY';
+    const counts = {};
+    for (const t of trades) {
+      if (isBuyTrade(t) && t.sector) counts[t.sector] = (counts[t.sector] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([s]) => s);
+  }, [trades]);
+
   return (
     <div className="dashboard-layout" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       <Sidebar
@@ -2547,9 +2558,40 @@ function DashboardPage({
             </div>
           </div>
 
+          {/* Sector filter pills — shown only on trades tab when sector data is available */}
+          {activeTab === 'trades' && availableSectors.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              <button
+                onClick={() => setSelectedSector(null)}
+                style={{
+                  padding: '4px 10px', borderRadius: 20, border: '1px solid',
+                  borderColor: selectedSector === null ? '#111318' : '#e5e7eb',
+                  background: selectedSector === null ? '#111318' : '#fff',
+                  color: selectedSector === null ? '#fff' : '#6B7280',
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap',
+                }}
+              >All Sectors</button>
+              {availableSectors.map(s => (
+                <button
+                  key={s}
+                  onClick={() => setSelectedSector(selectedSector === s ? null : s)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20, border: '1px solid',
+                    borderColor: selectedSector === s ? '#111318' : '#e5e7eb',
+                    background: selectedSector === s ? '#111318' : '#fff',
+                    color: selectedSector === s ? '#fff' : '#6B7280',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap',
+                  }}
+                >{s}</button>
+              ))}
+            </div>
+          )}
+
           {activeTab === 'trades' ? (
             <TradesTable
-              key={[...selectedCountries].sort().join(',')}
+              key={[...selectedCountries].sort().join(',') + '|' + (selectedSector || '')}
               rows={filteredTrades}
               loading={tradesLoading}
               sortBy={tradeSort.by}
@@ -3074,6 +3116,22 @@ function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsid
   );
 }
 
+// ─── Sector icon map ─────────────────────────────────────────────────────────
+
+const SECTOR_ICONS = {
+  'Technology':             '💻',
+  'Financial Services':     '🏦',
+  'Healthcare':             '🏥',
+  'Energy':                 '⚡',
+  'Industrials':            '🏭',
+  'Consumer Cyclical':      '🛍️',
+  'Consumer Defensive':     '🛒',
+  'Utilities':              '🔌',
+  'Real Estate':            '🏢',
+  'Basic Materials':        '⛏️',
+  'Communication Services': '📡',
+};
+
 // ─── AlertsPage ───────────────────────────────────────────────────────────────
 
 const ALERT_TYPES = [
@@ -3082,6 +3140,7 @@ const ALERT_TYPES = [
   { key: 'conviction',     label: '🔥 High Conviction' },
   { key: 'cluster',        label: '🔄 Cluster' },
   { key: 'large',          label: '💰 Large' },
+  { key: 'sectors',        label: '📊 Sectors' },
 ];
 
 function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onCompanyClick, onInsiderClick, embedded, access, onUpgrade }) {
@@ -3143,6 +3202,35 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
       .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
     [trades, cutoff7d],
   );
+
+  // Sector Trends — BUY transactions with sector data, last 14 days
+  // Notable when 3+ different companies in same sector bought
+  const sectorGroups = useMemo(() => {
+    const cutoff14d = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    const raw = trades.filter(t => isBuy(t) && t.sector && t.transaction_date >= cutoff14d);
+    const map = {};
+    for (const t of raw) {
+      if (!map[t.sector]) map[t.sector] = { sector: t.sector, companies: new Map(), trades: [], industries: new Set(), countries: new Set() };
+      const g = map[t.sector];
+      if (!g.companies.has(t.company)) g.companies.set(t.company, { company: t.company, ticker: t.ticker, country_code: t.country_code, value: 0 });
+      g.companies.get(t.company).value += Number(t.total_value || 0);
+      g.trades.push(t);
+      if (t.industry) g.industries.add(t.industry);
+      if (t.country_code) g.countries.add(t.country_code);
+    }
+    return Object.values(map)
+      .filter(g => g.companies.size >= 3)
+      .map(g => ({
+        sector:      g.sector,
+        companies:   [...g.companies.values()].sort((a, b) => b.value - a.value),
+        totalValue:  g.trades.reduce((s, t) => s + Number(t.total_value || 0), 0),
+        buyCount:    g.trades.length,
+        industries:  [...g.industries].slice(0, 3),
+        countries:   [...g.countries],
+        currency:    g.trades[0]?.currency || 'EUR',
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue);
+  }, [trades, cutoff30d]);
 
   // Total unique alert count for nav badge (deduped by id)
   const alertIds = useMemo(() => {
@@ -3257,12 +3345,14 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
   const showWatchlist  = activeFilter === 'all' || activeFilter === 'watchlist';
   const showCluster    = activeFilter === 'all' || activeFilter === 'cluster';
   const showLarge      = activeFilter === 'all' || activeFilter === 'large';
+  const showSectors    = activeFilter === 'all' || activeFilter === 'sectors';
 
   const isEmpty = !tradesLoading && (
     (showConviction && convictionAlerts.length === 0) &&
     (showWatchlist  && watchlistAlerts.length === 0) &&
     (showCluster    && clusterGroups.length === 0) &&
-    (showLarge      && largeAlerts.length === 0)
+    (showLarge      && largeAlerts.length === 0) &&
+    (showSectors    && sectorGroups.length === 0)
   );
 
   // Visitor teaser — show counts but not content
@@ -3282,6 +3372,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
             { icon: '🔄', label: `${clusterGroups.length} Cluster signals` },
             { icon: '💰', label: `${largeAlerts.length} Large purchases (≥€500K)` },
             { icon: '⭐', label: `${watchlistAlerts.length} Watchlist transactions` },
+            { icon: '📊', label: `${sectorGroups.length} Active sector trends` },
           ].map((item, i) => (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -3427,6 +3518,64 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
                     accentColor="#15803D" borderColor="#A7F3D0" bgColor="#F0FDF4"
                   />
                 ))}
+              </Section>
+            )}
+
+            {/* ── Sector Trends ── */}
+            {showSectors && sectorGroups.length > 0 && (
+              <Section title="Sector Trends (14 days)" count={sectorGroups.length}>
+                {sectorGroups.map((g, i) => {
+                  const icon = SECTOR_ICONS[g.sector] || '📈';
+                  return (
+                    <div key={i} style={{
+                      background: '#fff', border: '1px solid #f0f0f0',
+                      borderLeft: '3px solid #6366F1',
+                      borderRadius: 8, padding: '12px 16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{ fontSize: 16 }}>{icon}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#111318' }}>{g.sector}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                            background: '#EEF2FF', color: '#4338CA', borderRadius: 3, padding: '2px 7px',
+                          }}>{g.buyCount} buys</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                            background: '#F0FDF4', color: '#15803D', borderRadius: 3, padding: '2px 7px',
+                          }}>{g.companies.length} companies</span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
+                        {g.companies.slice(0, 4).map(c => c.company).join(' · ')}
+                        {g.companies.length > 4 ? ` +${g.companies.length - 4} more` : ''}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        {g.totalValue > 0 && (
+                          <span style={{ fontSize: 12, color: '#6B7280' }}>
+                            Total{' '}
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>
+                              {formatValue(g.totalValue, g.currency)}
+                            </span>
+                            {' '}insider buying
+                          </span>
+                        )}
+                        {g.countries.length > 1 && (
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {g.countries.slice(0, 5).map(cc => <Flag key={cc} code={cc} />)}
+                          </div>
+                        )}
+                      </div>
+                      {g.industries.length > 0 && (
+                        <div style={{ marginTop: 5, fontSize: 11, color: '#9CA3AF' }}>
+                          {g.industries.join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </Section>
             )}
           </>
@@ -4764,6 +4913,8 @@ export default function App() {
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
   const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
+  const [tickerMeta, setTickerMeta]           = useState([]);
+  const [selectedSector, setSelectedSector]   = useState(null);
 
   // ── Dynamic meta tags ──────────────────────────────────────────────────────
   useMetaTags(page, selectedCompany, selectedInsider);
@@ -4841,6 +4992,10 @@ export default function App() {
     supabase.from('watchlist').select('*').order('created_at', { ascending: true }).then(({ data }) => {
       if (data && data.length > 0) setWatchlist(data);
     });
+    // Load sector/industry metadata for all tickers
+    supabase.from('ticker_metadata').select('ticker, country_code, sector, industry').then(({ data }) => {
+      if (data && data.length > 0) setTickerMeta(data);
+    });
   }, []);
 
   async function addToWatchlist(stock) {
@@ -4865,14 +5020,27 @@ export default function App() {
     return counts;
   }, [trades]);
 
-  // applyFilters is a pure module-level function — no closure capture needed
-  const filteredTrades = useMemo(
-    () => sortRows(
-      applyFilters(trades, ['company', 'ticker', 'insider_name', 'via_entity'], selectedCountries, search),
-      tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']
-    ),
-    [trades, selectedCountries, search, tradeSort]
+  const sectorMap = useMemo(() => {
+    const m = new Map();
+    for (const r of tickerMeta) m.set(`${r.ticker}|${r.country_code}`, r);
+    return m;
+  }, [tickerMeta]);
+
+  // Attach sector/industry to each trade from the ticker_metadata cache
+  const tradesWithSector = useMemo(() =>
+    trades.map(t => {
+      const meta = sectorMap.get(`${t.ticker}|${t.country_code}`);
+      return meta ? { ...t, sector: meta.sector, industry: meta.industry } : t;
+    }),
+    [trades, sectorMap]
   );
+
+  // applyFilters is a pure module-level function — no closure capture needed
+  const filteredTrades = useMemo(() => {
+    let rows = applyFilters(tradesWithSector, ['company', 'ticker', 'insider_name', 'via_entity'], selectedCountries, search);
+    if (selectedSector) rows = rows.filter(r => r.sector === selectedSector);
+    return sortRows(rows, tradeSort.by, tradeSort.dir, ['shares', 'price_per_share', 'total_value']);
+  }, [tradesWithSector, selectedCountries, search, tradeSort, selectedSector]);
 
   const filteredBuybacks = useMemo(
     () => sortRows(
@@ -4995,7 +5163,7 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {page === 'dashboard' && (
           <DashboardPage
-            trades={trades} buybacks={buybacks}
+            trades={tradesWithSector} buybacks={buybacks}
             tradesLoading={tradesLoading} buybacksLoading={buybacksLoading}
             filteredTrades={filteredTrades} filteredBuybacks={filteredBuybacks}
             tradeSort={tradeSort} setTradeSort={setTradeSort}
@@ -5005,6 +5173,8 @@ export default function App() {
             toggleCountry={toggleCountry}
             clearCountries={clearCountries}
             countryCounts={countryCounts}
+            selectedSector={selectedSector}
+            setSelectedSector={setSelectedSector}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
             access={access}
@@ -5014,7 +5184,7 @@ export default function App() {
         )}
         {page === 'watchlist' && (
           <WatchlistPage
-            trades={trades}
+            trades={tradesWithSector}
             tradesLoading={tradesLoading}
             buybacks={buybacks}
             watchlist={watchlist}
