@@ -28,12 +28,13 @@ const { saveInsiderTransactions }      = require('./lib/db');
 const { isinToTicker }                 = require('./lib/isinToTicker');
 const { looksLikeCorp, looksLikeAddress } = require('./lib/entityUtils');
 
-const COUNTRY_CODE   = 'LU';
-const SOURCE         = 'LuxSE — Manager Transactions';
-const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
-const CURRENCY       = 'EUR';
-const DL_BASE        = 'https://dl.luxse.com/dl?v=';
-const CONCURRENCY    = 3;
+const COUNTRY_CODE      = 'LU';
+const SOURCE            = 'LuxSE — Manager Transactions';
+const RETENTION_DAYS    = parseInt(process.env.LOOKBACK_DAYS || '14');
+const CURRENCY          = 'EUR';
+const DL_BASE           = 'https://dl.luxse.com/dl?v=';
+const CONCURRENCY       = 3;
+const MIN_PRICE_PER_SHARE = 0.01;  // below this the total/shares division produced garbage
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -294,7 +295,8 @@ function parsePdf(text) {
 
     let pricePerShare = null;
     if (totalValue && shares && shares > 0) {
-      pricePerShare = parseFloat((totalValue / shares).toFixed(6));
+      const pps = totalValue / shares;
+      pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
     }
 
     const dateTxt = getEnField(/^\s*e\)\s+Date of the transaction/i) || '';
@@ -338,7 +340,8 @@ function parsePdf(text) {
 
   let pricePerShare = null;
   if (totalValue && shares && shares > 0) {
-    pricePerShare = parseFloat((totalValue / shares).toFixed(6));
+    const pps = totalValue / shares;
+    pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
   }
 
   const dateTxt = getField(/Date of the transaction\d+/) || '';
