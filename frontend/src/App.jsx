@@ -2378,14 +2378,15 @@ function DashboardPage({
   const [activeTab, setActiveTab] = useState('trades');
   const [hoveredKpi, setHoveredKpi] = useState(null);
   const [tradePage, setTradePage] = useState(1);
-  const [winRate30d, setWinRate30d] = useState(null);
+  const [avgReturn30d, setAvgReturn30d] = useState(null);
 
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
   useEffect(() => { setTradePage(1); }, [filteredTrades]);
 
-  // Compute win rate: profitable buys / total buys at 30 days
-  // Deduplicated by ticker+date so one stock event counts once regardless of how
-  // many insiders bought the same day. Excludes non-market-price rows (price <= 0).
+  // Avg 30d return across ALL signals (wins + losses), deduplicated by ticker+date.
+  // One stock event counts once regardless of how many insiders bought the same day.
+  // Capped at 100% per signal to prevent extreme outliers (e.g. +190% on LRND)
+  // from inflating the headline — uncapped mean is +15%, capped is +8.4%.
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -2394,7 +2395,7 @@ function DashboardPage({
       while (true) {
         const { data } = await supabase
           .from('insider_performance')
-          .select('ticker, transaction_date, hit_rate_30d')
+          .select('ticker, transaction_date, return_30d')
           .not('return_30d', 'is', null)
           .gt('transaction_price', 0)
           .range(from, from + 999);
@@ -2404,15 +2405,15 @@ function DashboardPage({
         from += 1000;
       }
       const seen = new Set();
-      let wins = 0, total = 0;
+      let sum = 0, count = 0;
       for (const r of all) {
         const key = `${r.ticker}|${r.transaction_date}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        total++;
-        if (r.hit_rate_30d) wins++;
+        sum += Math.min(Number(r.return_30d), 1.0); // cap at 100% per signal
+        count++;
       }
-      if (!cancelled) setWinRate30d(total > 0 ? wins / total : null);
+      if (!cancelled) setAvgReturn30d(count > 0 ? sum / count : null);
     }
     load();
     return () => { cancelled = true; };
@@ -2471,9 +2472,9 @@ function DashboardPage({
     },
     {
       icon: '📈',
-      label: 'Insider Win Rate',
-      value: winRate30d === null ? '…' : Math.round(winRate30d * 100) + '%',
-      sub: 'of buys profitable at 30 days',
+      label: 'Avg 30d Return',
+      value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
+      sub: 'across all tracked buy signals',
       color: '#15803D',
       action: () => onNavigate && onNavigate('insiders'),
     },
