@@ -14,7 +14,7 @@ function track(eventName, params) {
 function useMetaTags(page, selectedCompany, selectedInsider) {
   useEffect(() => {
     let title = 'InsidersAlpha — European Insider Trading Tracker';
-    let desc  = 'Track MAR Article 19 insider transactions across 14 markets. Conviction scoring, cluster signals, and performance data.';
+    let desc  = 'Track MAR Article 19 insider transactions across 15 markets. Conviction scoring, cluster signals, and performance data.';
 
     if (page === 'company' && selectedCompany?.company) {
       title = `${selectedCompany.company} Insider Transactions | InsidersAlpha`;
@@ -4374,7 +4374,7 @@ function AdminPage({ session }) {
 
 const PLAN_FEATURES_GRID = [
   { category: 'Data Access', rows: [
-    { label: 'Markets covered',         analyst: '14 markets',   strategist: '14 markets',     terminal: '14 markets' },
+    { label: 'Markets covered',         analyst: '15 markets',   strategist: '15 markets',     terminal: '15 markets' },
     { label: 'Transaction history',     analyst: 'First 50 rows', strategist: 'Full 180 days', terminal: 'Full 180 days' },
     { label: 'Company page history',    analyst: 'Last 3 trades', strategist: 'Unlimited',      terminal: 'Unlimited' },
     { label: 'Data updates',            analyst: 'Daily',         strategist: 'Daily',          terminal: 'Daily' },
@@ -4468,7 +4468,7 @@ function PricingPage({ session, onLogin }) {
         'Daily email alerts when insiders buy your stocks',
         'Stock charts with trade markers',
         'All tax calculators & education',
-        '14 markets',
+        '15 markets',
       ],
     },
     {
@@ -4506,7 +4506,7 @@ function PricingPage({ session, onLogin }) {
     { label: 'Avg 30d return (profitable buys)', value: '+18.8%', sub: 'from our database',  color: '#16A34A' },
     { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
     { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
-    { label: 'Markets covered',                   value: '13',    sub: 'European regulators', color: '#6B7280' },
+    { label: 'Markets covered',                   value: '15',    sub: '15 markets across Europe and Asia', color: '#6B7280' },
   ];
 
   return (
@@ -4722,7 +4722,7 @@ function PricingPage({ session, onLogin }) {
           <h3 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 20, color: '#0C0F1A', textAlign: 'center' }}>Common questions</h3>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {[
-              { q: 'How many markets do you cover?', a: '14 markets: Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, Portugal, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CMVM, CNMV, Finanstilsynet, FCA, FSMA, SKAT, etc.).' },
+              { q: 'How many markets do you cover?', a: '15 markets: Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, Luxembourg, Portugal, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CMVM, CNMV, CSSF, Finanstilsynet, FCA, FSMA, SKAT, etc.).' },
               { q: 'How far back does data go?', a: 'We maintain a 180-day rolling window of insider transactions across all covered markets. Data is refreshed daily via automated scrapers.' },
               { q: 'How often is data updated?', a: 'Daily — automated scrapers run every night via GitHub Actions, processing filings published by regulators within the previous 24 hours.' },
               { q: 'What signals do you track?', a: 'Four signals: Conviction score (trade size × role seniority × timing), Cluster buying (2+ insiders at the same company within 14 days), Repetitive buying (same insider buying multiple times within 14 days), and Price dip (insider bought after a significant drawdown).' },
