@@ -54,8 +54,12 @@ function parseNum(s) {
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
-  if (l.includes('acqui') || l.includes('subscript') || l.includes('grant')) return 'BUY';
-  if (l.includes('dispos') || l.includes('sale') || l.includes('redem'))      return 'SELL';
+  if (l.includes('acqui') || l.includes('subscript') || l.includes('grant') ||
+      l.includes('purchas') || l.includes('receiv') || l.includes('gift') ||
+      l.includes('award') || l.includes('exercis') || l.includes('convert') ||
+      l.includes('inherit')) return 'BUY';
+  if (l.includes('dispos') || l.includes('sale') || l.includes('redem') ||
+      l.includes('divest')) return 'SELL';
   return 'OTHER';
 }
 

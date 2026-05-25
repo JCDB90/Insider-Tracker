@@ -35,7 +35,9 @@ function mapType(s) {
   // SELL first: prevents "buyback" matching "buy" before "sale" check runs
   if (l.includes('dispos') || l.includes('sale') || l.includes('sell')) return 'SELL';
   if (l.includes('acqui') || l.includes('receipt') || l.includes('grant') ||
-      l.includes('subscribe') || l.includes('exercise') || /\bbuy\b/.test(l)) return 'BUY';
+      l.includes('subscribe') || l.includes('exercise') || l.includes('purchas') ||
+      l.includes('receiv') || l.includes('award') || l.includes('gift') ||
+      l.includes('convert') || l.includes('inherit') || /\bbuy\b/.test(l)) return 'BUY';
   return 'OTHER';
 }
 

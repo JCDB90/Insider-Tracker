@@ -214,7 +214,9 @@ function parseFrPdf(text) {
     if (lo.includes('cession') || lo.includes('vente') ||
         lo.includes('dispos')  || lo.includes('transfert') || lo.includes('rachat')) txType = 'SELL';
     else if (lo.includes('acquisit') || lo.includes('achat') ||
-             lo.includes('souscri')  || lo.includes('exercice')) txType = 'BUY';
+             lo.includes('souscri')  || lo.includes('exercice') ||
+             lo.includes('attribut') || lo.includes('don') || lo.includes('héritage') ||
+             lo.includes('remise')   || lo.includes('octroi')) txType = 'BUY';
   }
 
   // ── Price ─────────────────────────────────────────────────────────────────
@@ -324,6 +326,7 @@ async function scrapeFR() {
   const seen   = new Set();
   const dbRows = [];
   let nPdf = 0, nParsed = 0, nSkipped = 0;
+  const pdfDrops = { no_doc_path: 0, pdf_download_fail: 0, pdf_text_fail: 0, unknown_type: 0, missing_price: 0, missing_shares: 0 };
 
   for (const r of allItems) {
     const numero  = r.numero || r.numeroConcatene || String(r.id || '');
@@ -332,22 +335,24 @@ async function scrapeFR() {
     const filingUrl = `https://bdif.amf-france.org/Registre-BDIF/Resultat-de-recherche?docId=${numero}`;
 
     // ── Get PDF path from list response (already included as r.documents[0]) ─
-    // URL: /back/api/v1/documents/{path}  — slashes are NOT percent-encoded
     const docPath = r.documents?.[0]?.path;
-    if (!docPath) { nSkipped++; continue; }
+    if (!docPath) { nSkipped++; pdfDrops.no_doc_path++; continue; }
 
     await new Promise(res => setTimeout(res, 300)); // rate-limit AMF API
 
     // ── Download PDF ─────────────────────────────────────────────────────────
     const pdfBuf = await downloadPdf(docPath);
-    if (!pdfBuf) { nSkipped++; continue; }
+    if (!pdfBuf) { nSkipped++; pdfDrops.pdf_download_fail++; continue; }
     nPdf++;
 
     // ── Extract and parse text ───────────────────────────────────────────────
     const text   = pdfToText(pdfBuf);
+    if (!text) { nSkipped++; pdfDrops.pdf_text_fail++; continue; }
     const parsed = parseFrPdf(text);
 
-    if (parsed.txType === 'UNKNOWN') { nSkipped++; continue; }
+    if (parsed.txType === 'UNKNOWN') { nSkipped++; pdfDrops.unknown_type++; continue; }
+    if (!parsed.price)  pdfDrops.missing_price++;
+    if (!parsed.shares) pdfDrops.missing_shares++;
     nParsed++;
 
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
@@ -384,6 +389,7 @@ async function scrapeFR() {
   }
 
   console.log(`  PDFs downloaded: ${nPdf} | Parsed BUY/SELL: ${nParsed} | Skipped: ${nSkipped}`);
+  console.log(`  PDF drop reasons: no_path=${pdfDrops.no_doc_path} dl_fail=${pdfDrops.pdf_download_fail} text_fail=${pdfDrops.pdf_text_fail} unknown_type=${pdfDrops.unknown_type} | Of BUY/SELL: missing_price=${pdfDrops.missing_price} missing_shares=${pdfDrops.missing_shares}`);
 
   if (!dbRows.length) {
     console.log('  No BUY/SELL transactions found in PDFs.');
@@ -395,7 +401,7 @@ async function scrapeFR() {
     console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? 'n/a'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
-  const { error } = await saveInsiderTransactions(dbRows);
+  const { error } = await saveInsiderTransactions(dbRows, { allowPartial: true });
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
