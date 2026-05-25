@@ -42,6 +42,7 @@ function mapType(s) {
       l.includes('salg') || l.includes('afstå') || l.includes('tilbagekøb')) return 'SELL';
   if (l.includes('acqui') || l.includes('purchas') || l.includes('receipt') || l.includes('grant') ||
       l.includes('subscribe') || l.includes('exercise') || l.includes('bought') ||
+      l.includes('receiv') || l.includes('gift') || l.includes('award') ||
       /\bbuy\b/.test(l) || /\bkøb\b/.test(l) ||
       l.includes('tildeling') || l.includes('tegning') || l.includes('udnyttelse')) return 'BUY';
   return 'OTHER';
@@ -86,9 +87,14 @@ function parseNotificationText(text) {
     // ESMA section 1.1 — PDF with -layout renders "1.1  Name of the person   John Smith" on one line
     /1\.1\s+\S[^\n]*?([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*$/m,
     /1\.1\b[^\n]*\n[ \t]*([A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+(?:\s+[A-ZÆØÅÄÖÜ][a-zA-ZæøåÆØÅäöüÄÖÜ\-]+){1,3})\s*\n/m,
+    // Nasdaq DK tabular: "a)  Name of the Board member/...    John Smith" (value same line, spaces only)
+    // Must be tried BEFORE the generic "a) Name" pattern to avoid matching the issuer section 3a.
+    // Use [ \t]{4,} (not \s{4,}) so the regex cannot cross line boundaries.
+    /\ba\)\s+Name\s+of\s+the\s+Board[^\n]{0,80}[ \t]{4,}([^\n]{2,60})/im,
     // Tabular ESMA form: "a)   Name                     John Smith"
+    // Negative lookahead prevents matching "Name of the Board..." (issuer-name label variant).
     // Also Vestas-style PDF: "a)    Name:                    Henrik Andersen" (colon present)
-    /\ba\)\s+Name:?\s{2,}([^\n]{2,80})/im,
+    /\ba\)\s+Name(?!\s+of\s+the\s+Board):?\s{2,}([^\n]{2,80})/im,
     // Danish ESMA form: "a)   Navn\n                      Christian Herskind Jørgensen"
     /\ba\)\s+Navn:?\s*\n\s+([A-ZÆØÅ][^\n]{1,80})/im,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
@@ -170,7 +176,8 @@ function parseNotificationText(text) {
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]+?)(?=\s+Transaction\s+details|\s+Volume|\s*$)/i,
     /Nature\s+of\s+(?:the\s+)?transaction\s*[:|]\s*([^\n|]{2,120})/i,
     // Single-line tabular: "b)  Nature of the transaction    Purchase"  (spaces between, no colon)
-    /\bb\)\s+Nature\s+of\s+the\s+transaction\s{3,}([A-Za-z]+)\s*$/im,
+    // Use [ \t]{3,} to stay on the same line, and capture the full multi-word value.
+    /\bb\)\s+Nature\s+of\s+the\s+transaction[ \t]{3,}([^\n]{2,80})/im,
     // Tabular ESMA form: "Nature of the ... Buy/Purchase/Sale/..." on same line
     /Nature\s+of\s+the\b[^\n]*(Buy|Purchase|Sale|Sell|Acquisition|Disposal|Subscription|Exercise|Grant|Award)\b/im,
     // Two-column data row: ISIN code on left column, nature on right column (separated by spaces)
@@ -195,7 +202,11 @@ function parseNotificationText(text) {
   let txDate = null;
   if (txDateRaw) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(txDateRaw)) {
-      txDate = txDateRaw;
+      // Validate even ISO-format strings: some documents embed YYYY-DD-MM by mistake.
+      const [, mm, dd] = txDateRaw.split('-');
+      if (parseInt(mm, 10) >= 1 && parseInt(mm, 10) <= 12 && parseInt(dd, 10) >= 1 && parseInt(dd, 10) <= 31) {
+        txDate = txDateRaw;
+      }
     } else {
       let parts = txDateRaw.split(/[.\/-]/);
       if (parts.length === 3) {
@@ -409,6 +420,17 @@ function getBinary(url, _redirects = 3) {
   });
 }
 
+// Split a single PDF text that contains multiple back-to-back ESMA forms (one per insider).
+// Detects repeated "1  Details of the person discharging managerial responsibilities" headers.
+function splitEsmaForms(text) {
+  const marker = /\n\s*1\s{2,}Details of the person discharging/g;
+  const starts = [];
+  let m;
+  while ((m = marker.exec(text)) !== null) starts.push(m.index);
+  if (starts.length <= 1) return [text];
+  return starts.map((start, i) => text.slice(start, starts[i + 1] ?? text.length));
+}
+
 // Convert a PDF buffer to plain text using pdftotext -layout
 function pdfBufToText(buf) {
   if (!buf || buf.length < 100) return null;
@@ -479,15 +501,18 @@ async function fetchNotificationDetails(messageUrl) {
       if (!pdfUrls.includes(m[0])) pdfUrls.push(m[0]);
     }
 
-    // Parse all PDFs; collect those that are structured data forms (one per insider)
+    // Parse all PDFs; collect those that are structured data forms (one per insider).
+    // A single PDF may contain multiple back-to-back ESMA forms — split them first.
     const dataForms = [];
     for (const pdfUrl of pdfUrls) {
       const buf  = await getBinary(pdfUrl);
       const text = pdfBufToText(buf);
       if (!text) continue;
-      const fromPdf = parseNotificationText(text);
-      const isDataForm = !!(fromPdf.isin || fromPdf.shares || fromPdf.txDate);
-      if (isDataForm) dataForms.push(fromPdf);
+      for (const formText of splitEsmaForms(text)) {
+        const fromPdf = parseNotificationText(formText);
+        const isDataForm = !!(fromPdf.isin || fromPdf.shares || fromPdf.txDate);
+        if (isDataForm) dataForms.push(fromPdf);
+      }
     }
 
     if (dataForms.length === 0) return [inline]; // nothing useful in PDFs, return inline as-is

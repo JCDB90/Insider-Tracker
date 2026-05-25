@@ -219,9 +219,11 @@ function parseFrPdf(text) {
 
   // ── Price ─────────────────────────────────────────────────────────────────
   // Prefer PRIX UNITAIRE; fall back to PRIX in the aggregated section.
+  // French numbers use a non-breaking space (U+00A0) or regular space as thousands
+  // separator: "1 575.7679" — so [\d  .,]+ is required to capture the full value.
   const priceRaw = grab([
-    /PRIX UNITAIRE\s*:\s*(\d[\d.,]+)/im,
-    /PRIX\s*:\s*(\d[\d.,]+)/im,
+    /PRIX UNITAIRE\s*:\s*(\d[\d  .,]+)/im,
+    /PRIX\s*:\s*(\d[\d  .,]+)/im,
   ]);
 
   // ── Volume (aggregated total shares) ─────────────────────────────────────
