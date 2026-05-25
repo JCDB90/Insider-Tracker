@@ -671,7 +671,7 @@ async function scrapeNO() {
     console.log(`  • ${r.company} | ${r.insider_name || '?'} | ${r.transaction_type} | ${r.shares ?? 'n/a'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
-  const { error } = await saveInsiderTransactions(dbRows);
+  const { error } = await saveInsiderTransactions(dbRows, { allowPartial: true });
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   const saved = dbRows.filter(r => r.price_per_share != null && r.price_per_share > 0).length;

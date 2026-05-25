@@ -533,7 +533,7 @@ async function scrapeUK() {
     console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} @ ${r.price_per_share} GBP | ${r.transaction_date}`);
   }
 
-  const { inserted, error } = await saveInsiderTransactions(rows);
+  const { inserted, error } = await saveInsiderTransactions(rows, { allowPartial: true });
   if (error) {
     console.error('  ❌ DB error:', error.message);
   } else {

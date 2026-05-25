@@ -337,7 +337,7 @@ async function scrapeNL() {
     console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares} shares @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
-  const { error } = await saveInsiderTransactions(rows);
+  const { error } = await saveInsiderTransactions(rows, { allowPartial: true });
   if (error) {
     console.error('  ❌ Supabase:', error.message);
     process.exit(1);
