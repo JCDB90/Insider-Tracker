@@ -55,15 +55,25 @@ export default async function handler(req, res) {
       const price = sub.items.data[0].price.id;
       const plan  = planFromPriceId(price);
 
-      await supabase.from('user_profiles').update({
-        plan,
-        stripe_customer_id:      custId,
-        stripe_subscription_id:  subId,
-        subscription_status:     'active',
-        updated_at:              new Date().toISOString(),
-      }).eq('id', userId);
+      const { data: updated, error: updateErr } = await supabase
+        .from('user_profiles')
+        .update({
+          plan,
+          stripe_customer_id:      custId,
+          stripe_subscription_id:  subId,
+          subscription_status:     'active',
+          updated_at:              new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('id');
 
-      console.log(`[stripe-webhook] activated ${plan} for user ${userId}`);
+      if (updateErr) {
+        console.error(`[stripe-webhook] DB update error for user ${userId}:`, updateErr.message);
+      } else if (!updated || updated.length === 0) {
+        console.error(`[stripe-webhook] NO MATCHING USER PROFILE for id=${userId} email=${session.customer_details?.email} — manual fix required`);
+      } else {
+        console.log(`[stripe-webhook] activated ${plan} for user ${userId}`);
+      }
     }
 
     if (event.type === 'customer.subscription.updated') {
@@ -75,11 +85,12 @@ export default async function handler(req, res) {
       const plan   = planFromPriceId(price);
       const active = sub.status === 'active' || sub.status === 'trialing';
 
-      await supabase.from('user_profiles').update({
+      const { error: updErr } = await supabase.from('user_profiles').update({
         plan:                active ? plan : 'visitor',
         subscription_status: sub.status,
         updated_at:          new Date().toISOString(),
       }).eq('id', userId);
+      if (updErr) console.error(`[stripe-webhook] subscription.updated error for ${userId}:`, updErr.message);
     }
 
     if (event.type === 'customer.subscription.deleted') {
@@ -87,13 +98,13 @@ export default async function handler(req, res) {
       const userId = sub.metadata?.supabase_user_id;
       if (!userId) { return res.json({ received: true }); }
 
-      await supabase.from('user_profiles').update({
+      const { error: delErr } = await supabase.from('user_profiles').update({
         plan:                'visitor',
         subscription_status: 'cancelled',
         updated_at:          new Date().toISOString(),
       }).eq('id', userId);
-
-      console.log(`[stripe-webhook] downgraded user ${userId} to visitor`);
+      if (delErr) console.error(`[stripe-webhook] subscription.deleted error for ${userId}:`, delErr.message);
+      else console.log(`[stripe-webhook] downgraded user ${userId} to visitor`);
     }
   } catch (err) {
     console.error('[stripe-webhook] handler error:', err.message);

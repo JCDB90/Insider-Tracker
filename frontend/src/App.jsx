@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
-import { createClient } from '@supabase/supabase-js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
@@ -768,9 +767,34 @@ function computeInsiderScorecard(trades, performance) {
 
 // ─── TopBar ───────────────────────────────────────────────────────────────────
 
-function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin, isElite, onLogin, onSignOut }) {
+function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin, isPro, isElite, stripeCustomerId, onLogin, onSignOut }) {
   const [showUserMenu,  setShowUserMenu]  = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [annualNudgeDismissed, setAnnualNudgeDismissed] = useState(
+    () => localStorage.getItem('annualNudgeDismissed') === '1'
+  );
+
+  function dismissNudge() {
+    localStorage.setItem('annualNudgeDismissed', '1');
+    setAnnualNudgeDismissed(true);
+  }
+
+  async function openPortal() {
+    setPortalLoading(true);
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const res = await fetch('/api/create-portal', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${s?.access_token}`, 'Content-Type': 'application/json' },
+      });
+      const { url, error } = await res.json();
+      if (url) window.location.href = url;
+      else console.error('[portal]', error);
+    } finally {
+      setPortalLoading(false);
+    }
+  }
   const navItems = [
     { label: 'Dashboard',    key: 'dashboard' },
     { label: 'Watchlist',    key: 'watchlist', dot: alertCount > 0 },
@@ -901,6 +925,14 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
                   fontFamily: "'Inter', sans-serif",
                 }}>⬆ Upgrade plan</button>
               )}
+              {isPro && stripeCustomerId && (
+                <button onClick={openPortal} disabled={portalLoading} style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '9px 16px', background: 'none', border: 'none',
+                  cursor: portalLoading ? 'default' : 'pointer', fontSize: 12, color: '#374151',
+                  fontFamily: "'Inter', sans-serif", opacity: portalLoading ? 0.6 : 1,
+                }}>{portalLoading ? 'Opening…' : 'Manage subscription'}</button>
+              )}
               <button onClick={onSignOut} style={{
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '9px 16px', background: 'none', border: 'none',
@@ -978,6 +1010,41 @@ function TopBar({ page, setPage, search, setSearch, alertCount, session, isAdmin
         />
       </div>
     </div>
+
+    {/* Annual upgrade nudge — shown to monthly Pro/Elite subscribers, dismissible */}
+    {isPro && !isAdmin && stripeCustomerId && !annualNudgeDismissed && (
+      <div style={{
+        background: '#F0F9FF', borderBottom: '1px solid #BAE6FD',
+        padding: '6px 20px', display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', gap: 12,
+      }}>
+        <span style={{ fontSize: 12, color: '#0369A1' }}>
+          💡 Save 17% — switch to annual billing
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={openPortal}
+            disabled={portalLoading}
+            style={{
+              background: 'none', border: 'none', padding: 0,
+              fontSize: 12, fontWeight: 600, color: '#0369A1',
+              cursor: portalLoading ? 'default' : 'pointer',
+              fontFamily: "'Inter', sans-serif",
+              opacity: portalLoading ? 0.6 : 1,
+            }}
+          >{portalLoading ? 'Opening…' : 'Switch now →'}</button>
+          <button
+            onClick={dismissNudge}
+            aria-label="Dismiss"
+            style={{
+              background: 'none', border: 'none', padding: '0 2px',
+              fontSize: 15, lineHeight: 1, color: '#9CA3AF',
+              cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+            }}
+          >×</button>
+        </div>
+      </div>
+    )}
   </>
   );
 }
@@ -4434,9 +4501,6 @@ function InsightsPage({ trades, tradesLoading }) {
 
 // ─── AdminPage ────────────────────────────────────────────────────────────────
 
-const ADMIN_SUPABASE_URL = 'https://loqmxllfjvdwamwicoow.supabase.co';
-const ADMIN_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
 function PlanBadge({ plan }) {
   const styles = {
     visitor: { bg: '#F3F4F6', color: '#6B7280', label: 'Free' },
@@ -4457,29 +4521,37 @@ function PlanBadge({ plan }) {
 function AdminPage({ session }) {
   const [users,   setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [saving,  setSaving]  = useState({});
 
-  const adminSb = useMemo(() => {
-    if (!ADMIN_KEY) return null;
-    return createClient(ADMIN_SUPABASE_URL, ADMIN_KEY);
-  }, []);
+  async function authHeaders() {
+    const { data: { session: s } } = await supabase.auth.getSession();
+    return { Authorization: `Bearer ${s?.access_token}`, 'Content-Type': 'application/json' };
+  }
 
   useEffect(() => {
-    if (!adminSb) { setLoading(false); return; }
-    adminSb
-      .from('user_profiles')
-      .select('id, email, plan, created_at, last_notified_at')
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (!error) setUsers(data || []);
-        setLoading(false);
-      });
-  }, [adminSb]);
+    authHeaders().then(headers =>
+      fetch('/api/admin-users', { headers })
+        .then(async r => {
+          const body = await r.json();
+          if (!r.ok) {
+            setFetchError(`${r.status} — ${body.error || 'unknown error'}`);
+          } else {
+            setUsers(Array.isArray(body) ? body : []);
+          }
+          setLoading(false);
+        })
+        .catch(err => { setFetchError(err.message); setLoading(false); })
+    );
+  }, []);
 
   async function changePlan(userId, newPlan) {
-    if (!adminSb) return;
     setSaving(s => ({ ...s, [userId]: true }));
-    await adminSb.from('user_profiles').update({ plan: newPlan }).eq('id', userId);
+    const headers = await authHeaders();
+    await fetch('/api/admin-set-plan', {
+      method: 'POST', headers,
+      body: JSON.stringify({ targetUserId: userId, newPlan }),
+    });
     setUsers(u => u.map(r => r.id === userId ? { ...r, plan: newPlan } : r));
     setSaving(s => ({ ...s, [userId]: false }));
   }
@@ -4493,14 +4565,6 @@ function AdminPage({ session }) {
     background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
     padding: '20px 24px', flex: 1, minWidth: 0,
   };
-
-  if (!ADMIN_KEY) return (
-    <main style={{ flex: 1, overflowY: 'auto', padding: '48px 40px' }}>
-      <div style={{ color: '#DC2626', fontSize: 14 }}>
-        ⚠ VITE_SUPABASE_SERVICE_ROLE_KEY not set in Vercel env vars.
-      </div>
-    </main>
-  );
 
   return (
     <main style={{ flex: 1, overflowY: 'auto', background: '#f9fafb' }}>
@@ -4535,6 +4599,11 @@ function AdminPage({ session }) {
 
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
+          ) : fetchError ? (
+            <div style={{ padding: 32, textAlign: 'center', fontSize: 13 }}>
+              <div style={{ color: '#DC2626', fontWeight: 600, marginBottom: 6 }}>Failed to load users</div>
+              <div style={{ color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{fetchError}</div>
+            </div>
           ) : users.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No users found</div>
           ) : (
@@ -5014,6 +5083,7 @@ export default function App() {
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [session, setSession] = useState(null);
   const [userPlan, setUserPlan] = useState('visitor');
+  const [stripeCustomerId, setStripeCustomerId] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false); // false | 'signin' | 'signup'
   const [checkoutSuccess, setCheckoutSuccess] = useState(
     () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('checkout') === 'success'
@@ -5023,15 +5093,17 @@ export default function App() {
   async function fetchUserPlan(userId, userEmail) {
     const { data } = await supabase
       .from('user_profiles')
-      .select('plan')
+      .select('plan, stripe_customer_id')
       .eq('id', userId)
       .maybeSingle();
     if (!data) {
       // New user — create profile
       await supabase.from('user_profiles').insert({ id: userId, email: userEmail, plan: 'visitor' });
       setUserPlan('visitor');
+      setStripeCustomerId(null);
     } else {
       setUserPlan(data.plan || 'visitor');
+      setStripeCustomerId(data.stripe_customer_id || null);
     }
   }
 
@@ -5051,6 +5123,7 @@ export default function App() {
   function handleSignOut() {
     supabase.auth.signOut();
     setUserPlan('visitor');
+    setStripeCustomerId(null);
   }
 
 
@@ -5236,7 +5309,9 @@ export default function App() {
         alertCount={alertCount}
         session={session}
         isAdmin={access.isAdmin}
+        isPro={access.isPro}
         isElite={access.isElite}
+        stripeCustomerId={stripeCustomerId}
         onLogin={() => setShowLoginModal(true)}
         onSignOut={handleSignOut}
       />
