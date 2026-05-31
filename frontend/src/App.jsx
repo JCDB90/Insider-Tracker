@@ -4733,6 +4733,85 @@ function AnalyticsTab({ session }) {
             </div>
           )}
       </div>
+
+      {/* UTM link generator */}
+      <UtmBuilder />
+    </div>
+  );
+}
+
+function UtmBuilder() {
+  const SOURCES  = ['reddit', 'linkedin', 'producthunt', 'twitter', 'email', 'newsletter', 'google', 'facebook', 'other'];
+  const MEDIUMS  = ['social', 'referral', 'email', 'cpc', 'organic', 'other'];
+
+  const [source,   setSource]   = useState('reddit');
+  const [medium,   setMedium]   = useState('social');
+  const [campaign, setCampaign] = useState('');
+  const [copied,   setCopied]   = useState(false);
+
+  const url = (() => {
+    const p = new URLSearchParams();
+    if (source)   p.set('utm_source',   source);
+    if (medium)   p.set('utm_medium',   medium);
+    if (campaign) p.set('utm_campaign', campaign.trim().replace(/\s+/g, '_').toLowerCase());
+    return `https://www.insidersalpha.com/?${p.toString()}`;
+  })();
+
+  const showUrl = campaign.trim().length > 0;
+
+  async function copy() {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const selStyle = {
+    padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: 7,
+    fontSize: 13, fontFamily: "'Inter', sans-serif", background: '#fafafa',
+    color: '#111318', outline: 'none', cursor: 'pointer',
+  };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '18px 24px', marginTop: 20 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#111318', marginBottom: 4 }}>UTM Link Generator</div>
+      <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>Build a tagged URL to track campaign traffic</div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Source</div>
+          <select value={source} onChange={e => setSource(e.target.value)} style={selStyle}>
+            {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Medium</div>
+          <select value={medium} onChange={e => setMedium(e.target.value)} style={selStyle}>
+            {MEDIUMS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Campaign</div>
+          <input
+            value={campaign}
+            onChange={e => setCampaign(e.target.value)}
+            placeholder="e.g. june-launch"
+            style={{ ...selStyle, width: '100%', boxSizing: 'border-box', cursor: 'text' }}
+          />
+        </div>
+      </div>
+
+      {showUrl && (
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, background: '#f8f8f8', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px' }}>
+          <code style={{ flex: 1, fontSize: 12, color: '#374151', wordBreak: 'break-all', fontFamily: "'JetBrains Mono', monospace" }}>{url}</code>
+          <button onClick={copy} style={{
+            padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            fontFamily: "'Inter', sans-serif", whiteSpace: 'nowrap', flexShrink: 0,
+            background: copied ? '#16A34A' : '#111318', color: '#fff', transition: 'background 0.15s',
+          }}>
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
