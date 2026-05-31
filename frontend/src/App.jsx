@@ -9,6 +9,34 @@ function track(eventName, params) {
   try { window.gtag?.('event', eventName, params); } catch {}
 }
 
+// ─── UTM / source attribution ─────────────────────────────────────────────────
+const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+const UTM_TTL  = 90 * 24 * 60 * 60 * 1000; // 90 days in ms
+
+function storeUTMs() {
+  const params = new URLSearchParams(window.location.search);
+  const utms = {};
+  UTM_KEYS.forEach(k => { if (params.get(k)) utms[k] = params.get(k); });
+  if (Object.keys(utms).length > 0) {
+    utms._captured_at  = Date.now();
+    utms._landing_page = window.location.pathname;
+    localStorage.setItem('ia_utm', JSON.stringify(utms));
+    sessionStorage.setItem('_utms', JSON.stringify(utms));
+  }
+}
+
+function getStoredUTMs() {
+  try {
+    const sess = JSON.parse(sessionStorage.getItem('_utms') || 'null');
+    if (sess) return sess;
+    const stored = JSON.parse(localStorage.getItem('ia_utm') || '{}');
+    if (Date.now() - (stored._captured_at || 0) > UTM_TTL) return {};
+    return stored;
+  } catch { return {}; }
+}
+
+if (typeof window !== 'undefined') storeUTMs();
+
 // ─── Dynamic meta tags ───────────────────────────────────────────────────────
 function useMetaTags(page, selectedCompany, selectedInsider) {
   useEffect(() => {
@@ -4518,7 +4546,199 @@ function PlanBadge({ plan }) {
   );
 }
 
+// ─── SVG bar chart ────────────────────────────────────────────────────────────
+function BarChart({ data, valueKey, labelKey, color = '#6366F1', height = 140 }) {
+  if (!data?.length) return null;
+  const max = Math.max(...data.map(d => d[valueKey]), 1);
+  const barW = Math.min(40, Math.floor(480 / data.length) - 6);
+  const gap  = 6;
+  const totalW = data.length * (barW + gap) - gap;
+  return (
+    <svg viewBox={`0 0 ${totalW} ${height + 28}`} style={{ width: '100%', maxWidth: totalW, display: 'block' }}>
+      {data.map((d, i) => {
+        const barH = Math.max(2, Math.round(d[valueKey] / max * height));
+        const x = i * (barW + gap);
+        const y = height - barH;
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={barW} height={barH} rx={3} fill={color} opacity={0.85} />
+            <text x={x + barW / 2} y={height + 14} textAnchor="middle" fontSize={9} fill="#9CA3AF"
+              style={{ fontFamily: "'Inter', sans-serif" }}>
+              {String(d[labelKey]).slice(-5)}
+            </text>
+            <text x={x + barW / 2} y={y - 4} textAnchor="middle" fontSize={9} fill="#6B7280"
+              style={{ fontFamily: "'Inter', sans-serif" }}>
+              {d[valueKey]}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Analytics tab ────────────────────────────────────────────────────────────
+function AnalyticsTab({ session }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      const token = s?.access_token;
+      if (!token) { setError('No session'); setLoading(false); return; }
+      try {
+        const res  = await fetch('/api/admin-analytics', { headers: { Authorization: `Bearer ${token}` } });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.status);
+        setData(body);
+      } catch (e) { setError(e.message); }
+      setLoading(false);
+    });
+  }, []);
+
+  const cardStyle = { background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '20px 24px', flex: 1, minWidth: 0 };
+  const thStyle   = { padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f0f0f0' };
+  const tdStyle   = { padding: '10px 14px', fontSize: 13, color: '#374151', borderBottom: '1px solid #f8f8f8' };
+
+  if (loading) return <div style={{ padding: 48, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading analytics…</div>;
+  if (error)   return <div style={{ padding: 48, textAlign: 'center', color: '#DC2626', fontSize: 13 }}>{error}</div>;
+
+  const { summary, trafficSources, topCampaigns, revenueBySource, landingPages, weeklySignups } = data;
+
+  return (
+    <div>
+      {/* Summary cards */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Total signups',       value: summary.total_signups,          sub: 'registered accounts' },
+          { label: 'Paid users',          value: summary.paid_users,             sub: 'pro + elite' },
+          { label: 'Est. MRR',            value: `€${summary.est_mrr}`,          sub: 'monthly recurring revenue' },
+          { label: 'UTM conversion rate', value: `${summary.avg_conversion_rate}%`, sub: 'among attributed signups' },
+        ].map(c => (
+          <div key={c.label} style={cardStyle}>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#111318', letterSpacing: '-0.03em', lineHeight: 1 }}>{c.value}</div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{c.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Traffic sources */}
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0', fontSize: 14, fontWeight: 600, color: '#111318' }}>Traffic Sources</div>
+          {trafficSources.length === 0
+            ? <div style={{ padding: 24, color: '#9CA3AF', fontSize: 13 }}>No attributed signups yet</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr><th style={thStyle}>Source</th><th style={thStyle}>Signups</th><th style={thStyle}>Converted</th><th style={thStyle}>Rate</th></tr></thead>
+                <tbody>
+                  {trafficSources.map(r => (
+                    <tr key={r.utm_source}>
+                      <td style={tdStyle}>{r.utm_source || <span style={{ color: '#9CA3AF' }}>direct</span>}</td>
+                      <td style={tdStyle}>{r.signups}</td>
+                      <td style={tdStyle}>{r.conversions}</td>
+                      <td style={tdStyle}><span style={{ color: r.conversion_rate >= 20 ? '#16A34A' : r.conversion_rate >= 5 ? '#D97706' : '#6B7280' }}>{r.conversion_rate}%</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+
+        {/* Revenue by source */}
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0', fontSize: 14, fontWeight: 600, color: '#111318' }}>Revenue by Source</div>
+          {revenueBySource.filter(r => r.est_mrr > 0).length === 0
+            ? <div style={{ padding: 24, color: '#9CA3AF', fontSize: 13 }}>No paid users with UTM data yet</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr><th style={thStyle}>Source</th><th style={thStyle}>Pro</th><th style={thStyle}>Elite</th><th style={thStyle}>MRR</th></tr></thead>
+                <tbody>
+                  {revenueBySource.map(r => (
+                    <tr key={r.utm_source}>
+                      <td style={tdStyle}>{r.utm_source || <span style={{ color: '#9CA3AF' }}>unattributed</span>}</td>
+                      <td style={tdStyle}>{r.pro_users}</td>
+                      <td style={tdStyle}>{r.elite_users}</td>
+                      <td style={tdStyle}><strong>€{r.est_mrr}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Landing pages */}
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0', fontSize: 14, fontWeight: 600, color: '#111318' }}>Landing Pages</div>
+          {landingPages.length === 0
+            ? <div style={{ padding: 24, color: '#9CA3AF', fontSize: 13 }}>No landing page data yet</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr><th style={thStyle}>Page</th><th style={thStyle}>Signups</th><th style={thStyle}>Converted</th></tr></thead>
+                <tbody>
+                  {landingPages.map(r => (
+                    <tr key={r.landing_page}>
+                      <td style={{ ...tdStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{r.landing_page}</td>
+                      <td style={tdStyle}>{r.visits}</td>
+                      <td style={tdStyle}>{r.conversions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+
+        {/* Top campaigns */}
+        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #f0f0f0', fontSize: 14, fontWeight: 600, color: '#111318' }}>Top Campaigns</div>
+          {topCampaigns.length === 0
+            ? <div style={{ padding: 24, color: '#9CA3AF', fontSize: 13 }}>No campaign data yet</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr><th style={thStyle}>Campaign</th><th style={thStyle}>Source</th><th style={thStyle}>Signups</th></tr></thead>
+                <tbody>
+                  {topCampaigns.map((r, i) => (
+                    <tr key={i}>
+                      <td style={tdStyle}>{r.utm_campaign}</td>
+                      <td style={tdStyle}>{r.utm_source || <span style={{ color: '#9CA3AF' }}>—</span>}</td>
+                      <td style={tdStyle}>{r.signups}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+      </div>
+
+      {/* Weekly signups chart */}
+      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '18px 24px' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#111318', marginBottom: 4 }}>Weekly Signups (last 12 weeks)</div>
+        <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>New registrations per week</div>
+        {weeklySignups.length === 0
+          ? <div style={{ color: '#9CA3AF', fontSize: 13 }}>No data</div>
+          : (
+            <div style={{ display: 'flex', gap: 40, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>All signups</div>
+                <BarChart data={weeklySignups} valueKey="new_signups" labelKey="week" color="#6366F1" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>Paid conversions</div>
+                <BarChart data={weeklySignups} valueKey="paid" labelKey="week" color="#16A34A" />
+              </div>
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
 function AdminPage({ session }) {
+  const [activeTab, setActiveTab] = useState('users');
   const [users,   setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -4566,101 +4786,124 @@ function AdminPage({ session }) {
     padding: '20px 24px', flex: 1, minWidth: 0,
   };
 
+  const TABS = [
+    { key: 'users',     label: 'Users' },
+    { key: 'analytics', label: 'Analytics' },
+  ];
+
   return (
     <main style={{ flex: 1, overflowY: 'auto', background: '#f9fafb' }}>
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 32px 80px' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 32px 80px' }}>
 
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#111318', marginBottom: 32, letterSpacing: '-0.02em' }}>
-          Admin Panel
-        </h1>
-
-        {/* ── Stats row ── */}
-        <div style={{ display: 'flex', gap: 16, marginBottom: 32, flexWrap: 'wrap' }}>
-          {[
-            { label: 'Total users',      value: loading ? '…' : total,        sub: 'registered accounts' },
-            { label: 'Pro subscribers',  value: loading ? '…' : pros,         sub: '€9.99/mo' },
-            { label: 'Elite subscribers',value: loading ? '…' : elites,       sub: '€14.99/mo' },
-            { label: 'Est. MRR',         value: loading ? '…' : `€${mrr}`,    sub: 'monthly recurring revenue' },
-          ].map(c => (
-            <div key={c.label} style={cardStyle}>
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#111318', letterSpacing: '-0.03em', lineHeight: 1 }}>{c.value}</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{c.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── User table ── */}
-        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#111318' }}>Users</span>
-            <span style={{ fontSize: 12, color: '#9CA3AF' }}>{total} total</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#111318', margin: 0, letterSpacing: '-0.02em' }}>Admin Panel</h1>
+          <div style={{ display: 'flex', gap: 4, background: '#f0f0f0', borderRadius: 8, padding: 3 }}>
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+                padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                fontFamily: "'Inter', sans-serif",
+                background: activeTab === t.key ? '#fff' : 'transparent',
+                color: activeTab === t.key ? '#111318' : '#9CA3AF',
+                boxShadow: activeTab === t.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s',
+              }}>{t.label}</button>
+            ))}
           </div>
-
-          {loading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
-          ) : fetchError ? (
-            <div style={{ padding: 32, textAlign: 'center', fontSize: 13 }}>
-              <div style={{ color: '#DC2626', fontWeight: 600, marginBottom: 6 }}>Failed to load users</div>
-              <div style={{ color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{fetchError}</div>
-            </div>
-          ) : users.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No users found</div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#f9fafb' }}>
-                  {['Email', 'Plan', 'Signed up', 'Last notified', 'Change plan'].map(h => (
-                    <th key={h} style={{
-                      padding: '10px 16px', textAlign: 'left', fontSize: 11,
-                      fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
-                      letterSpacing: '0.05em', borderBottom: '1px solid #f0f0f0',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u, i) => (
-                  <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? '1px solid #f8f8f8' : 'none' }}>
-                    <td style={{ padding: '11px 16px', color: '#111318', fontWeight: 500 }}>
-                      {u.email || <span style={{ color: '#9CA3AF' }}>—</span>}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <PlanBadge plan={u.plan || 'visitor'} />
-                    </td>
-                    <td style={{ padding: '11px 16px', color: '#6B7280' }}>
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                    </td>
-                    <td style={{ padding: '11px 16px', color: '#6B7280' }}>
-                      {u.last_notified_at || '—'}
-                    </td>
-                    <td style={{ padding: '11px 16px' }}>
-                      <select
-                        value={u.plan || 'visitor'}
-                        disabled={saving[u.id]}
-                        onChange={e => changePlan(u.id, e.target.value)}
-                        style={{
-                          fontSize: 12, padding: '4px 8px', border: '1px solid #e5e7eb',
-                          borderRadius: 6, background: '#fff', color: '#374151',
-                          cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-                          opacity: saving[u.id] ? 0.5 : 1,
-                        }}
-                      >
-                        {['visitor', 'pro', 'elite', 'admin'].map(p => (
-                          <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
         </div>
 
-        <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 16 }}>
-          Logged in as: {session?.user?.email}
-        </p>
+        {activeTab === 'users' && (
+          <>
+            {/* ── Stats row ── */}
+            <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
+              {[
+                { label: 'Total users',      value: loading ? '…' : total,        sub: 'registered accounts' },
+                { label: 'Pro subscribers',  value: loading ? '…' : pros,         sub: '€9.99/mo' },
+                { label: 'Elite subscribers',value: loading ? '…' : elites,       sub: '€14.99/mo' },
+                { label: 'Est. MRR',         value: loading ? '…' : `€${mrr}`,    sub: 'monthly recurring revenue' },
+              ].map(c => (
+                <div key={c.label} style={cardStyle}>
+                  <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#111318', letterSpacing: '-0.03em', lineHeight: 1 }}>{c.value}</div>
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{c.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── User table ── */}
+            <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#111318' }}>Users</span>
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>{total} total</span>
+              </div>
+
+              {loading ? (
+                <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading…</div>
+              ) : fetchError ? (
+                <div style={{ padding: 32, textAlign: 'center', fontSize: 13 }}>
+                  <div style={{ color: '#DC2626', fontWeight: 600, marginBottom: 6 }}>Failed to load users</div>
+                  <div style={{ color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{fetchError}</div>
+                </div>
+              ) : users.length === 0 ? (
+                <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No users found</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb' }}>
+                      {['Email', 'Plan', 'Signed up', 'Last notified', 'Change plan'].map(h => (
+                        <th key={h} style={{
+                          padding: '10px 16px', textAlign: 'left', fontSize: 11,
+                          fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
+                          letterSpacing: '0.05em', borderBottom: '1px solid #f0f0f0',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u, i) => (
+                      <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? '1px solid #f8f8f8' : 'none' }}>
+                        <td style={{ padding: '11px 16px', color: '#111318', fontWeight: 500 }}>
+                          {u.email || <span style={{ color: '#9CA3AF' }}>—</span>}
+                        </td>
+                        <td style={{ padding: '11px 16px' }}>
+                          <PlanBadge plan={u.plan || 'visitor'} />
+                        </td>
+                        <td style={{ padding: '11px 16px', color: '#6B7280' }}>
+                          {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                        </td>
+                        <td style={{ padding: '11px 16px', color: '#6B7280' }}>
+                          {u.last_notified_at || '—'}
+                        </td>
+                        <td style={{ padding: '11px 16px' }}>
+                          <select
+                            value={u.plan || 'visitor'}
+                            disabled={saving[u.id]}
+                            onChange={e => changePlan(u.id, e.target.value)}
+                            style={{
+                              fontSize: 12, padding: '4px 8px', border: '1px solid #e5e7eb',
+                              borderRadius: 6, background: '#fff', color: '#374151',
+                              cursor: 'pointer', fontFamily: "'Inter', sans-serif",
+                              opacity: saving[u.id] ? 0.5 : 1,
+                            }}
+                          >
+                            {['visitor', 'pro', 'elite', 'admin'].map(p => (
+                              <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 16 }}>
+              Logged in as: {session?.user?.email}
+            </p>
+          </>
+        )}
+
+        {activeTab === 'analytics' && <AnalyticsTab session={session} />}
       </div>
     </main>
   );
@@ -4729,6 +4972,19 @@ function PricingPage({ session, onLogin }) {
   const [hoveredPlan,  setHoveredPlan]  = useState(null);
   const [checkoutLoading, setCheckoutLoading] = useState(null); // planId being loaded
 
+  useEffect(() => {
+    track('view_item_list', {
+      item_list_id:   'pricing',
+      item_list_name: 'Pricing Plans',
+      items: [
+        { item_id: 'pro_annual',   item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Annual',   price: 9.99,  quantity: 1 },
+        { item_id: 'pro_monthly',  item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Monthly',  price: 12,    quantity: 1 },
+        { item_id: 'elite_annual', item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Annual',   price: 14.99, quantity: 1 },
+        { item_id: 'elite_monthly',item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Monthly',  price: 18,    quantity: 1 },
+      ],
+    });
+  }, []);
+
   async function startCheckout(plan) {
     if (!session) { onLogin?.(); return; }
     setCheckoutLoading(plan.id);
@@ -4736,17 +4992,30 @@ function PricingPage({ session, onLogin }) {
       ? (plan.id === 'elite' ? import.meta.env.VITE_STRIPE_PRICE_ELITE_ANNUAL   : import.meta.env.VITE_STRIPE_PRICE_PRO_ANNUAL)
       : (plan.id === 'elite' ? import.meta.env.VITE_STRIPE_PRICE_ELITE_MONTHLY  : import.meta.env.VITE_STRIPE_PRICE_PRO_MONTHLY);
 
+    const chargedValue = billing === 'annual' ? (plan.annualBilled ?? plan.annual * 12) : plan.monthly;
+    const item = {
+      item_id:       `${plan.id}_${billing}`,
+      item_name:     `${plan.tier} Plan`,
+      item_category: 'Subscription',
+      item_variant:  billing === 'annual' ? 'Annual' : 'Monthly',
+      price:         billing === 'annual' ? plan.annual : plan.monthly,
+      quantity:      1,
+    };
+    track('begin_checkout', { currency: 'EUR', value: chargedValue, items: [item], ...getStoredUTMs()});
+    sessionStorage.setItem('_pendingPurchase', JSON.stringify({ item, value: chargedValue }));
+
     try {
       const res  = await fetch('/api/create-checkout', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ priceId, userId: session.user.id, userEmail: session.user.email }),
+        body:    JSON.stringify({ priceId, userId: session.user.id, userEmail: session.user.email, utms: getStoredUTMs() }),
       });
       const { url, error } = await res.json();
       if (error) throw new Error(error);
       window.location.href = url;
     } catch (err) {
       console.error('[checkout]', err.message);
+      sessionStorage.removeItem('_pendingPurchase');
       setCheckoutLoading(null);
     }
   }
@@ -5090,6 +5359,18 @@ export default function App() {
   );
   const access = useAccess(userPlan);
 
+  // Fire GA4 purchase event once on successful Stripe redirect
+  useEffect(() => {
+    if (!checkoutSuccess) return;
+    const params   = new URLSearchParams(window.location.search);
+    const txnId    = params.get('session_id') || `itk_${Date.now()}`;
+    const pending  = (() => { try { return JSON.parse(sessionStorage.getItem('_pendingPurchase') || 'null'); } catch { return null; } })();
+    if (pending) {
+      track('purchase', { transaction_id: txnId, currency: 'EUR', value: pending.value, items: [pending.item], ...getStoredUTMs()});
+      sessionStorage.removeItem('_pendingPurchase');
+    }
+  }, []); // intentionally runs once on mount — checkoutSuccess is stable at this point
+
   async function fetchUserPlan(userId, userEmail) {
     const { data } = await supabase
       .from('user_profiles')
@@ -5097,8 +5378,16 @@ export default function App() {
       .eq('id', userId)
       .maybeSingle();
     if (!data) {
-      // New user — create profile
-      await supabase.from('user_profiles').insert({ id: userId, email: userEmail, plan: 'visitor' });
+      const utms = getStoredUTMs();
+      await supabase.from('user_profiles').insert({
+        id: userId, email: userEmail, plan: 'visitor',
+        utm_source:   utms.utm_source   || null,
+        utm_medium:   utms.utm_medium   || null,
+        utm_campaign: utms.utm_campaign || null,
+        utm_content:  utms.utm_content  || null,
+        utm_term:     utms.utm_term     || null,
+        landing_page: utms._landing_page || null,
+      });
       setUserPlan('visitor');
       setStripeCustomerId(null);
     } else {

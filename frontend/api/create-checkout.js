@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { priceId, userId, userEmail } = req.body || {};
+  const { priceId, userId, userEmail, utms = {} } = req.body || {};
 
   if (!priceId || !userId) {
     return res.status(400).json({ error: 'Missing priceId or userId' });
@@ -31,9 +31,15 @@ export default async function handler(req, res) {
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: userId,
       customer_email: userEmail || undefined,
-      success_url: 'https://www.insidersalpha.com/?checkout=success',
+      success_url: 'https://www.insidersalpha.com/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
       cancel_url:  'https://www.insidersalpha.com/pricing',
       allow_promotion_codes: true,
+      metadata: {
+        utm_source:   utms.utm_source   || '',
+        utm_medium:   utms.utm_medium   || '',
+        utm_campaign: utms.utm_campaign || '',
+        landing_page: utms._landing_page || '',
+      },
       subscription_data: {
         metadata: { supabase_user_id: userId },
       },
