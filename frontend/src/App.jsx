@@ -5561,10 +5561,12 @@ export default function App() {
 
   // Attach sector/industry to each trade from the ticker_metadata cache
   const tradesWithSector = useMemo(() =>
-    trades.map(t => {
-      const meta = sectorMap.get(`${t.ticker}|${t.country_code}`);
-      return meta ? { ...t, sector: meta.sector, industry: meta.industry } : t;
-    }),
+    trades
+      .filter(t => t.price_per_share > 0 && t.total_value > 0)
+      .map(t => {
+        const meta = sectorMap.get(`${t.ticker}|${t.country_code}`);
+        return meta ? { ...t, sector: meta.sector, industry: meta.industry } : t;
+      }),
     [trades, sectorMap]
   );
 
