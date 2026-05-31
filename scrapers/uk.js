@@ -176,9 +176,16 @@ function parseDocumentContent(content, meta) {
 
   // Extract section 1: person name(s)
   // "1 Details of the person discharging managerial responsibilities ... a) Name <name> 2 Reason"
-  const nameSec = grabAfter(t,
-    /\ba\)\s*Name\s+([\s\S]+?)\s+2\s+Reason/i
+  const nameSecRaw = grabAfter(t,
+    /\ba\)\s*Name\s+([\s\S]+?)\s+2\s+Reason/i,
+    /\ba\)\s*Name\s+([\s\S]+?)\s+b\)\s*(?:Reason|LEI|Position|Status)/i,
+    /\ba\)\s*Name\s+([^\n]{2,80})/,
   );
+  // Guard: if extraction ran past section boundary the raw string will be very long.
+  // Cap at 120 chars; if over that, keep only the first non-empty line.
+  const nameSec = nameSecRaw && nameSecRaw.length > 120
+    ? (nameSecRaw.split('\n').map(l => l.trim()).find(l => l.length > 1 && l.length <= 80) || null)
+    : nameSecRaw;
 
   // Extract section 2: position
   const posSec = grabAfter(t,
@@ -250,6 +257,8 @@ function parseDocumentContent(content, meta) {
       /aggregate\s+consideration\s*[:\s]+(?:£|GBP\s*)?([\d,\.]+)/i,
       /total\s+consideration\s+(?:paid\s+)?[:\s]+(?:£|GBP\s*)?([\d,\.]+)/i,
       /consideration\s+of\s+(?:£|GBP\s*)?([\d,\.]+)/i,
+      // "d) Aggregated information ... £45,678" (section d variant)
+      /\bd\)\s*Aggregated\s+information[\s\S]{0,200}?(?:£|GBP\s*)([\d,\.]+)/i,
     ];
     for (const pat of patterns) {
       const m = t.match(pat);
@@ -258,11 +267,18 @@ function parseDocumentContent(content, meta) {
         if (!isNaN(n) && n > 0) return n;
       }
     }
-    // GBp / pence aggregate: "Aggregate consideration 123,456 GBp"
-    const penceM = t.match(/aggregate\s+consideration\s+([\d,\.]+)\s*GBp/i);
-    if (penceM) {
-      const n = parseFloat(penceM[1].replace(/,/g, ''));
-      if (!isNaN(n) && n > 0) return n / 100;  // pence → GBP
+    // GBp / pence aggregates: "Aggregate consideration 123,456 GBp" or "123,456p"
+    const pencePatterns = [
+      /aggregate\s+consideration\s+([\d,\.]+)\s*GBp/i,
+      /aggregate\s+consideration\s+([\d,\.]+)\s*pence/i,
+      /\bf\)\s*Aggregate\s+consideration\s+([\d,\.]+)\s*(?:GBp|pence|p\b)/i,
+    ];
+    for (const pp of pencePatterns) {
+      const pm = t.match(pp);
+      if (pm) {
+        const n = parseFloat(pm[1].replace(/,/g, ''));
+        if (!isNaN(n) && n > 0) return n / 100; // pence → GBP
+      }
     }
     return null;
   })();

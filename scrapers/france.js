@@ -225,6 +225,8 @@ function parseFrPdf(text) {
   // separator: "1 575.7679" — so [\d  .,]+ is required to capture the full value.
   const priceRaw = grab([
     /PRIX UNITAIRE\s*:\s*(\d[\d  .,]+)/im,
+    /PRIX D.EXERCICE\s*:\s*(\d[\d  .,]+)/im,
+    /PRIX D.ATTRIBUTION\s*:\s*(\d[\d  .,]+)/im,
     /PRIX\s*:\s*(\d[\d  .,]+)/im,
   ]);
 
@@ -254,13 +256,21 @@ function parseFrPdf(text) {
     ticker = tickerM ? tickerM[1] : null; // only set if explicit exchange ticker present in PDF
   }
 
+  // For free share attributions (RSU/LTIP) the price is legitimately 0.
+  // Detect this so price=0 (known nil grant) is stored instead of null (unknown).
+  let parsedPrice = parseNum(priceRaw);
+  if (parsedPrice == null) {
+    const isNilGrant = /attribution\s+gratuite|actions\s+gratuites|prix\s+nul|prix\s*:\s*0|gratuit/i.test(flat);
+    if (isNilGrant) parsedPrice = 0;
+  }
+
   return {
     txType,
     insiderName: insiderName || null,
     viaEntity:   viaEntity   || null,
     role:        roleRaw     || null,
     shares:      parseNum(sharesRaw),
-    price:       parseNum(priceRaw),
+    price:       parsedPrice,
     ticker:      ticker      || null,
     isin:        isin        || null,
   };

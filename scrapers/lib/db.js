@@ -81,6 +81,19 @@ async function saveInsiderTransactions(rows, options = {}) {
     }
   }
 
+  // Derive missing price or total_value from whichever of the three fields is known.
+  // This prevents gaps when a scraper parses one but not both financial fields.
+  for (const r of withEntityResolved) {
+    const hasP = r.price_per_share > 0;
+    const hasV = r.total_value > 0;
+    const hasS = r.shares > 0;
+    if (!hasP && hasV && hasS) {
+      r.price_per_share = parseFloat((r.total_value / r.shares).toFixed(6));
+    } else if (!hasV && hasP && hasS) {
+      r.total_value = Math.round(r.price_per_share * r.shares);
+    }
+  }
+
   const complete = withEntityResolved.filter(r => {
     if (r.insider_name && GARBAGE_NAME_RE.test(r.insider_name.trim())) {
       drops.garbage_name++;

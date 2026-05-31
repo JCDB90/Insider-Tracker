@@ -31,6 +31,7 @@ const fs           = require('fs');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { looksLikeCorp }           = require('./lib/entityUtils');
+const { contentId }               = require('./lib/contentId');
 
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors / Euronext Oslo';
@@ -640,8 +641,15 @@ async function scrapeNO() {
       await new Promise(r => setTimeout(r, 80));
     }
 
+    // Use contentId for the prose-parsed row so that two different Oslo Bors
+    // messages describing the same transaction (same insider/company/date/shares/price)
+    // always produce the same filing_id and upsert onto a single row.
+    const proseFid = (parsed.insiderName && parsed.shares && parsed.price)
+      ? contentId(COUNTRY_CODE, company, parsed.insiderName, txType, txDate, parsed.shares, parsed.price)
+      : fid; // fall back to message ID when data is incomplete
+
     dbRows.push({
-      filing_id:        fid,
+      filing_id:        proseFid,
       country_code:     COUNTRY_CODE,
       ticker,
       company,
