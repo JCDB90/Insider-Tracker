@@ -556,7 +556,8 @@ async function scrapeNO() {
 
   // Step 5: fetch message details and build DB rows
   const dbRows = [];
-  const seen   = new Set();
+  const seen        = new Set(); // dedupes by message ID (prevents re-processing same message)
+  const seenContent = new Set(); // dedupes by transaction content (handles LOKO-style: two messages, same trade)
   let detailsFetched = 0;
 
   for (const m of messages) {
@@ -648,15 +649,21 @@ async function scrapeNO() {
       await new Promise(r => setTimeout(r, 80));
     }
 
-    // Use contentId for the prose-parsed row so that two different Oslo Bors
-    // messages describing the same transaction (same insider/company/date/shares/price)
-    // always produce the same filing_id and upsert onto a single row.
-    const proseFid = (parsed.insiderName && parsed.shares && parsed.price)
-      ? contentId(COUNTRY_CODE, company, parsed.insiderName, txType, txDate, parsed.shares, parsed.price)
-      : fid; // fall back to message ID when data is incomplete
+    // Within-run content dedup: if two different Oslo Bors messages describe the
+    // same transaction (same insider/company/date/shares/price — the LOKO pattern),
+    // skip the second message. Use NO-${msgId} as the stable filing_id so existing
+    // DB rows are updated by upsert rather than duplicated.
+    if (parsed.insiderName && parsed.shares && parsed.price) {
+      const ck = contentId(COUNTRY_CODE, company, parsed.insiderName, txType, txDate, parsed.shares, parsed.price);
+      if (seenContent.has(ck)) {
+        console.log(`  ℹ  Content-dup skipped (msg ${msgId}): ${company} — ${parsed.insiderName}`);
+        continue;
+      }
+      seenContent.add(ck);
+    }
 
     dbRows.push({
-      filing_id:        proseFid,
+      filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker,
       company,
