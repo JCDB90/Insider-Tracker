@@ -36,6 +36,13 @@ const PRIORITY = [
   { nameMatch: 'siemens',              cc: 'DE' },
   { nameMatch: 'adyen',                cc: 'NL' },
   { nameMatch: 'rheinmetall',          cc: 'DE' },
+  // Luxembourg
+  { nameMatch: 'grand city properties', cc: 'LU' },
+  { nameMatch: 'eurofins',             cc: 'LU' },
+  { nameMatch: 'arcelormittal',        cc: 'LU' },
+  { nameMatch: 'aperam',               cc: 'LU' },
+  { nameMatch: 'inpost',               cc: 'LU' },
+  { nameMatch: 'brederode',            cc: 'LU' },
 ];
 
 // ── Country metadata ──────────────────────────────────────────────────────────
