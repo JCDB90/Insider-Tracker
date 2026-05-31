@@ -266,41 +266,12 @@ async function scrapeSE() {
   }
   if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (will be dropped by db filter)`);
 
-  // ── Drop same-day transfer pairs ─────────────────────────────────────────────
-  // FI reports portfolio transfers from both sides: the transferring account files a
-  // Disposal and the receiving account files an Acquisition for the identical block
-  // (same insider, company, date, shares, price). Net exposure change = 0 → no signal.
-  // Group by (insider|company|date|shares|price); if a group contains both BUY and SELL,
-  // remove all rows in that group.
-  const transferGroupKey = r =>
-    `${r.insider_name}|${r.company}|${r.transaction_date}|${r.shares}|${r.price_per_share}`;
-  const byTransferKey = {};
-  for (const r of dbRows) {
-    const k = transferGroupKey(r);
-    if (!byTransferKey[k]) byTransferKey[k] = [];
-    byTransferKey[k].push(r);
-  }
-  const filteredRows = [];
-  for (const [k, group] of Object.entries(byTransferKey)) {
-    const hasBuy  = group.some(r => r.transaction_type === 'BUY');
-    const hasSell = group.some(r => r.transaction_type === 'SELL');
-    if (hasBuy && hasSell) {
-      const [, company] = k.split('|');
-      console.log(`  ⚠  Transfer pair dropped (same-day same-block BUY+SELL): ${company} — ${group[0].insider_name}`);
-      continue;
-    }
-    filteredRows.push(...group);
-  }
-  if (filteredRows.length < dbRows.length) {
-    console.log(`  ℹ  ${dbRows.length - filteredRows.length} transfer-pair rows removed`);
-  }
-
-  console.log(`  ${filteredRows.length} unique rows`);
-  if (!filteredRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
+  console.log(`  ${dbRows.length} unique rows`);
+  if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
   // ISIN fallback: resolve ticker via Yahoo for rows where company-name lookup failed
   let isinResolved = 0;
-  for (const r of filteredRows) {
+  for (const r of dbRows) {
     if (!r.ticker && r._isin) {
       const t = await isinToTicker(r._isin, COUNTRY_CODE);
       if (t) { r.ticker = t; isinResolved++; }
@@ -310,7 +281,7 @@ async function scrapeSE() {
   if (isinResolved) console.log(`  Resolved ${isinResolved} tickers via ISIN lookup`);
 
   // Strip temporary _isin field before DB save
-  const saveRows = filteredRows.map(({ _isin, ...rest }) => rest);
+  const saveRows = dbRows.map(({ _isin, ...rest }) => rest);
 
   const { error } = await saveInsiderTransactions(saveRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }

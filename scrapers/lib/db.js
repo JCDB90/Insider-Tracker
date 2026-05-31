@@ -45,7 +45,7 @@ async function saveInsiderTransactions(rows, options = {}) {
   if (!rows || rows.length === 0) return { inserted: 0 };
 
   // Track drop reasons for diagnostics
-  const drops = { wrong_type: 0, corp_entity: 0, garbage_name: 0, missing_name: 0, missing_shares: 0, price_zero: 0 };
+  const drops = { wrong_type: 0, corp_entity: 0, garbage_name: 0, missing_name: 0, missing_shares: 0, price_zero: 0, transfer_pair: 0 };
 
   // Only save rows with a clear direction — drop OTHER, UNKNOWN, etc.
   const filtered = rows.filter(r => {
@@ -55,11 +55,33 @@ async function saveInsiderTransactions(rows, options = {}) {
   if (drops.wrong_type > 0) {
     console.log(`  ℹ  Dropped ${drops.wrong_type} non-BUY/SELL rows (OTHER/UNKNOWN)`);
   }
-  if (filtered.length === 0) return { inserted: 0, drops };
+
+  // Drop same-day bilateral transfer pairs: same insider, company, date, shares, price
+  // with both a BUY and SELL row. These are intra-portfolio transfers (net exposure = 0).
+  const xferKey = r => [r.country_code, r.company, r.insider_name, r.transaction_date, r.shares, r.price_per_share].join('|');
+  const xferGroups = {};
+  for (const r of filtered) {
+    const k = xferKey(r);
+    if (!xferGroups[k]) xferGroups[k] = [];
+    xferGroups[k].push(r);
+  }
+  const transferPairKeys = new Set(
+    Object.entries(xferGroups)
+      .filter(([, g]) => g.some(r => r.transaction_type === 'BUY') && g.some(r => r.transaction_type === 'SELL'))
+      .map(([k]) => k)
+  );
+  const deTransfered = filtered.filter(r => {
+    if (transferPairKeys.has(xferKey(r))) { drops.transfer_pair++; return false; }
+    return true;
+  });
+  if (drops.transfer_pair > 0) {
+    console.log(`  ℹ  Dropped ${drops.transfer_pair} bilateral transfer-pair rows (same-day same-block BUY+SELL)`);
+  }
+  if (deTransfered.length === 0) return { inserted: 0, drops };
 
   // Skip corporate entity rows where no individual is identified (via_entity not set).
   // Only real-person transactions belong in insider_transactions.
-  const withEntityResolved = filtered.filter(r => {
+  const withEntityResolved = deTransfered.filter(r => {
     if (r.insider_name && !r.via_entity && looksLikeCorp(r.insider_name)) {
       drops.corp_entity++;
       console.log(`  ℹ  Skipping corporate entity: ${r.insider_name} — ${r.company || '?'}`);
@@ -127,9 +149,9 @@ async function saveInsiderTransactions(rows, options = {}) {
     console.log(`  ℹ  Dropped ${totalDropped} rows missing name/shares/price`);
   }
   // Log drop summary when there are notable drops
-  const totalDropped = drops.wrong_type + drops.corp_entity + drops.garbage_name + drops.missing_name + drops.missing_shares + drops.price_zero;
+  const totalDropped = drops.wrong_type + drops.transfer_pair + drops.corp_entity + drops.garbage_name + drops.missing_name + drops.missing_shares + drops.price_zero;
   if (totalDropped > 0 && (drops.missing_shares > 0 || drops.price_zero > 0 || drops.missing_name > 0)) {
-    console.log(`  ℹ  Drop summary: wrong_type=${drops.wrong_type} corp=${drops.corp_entity} garbage_name=${drops.garbage_name} missing_name=${drops.missing_name} missing_shares=${drops.missing_shares} price_zero=${drops.price_zero}`);
+    console.log(`  ℹ  Drop summary: wrong_type=${drops.wrong_type} transfer_pair=${drops.transfer_pair} corp=${drops.corp_entity} garbage_name=${drops.garbage_name} missing_name=${drops.missing_name} missing_shares=${drops.missing_shares} price_zero=${drops.price_zero}`);
   }
   if (complete.length === 0) return { inserted: 0 };
 
