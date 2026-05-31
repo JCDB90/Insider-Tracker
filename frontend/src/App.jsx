@@ -4744,10 +4744,12 @@ function AnalyticsTab({ session }) {
 function UtmBuilder() {
   const SOURCES  = ['reddit', 'linkedin', 'producthunt', 'twitter', 'email', 'newsletter', 'google', 'facebook', 'other'];
   const MEDIUMS  = ['social', 'referral', 'email', 'cpc', 'organic', 'other'];
+  const BASE     = 'https://www.insidersalpha.com';
 
   const [source,   setSource]   = useState('reddit');
   const [medium,   setMedium]   = useState('social');
   const [campaign, setCampaign] = useState('');
+  const [dest,     setDest]     = useState(BASE + '/');
   const [copied,   setCopied]   = useState(false);
 
   const url = (() => {
@@ -4755,7 +4757,16 @@ function UtmBuilder() {
     if (source)   p.set('utm_source',   source);
     if (medium)   p.set('utm_medium',   medium);
     if (campaign) p.set('utm_campaign', campaign.trim().replace(/\s+/g, '_').toLowerCase());
-    return `https://www.insidersalpha.com/?${p.toString()}`;
+    const base = dest.trim() || BASE + '/';
+    // Strip any existing utm_* params from the destination before appending ours
+    let cleanBase = base;
+    try {
+      const u = new URL(base);
+      ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(k => u.searchParams.delete(k));
+      cleanBase = u.toString();
+    } catch {}
+    const sep = cleanBase.includes('?') ? '&' : '?';
+    return `${cleanBase}${sep}${p.toString()}`;
   })();
 
   const showUrl = campaign.trim().length > 0;
@@ -4776,6 +4787,16 @@ function UtmBuilder() {
     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '18px 24px', marginTop: 20 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: '#111318', marginBottom: 4 }}>UTM Link Generator</div>
       <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>Build a tagged URL to track campaign traffic</div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination URL</div>
+        <input
+          value={dest}
+          onChange={e => setDest(e.target.value)}
+          placeholder="https://www.insidersalpha.com/"
+          style={{ ...selStyle, width: '100%', boxSizing: 'border-box', cursor: 'text', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}
+        />
+      </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div>
