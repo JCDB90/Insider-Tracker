@@ -307,7 +307,14 @@ function parsePdfMarBlocks(pdfText) {
 function parseBody(raw) {
   if (!raw || typeof raw !== 'string') return {};
 
-  const text = raw.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+  // Strip the contact/footer section so "For further information, please contact: Name, Title"
+  // is never mistaken for an insider. Also remove the boilerplate regulation notice.
+  const stripped = raw
+    .replace(/For further information[,\s]+please contact[\s\S]*/i, '')
+    .replace(/This is information is pursuant[\s\S]*/i, '')
+    .replace(/For more information[\s\S]*/i, '');
+
+  const text = stripped.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
 
   // ── Transaction type ──
   const txType = (() => {
