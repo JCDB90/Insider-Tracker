@@ -71,6 +71,8 @@ async function loadAllBuys() {
       .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
+      .not('insider_name', 'is', null)
+      .neq('country_code', 'CH')    // CH uses anonymous "Not disclosed" names — no signal value
       .order('transaction_date', { ascending: false })
       .range(from, from + 999);
     if (error) throw new Error('Load BUYs: ' + error.message);
@@ -216,6 +218,15 @@ async function main() {
   const updated = await upsertSignals(results, buys);
 
   console.log(`  ✅ ${((Date.now() - t0) / 1000).toFixed(1)}s — ${updated} rows flagged`);
+
+  // Clear signal flags for all CH transactions — Swiss insider names are anonymised
+  // ("Not disclosed"), so cluster/repetitive signals are meaningless there.
+  const { error: chErr } = await sb
+    .from('insider_transactions')
+    .update({ is_cluster_buy: false, is_repetitive_buy: false })
+    .eq('country_code', 'CH');
+  if (chErr) console.warn('  ⚠  CH flag-clear error:', chErr.message);
+  else console.log('  ℹ  CH signal flags cleared (anonymous insiders)');
 }
 
 main().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

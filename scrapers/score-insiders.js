@@ -234,6 +234,7 @@ async function main() {
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('insider_name', 'is', null)
       .not('ticker', 'is', null)
+      .neq('country_code', 'CH')   // CH insiders are anonymous — skip from leaderboard scoring
       .order('transaction_date', { ascending: false })
       .range(from, from + 999);
     if (error || !data || data.length === 0) break;
@@ -258,6 +259,7 @@ async function main() {
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('ticker', 'is', null)
       .not('insider_name', 'is', null)
+      .neq('country_code', 'CH')
       .order('transaction_date', { ascending: false })
       .range(from2, from2 + 999);
     if (!force) q = q.is('conviction_normalized', null);

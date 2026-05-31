@@ -88,6 +88,10 @@ echo ""
 echo "── Watchlist Notifications ────────────────────────────"
 "$NODE_BIN" scrapers/notify-watchlist.js || true  # non-fatal
 
+echo ""
+echo "── Lifecycle Emails ───────────────────────────────────"
+"$NODE_BIN" scrapers/emails/welcome-flow.js || true  # non-fatal
+
 set -e
 
 # ── Post-run ─────────────────────────────────────────────────────────────────

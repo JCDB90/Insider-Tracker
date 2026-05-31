@@ -2527,7 +2527,7 @@ function DashboardPage({
     const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10);
   }, []);
   const last14 = useMemo(
-    () => trades.filter(t => t.transaction_date >= cutoff14d),
+    () => trades.filter(t => t.transaction_date >= cutoff14d && t.country_code !== 'CH'),
     [trades, cutoff14d],
   );
   const highConvictionBuys = useMemo(
@@ -3263,10 +3263,10 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
   const cutoff7d  = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 7);  return d.toISOString().slice(0, 10); }, []);
   const cutoff30d = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); }, []);
 
-  // High Conviction Buys — last 7 days
+  // High Conviction Buys — last 7 days (CH excluded: anonymous insiders)
   const convictionAlerts = useMemo(() =>
     trades
-      .filter(t => isBuy(t) && t.conviction_label === 'High Conviction' && t.transaction_date >= cutoff7d)
+      .filter(t => isBuy(t) && t.conviction_label === 'High Conviction' && t.transaction_date >= cutoff7d && t.country_code !== 'CH')
       .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
     [trades, cutoff7d],
   );
@@ -3279,9 +3279,9 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
     [trades, watchlistTickers, cutoff30d],
   );
 
-  // Cluster Signals — last 7 days, group by company, show where 2+ insiders bought
+  // Cluster Signals — last 7 days, group by company, show where 2+ insiders bought (CH excluded)
   const clusterGroups = useMemo(() => {
-    const raw = trades.filter(t => t.is_cluster_buy && t.transaction_date >= cutoff7d);
+    const raw = trades.filter(t => t.is_cluster_buy && t.transaction_date >= cutoff7d && t.country_code !== 'CH');
     const map = {};
     for (const t of raw) {
       const key = t.company || t.ticker || '';
@@ -3297,19 +3297,19 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
       });
   }, [trades, cutoff7d]);
 
-  // Large Purchases — BUY >= €500K, last 7 days
+  // Large Purchases — BUY >= €500K, last 7 days (CH excluded)
   const largeAlerts = useMemo(() =>
     trades
-      .filter(t => isBuy(t) && Number(t.total_value || 0) >= 500000 && t.transaction_date >= cutoff7d)
+      .filter(t => isBuy(t) && Number(t.total_value || 0) >= 500000 && t.transaction_date >= cutoff7d && t.country_code !== 'CH')
       .sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0)),
     [trades, cutoff7d],
   );
 
-  // Repeat Buyers — insiders with is_repetitive_buy flag, last 14 days
+  // Repeat Buyers — insiders with is_repetitive_buy flag, last 14 days (CH excluded)
   const cutoff14dAlerts = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10); }, []);
   const repetitiveAlerts = useMemo(() =>
     trades
-      .filter(t => isBuy(t) && t.is_repetitive_buy && t.transaction_date >= cutoff14dAlerts)
+      .filter(t => isBuy(t) && t.is_repetitive_buy && t.transaction_date >= cutoff14dAlerts && t.country_code !== 'CH')
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
     [trades, cutoff14dAlerts],
   );
@@ -3767,11 +3767,12 @@ function useAlertCount(trades, watchlistTickers) {
     const isBuy = t => { const tp = (t.transaction_type || '').toUpperCase(); return tp === 'BUY' || tp === 'PURCHASE'; };
     const ids = new Set();
     for (const t of trades) {
-      const d = t.transaction_date;
-      if (isBuy(t) && t.conviction_label === 'High Conviction' && d >= cutoff7d) ids.add(t.id);
+      const d   = t.transaction_date;
+      const noCH = t.country_code !== 'CH';
+      if (noCH && isBuy(t) && t.conviction_label === 'High Conviction' && d >= cutoff7d) ids.add(t.id);
       if (watchlistTickers.has(t.ticker) && d >= cutoff30d) ids.add(t.id);
-      if (t.is_cluster_buy && d >= cutoff7d) ids.add(t.id);
-      if (isBuy(t) && Number(t.total_value || 0) >= 500000 && d >= cutoff7d) ids.add(t.id);
+      if (noCH && t.is_cluster_buy && d >= cutoff7d) ids.add(t.id);
+      if (noCH && isBuy(t) && Number(t.total_value || 0) >= 500000 && d >= cutoff7d) ids.add(t.id);
     }
     return ids.size;
   }, [trades, watchlistTickers]);
