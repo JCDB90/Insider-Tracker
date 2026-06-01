@@ -61,7 +61,7 @@ async function loadAllBuys() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown')
+      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
       .not('insider_name', 'is', null)
@@ -80,7 +80,7 @@ async function loadAllBuys() {
 // ── Signal computation ────────────────────────────────────────────────────────
 
 function computeSignals(buys) {
-  const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_blackout_buy, is_price_dip }
+  const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_blackout_buy, is_price_dip, is_unusual_price }
 
   // Index by company (for cluster / repetitive detection)
   const byCompany = {};
@@ -93,6 +93,28 @@ function computeSignals(buys) {
   for (const t of buys) {
     const companyKey = (t.company || t.ticker || '').toLowerCase();
     const peers      = byCompany[companyKey] || [];
+
+    // ── UNUSUAL PRICE: price is <80% of company's median transaction price ────
+    // Detects option exercises / grants where the transaction price is a fixed
+    // exercise price set years ago, far below current market price.
+    // Only compares against peers with transactions in the last 90 days.
+    let isUnusualPrice = false;
+    if (t.price_per_share > 1) {
+      const recentPrices = peers
+        .filter(p => p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+        .map(p => p.price_per_share)
+        .sort((a, b) => a - b);
+      if (recentPrices.length >= 2) {
+        const median = recentPrices[Math.floor(recentPrices.length / 2)];
+        isUnusualPrice = t.price_per_share < median * 0.80;
+      }
+    }
+
+    // If unusual price detected, suppress all conviction signals for this row
+    if (isUnusualPrice) {
+      results[t.id] = { is_cluster_buy: false, is_repetitive_buy: false, is_pre_blackout_buy: false, is_price_dip: false, is_unusual_price: true };
+      continue;
+    }
 
     // ── CLUSTER: different named insiders, same company, within 7 days ────────
     const clusterPeers = peers.filter(p => {
@@ -130,6 +152,7 @@ function computeSignals(buys) {
       is_repetitive_buy:   isRepetitive,
       is_pre_blackout_buy: isPreBlackout,
       is_price_dip:        isPriceDip,
+      is_unusual_price:    false,
     };
   }
 
@@ -184,16 +207,18 @@ async function main() {
   console.log('  Computing signals (pre-blackout: 7-day windows before quarterly blackout)…');
   const results = computeSignals(buys);
 
-  const cluster    = Object.values(results).filter(r => r.is_cluster_buy).length;
-  const repetitive = Object.values(results).filter(r => r.is_repetitive_buy).length;
-  const preBlackout= Object.values(results).filter(r => r.is_pre_blackout_buy).length;
-  const dip        = Object.values(results).filter(r => r.is_price_dip).length;
+  const cluster      = Object.values(results).filter(r => r.is_cluster_buy).length;
+  const repetitive   = Object.values(results).filter(r => r.is_repetitive_buy).length;
+  const preBlackout  = Object.values(results).filter(r => r.is_pre_blackout_buy).length;
+  const dip          = Object.values(results).filter(r => r.is_price_dip).length;
+  const unusualPrice = Object.values(results).filter(r => r.is_unusual_price).length;
 
   console.log(`  Signals computed:`);
   console.log(`    🔄 Cluster buy:      ${cluster}`);
   console.log(`    🔁 Repetitive buy:   ${repetitive}`);
   console.log(`    ⚠️  Pre-blackout buy: ${preBlackout}`);
   console.log(`    📉 Price dip:        ${dip}`);
+  console.log(`    🔕 Unusual price:    ${unusualPrice} (signals suppressed)`);
 
   // ── Print examples for each signal type ──────────────────────────────────
   const examples = {
@@ -219,7 +244,7 @@ async function main() {
   // ("Not disclosed"), so cluster/repetitive signals are meaningless there.
   const { error: chErr } = await sb
     .from('insider_transactions')
-    .update({ is_cluster_buy: false, is_repetitive_buy: false, is_pre_blackout_buy: false })
+    .update({ is_cluster_buy: false, is_repetitive_buy: false, is_pre_blackout_buy: false, is_unusual_price: false })
     .eq('country_code', 'CH');
   if (chErr) console.warn('  ⚠  CH flag-clear error:', chErr.message);
   else console.log('  ℹ  CH signal flags cleared (anonymous insiders)');

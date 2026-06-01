@@ -486,6 +486,21 @@ const IcoWarning = () => (
 function SignalBadges({ t, inline = true }) {
   const badges = [];
 
+  // Unusual price (option exercise / grant price) — suppress all other signals
+  if (t.is_unusual_price) {
+    return (
+      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        <span title="Transaction price is significantly below peer prices — likely an option exercise or grant, not an open-market conviction buy." style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          height: 20, borderRadius: 4, padding: '0 5px',
+          background: '#F3F4F6', border: '1px solid #E5E7EB',
+          color: '#6B7280', fontSize: 9, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+          letterSpacing: '0.04em', flexShrink: 0, cursor: 'default',
+        }}>OPT</span>
+      </div>
+    );
+  }
+
   if (t.is_price_dip) badges.push({
     key: 'dip',
     icon: <IcoTrendingDown />,
@@ -545,6 +560,15 @@ function SignalBadges({ t, inline = true }) {
 // Profile-page version: icon + label text, used inside "Signals" section
 function SignalBadgesFull({ t }) {
   const badges = [];
+
+  if (t.is_unusual_price) {
+    return (
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", background: '#F3F4F6', borderRadius: 4, padding: '2px 7px', border: '1px solid #E5E7EB' }}>OPT</span>
+        <span style={{ fontSize: 12, color: '#6B7280' }}>Option exercise or grant — not an open-market buy</span>
+      </div>
+    );
+  }
 
   if (t.is_price_dip) badges.push({
     key: 'dip',
@@ -3435,7 +3459,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           )}
           <span style={{ color: '#9CA3AF', marginLeft: 8 }}>{timeAgo(t.transaction_date)}</span>
         </div>
-        {(t.is_cluster_buy || t.is_pre_blackout_buy || t.is_repetitive_buy || t.is_price_dip) && (
+        {(t.is_cluster_buy || t.is_pre_blackout_buy || t.is_repetitive_buy || t.is_price_dip || t.is_unusual_price) && (
           <div style={{ marginTop: 4 }}><SignalBadges t={t} /></div>
         )}
       </AlertCard>

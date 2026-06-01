@@ -82,6 +82,7 @@ echo "── Scoring & Performance ───────────────
 "$NODE_BIN" scrapers/score-insiders.js
 "$NODE_BIN" scrapers/track-performance.js
 "$NODE_BIN" scrapers/flag-signals.js
+"$NODE_BIN" scrapers/daily-health-check.js || true  # non-fatal
 "$NODE_BIN" scrapers/enrich-sectors.js
 
 echo ""
