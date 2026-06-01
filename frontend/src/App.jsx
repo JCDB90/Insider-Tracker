@@ -474,16 +474,15 @@ const IcoUsers = () => (
     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
   </svg>
 );
-const IcoCalendar = () => (
+const IcoWarning = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-    <line x1="16" y1="2" x2="16" y2="6" />
-    <line x1="8" y1="2" x2="8" y2="6" />
-    <line x1="3" y1="10" x2="21" y2="10" />
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
   </svg>
 );
 
-// Compact icon badges — order: 📉 🔁 🔄 📅
+// Compact icon badges — order: 📉 🔁 🔄 ⚠️
 function SignalBadges({ t, inline = true }) {
   const badges = [];
 
@@ -514,10 +513,10 @@ function SignalBadges({ t, inline = true }) {
     border: '#C7D2FE',
   });
 
-  if (t.is_pre_earnings) badges.push({
-    key: 'earn',
-    icon: <IcoCalendar />,
-    title: 'Purchased 30–45 days before a typical earnings blackout period',
+  if (t.is_pre_blackout_buy) badges.push({
+    key: 'blackout',
+    icon: <IcoWarning />,
+    title: 'Purchased during the 7 days before an estimated MAR earnings blackout period begins.',
     color: '#D97706',
     bg: '#FFFBEB',
     border: '#FDE68A',
@@ -568,11 +567,11 @@ function SignalBadgesFull({ t }) {
     title: 'Multiple insiders at this company bought within 14 days',
     color: '#4338CA', bg: '#EEF2FF', border: '#C7D2FE',
   });
-  if (t.is_pre_earnings) badges.push({
-    key: 'earn',
-    icon: <IcoCalendar />,
-    label: 'Pre-earnings buy',
-    title: 'Purchased 30–45 days before a typical earnings blackout period',
+  if (t.is_pre_blackout_buy) badges.push({
+    key: 'blackout',
+    icon: <IcoWarning />,
+    label: 'Pre-blackout buy',
+    title: 'Purchased during the 7 days before an estimated MAR earnings blackout period begins.',
     color: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
   });
 
@@ -3436,7 +3435,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           )}
           <span style={{ color: '#9CA3AF', marginLeft: 8 }}>{timeAgo(t.transaction_date)}</span>
         </div>
-        {(t.is_cluster_buy || t.is_pre_earnings || t.is_repetitive_buy || t.is_price_dip) && (
+        {(t.is_cluster_buy || t.is_pre_blackout_buy || t.is_repetitive_buy || t.is_price_dip) && (
           <div style={{ marginTop: 4 }}><SignalBadges t={t} /></div>
         )}
       </AlertCard>
@@ -3788,7 +3787,7 @@ const EDUCATION_ITEMS = [
   },
   {
     title: 'How to Read Conviction Signals',
-    body: 'High Conviction scores combine four factors: purchase size relative to the insider\'s history, role seniority (CEO/CFO outweigh board members), clustering with peers, and proximity to pre-earnings blackout windows.',
+    body: 'High Conviction scores combine four factors: purchase size relative to the insider\'s history, role seniority (CEO/CFO outweigh board members), clustering with peers, and whether the purchase falls in the pre-blackout window.',
     tag: 'Signals',
   },
   {
@@ -3797,9 +3796,9 @@ const EDUCATION_ITEMS = [
     tag: 'Signals',
   },
   {
-    title: 'Pre-Earnings Blackout Periods',
-    body: 'Most European companies impose a self-imposed trading blackout in the 30 days before earnings. Insiders buying 30–60 days before a likely earnings date are acting just before the window closes — a meaningful timing signal.',
-    tag: 'Context',
+    title: 'Pre-Blackout Buy Signal',
+    body: 'European companies impose a trading blackout in the ~30 days before earnings under MAR. The Pre-Blackout Buy signal fires when an insider buys in the 7-day window just before the estimated blackout starts — the last moment they can act before losing that flexibility.',
+    tag: 'Signals',
   },
   {
     title: 'Why Sells Are Harder to Interpret',
@@ -5027,7 +5026,7 @@ const PLAN_FEATURES_GRID = [
   ]},
   { category: 'Signals & Alerts', rows: [
     { label: 'Conviction scoring',          analyst: 'First 50 rows', strategist: true,         terminal: true },
-    { label: 'Signal badges (📉 🔁 🔄 📅)', analyst: 'First 50 rows', strategist: true,         terminal: true },
+    { label: 'Signal badges (📉 🔁 🔄 ⚠️)', analyst: 'First 50 rows', strategist: true,         terminal: true },
     { label: 'Alerts feed',                 analyst: false,           strategist: true,         terminal: true },
     { label: 'Cluster buy detection',       analyst: false,           strategist: true,         terminal: true },
     { label: 'Daily watchlist email alerts',analyst: true,            strategist: true,         terminal: true },

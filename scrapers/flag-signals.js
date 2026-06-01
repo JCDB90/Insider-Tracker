@@ -5,11 +5,12 @@
  * Computes 4 boolean signal flags for every BUY transaction and writes them
  * to insider_transactions.  Run after score-insiders.js in the daily pipeline.
  *
- *   is_cluster_buy    — ≥1 OTHER named insider at same company bought within 7 days
- *   is_repetitive_buy — same insider at same company bought again, 4–14 days later
- *                       (gap < 4d = tranche execution, not a separate decision)
- *   is_pre_earnings   — transaction falls 30–60 days before a known earnings date
- *   is_price_dip      — price_drawdown 10–60% (caps out split/delisting outliers)
+ *   is_cluster_buy      — ≥1 OTHER named insider at same company bought within 7 days
+ *   is_repetitive_buy   — same insider at same company bought again, 4–14 days later
+ *                         (gap < 4d = tranche execution, not a separate decision)
+ *   is_pre_blackout_buy — transaction falls in the 7-day window just before an estimated
+ *                         MAR quarterly blackout period begins
+ *   is_price_dip        — price_drawdown 10–60% (caps out split/delisting outliers)
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -25,35 +26,27 @@ const DIP_MIN          = 0.10; // 10 % minimum drawdown
 const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
 const BATCH_SIZE       = 200;
 
-// ── Deterministic pre-earnings blackout windows ───────────────────────────────
-// Companies enter a trading blackout 30-45 days before quarterly results.
-// An insider buying DURING the pre-blackout window (before it starts) is a
-// stronger signal than buying at a random time.
+// ── Pre-Blackout Buy windows ──────────────────────────────────────────────────
+// The 7-day window immediately before the estimated MAR blackout period starts.
+// Insiders buying in this tight window are committing capital at the last
+// possible moment before they lose the ability to trade — a high-conviction signal.
 //
-// Standard EU quarterly reporting schedule:
-//   Q1 results:  Apr 15 – May 30  → blackout starts Mar 1
-//   Q2/H1:       Jul 15 – Aug 31  → blackout starts Jun 1
-//   Q3:          Oct 15 – Nov 30  → blackout starts Sep 1
-//   Q4/FY:       Jan 20 – Mar 31  → blackout starts Dec 6
-//
-// is_pre_earnings = true when a BUY falls inside one of these windows:
-//   Q1 blackout:  March 1  – April 14
-//   Q2 blackout:  June 1   – July 14
-//   Q3 blackout:  September 1 – October 14
-//   Q4 blackout:  December 6 – January 19
-function isPreEarningsWindow(dateStr) {
-  const d = new Date(dateStr);
-  const m = d.getMonth() + 1; // 1–12
+//   Q1 blackout starts ~Mar 15  → signal window: Mar  8–15
+//   Q2 blackout starts ~Jun 15  → signal window: Jun  8–15
+//   Q3 blackout starts ~Sep 15  → signal window: Sep  8–15
+//   Q4 blackout starts ~Jan  1  → signal window: Dec 24–31
+const BLACKOUT_SIGNAL_WINDOWS = [
+  { month: 3,  dayStart: 8,  dayEnd: 15 },
+  { month: 6,  dayStart: 8,  dayEnd: 15 },
+  { month: 9,  dayStart: 8,  dayEnd: 15 },
+  { month: 12, dayStart: 24, dayEnd: 31 },
+];
+
+function isPreBlackoutBuy(dateStr) {
+  const d   = new Date(dateStr);
+  const m   = d.getMonth() + 1;
   const day = d.getDate();
-  if (m === 3)                    return true;  // all of March
-  if (m === 4 && day <= 14)       return true;  // Apr 1–14
-  if (m === 6)                    return true;  // all of June
-  if (m === 7 && day <= 14)       return true;  // Jul 1–14
-  if (m === 9)                    return true;  // all of September
-  if (m === 10 && day <= 14)      return true;  // Oct 1–14
-  if (m === 12 && day >= 6)       return true;  // Dec 6–31
-  if (m === 1 && day <= 19)       return true;  // Jan 1–19
-  return false;
+  return BLACKOUT_SIGNAL_WINDOWS.some(w => m === w.month && day >= w.dayStart && day <= w.dayEnd);
 }
 
 function daysBetween(a, b) {
@@ -87,7 +80,7 @@ async function loadAllBuys() {
 // ── Signal computation ────────────────────────────────────────────────────────
 
 function computeSignals(buys) {
-  const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_earnings, is_price_dip }
+  const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_blackout_buy, is_price_dip }
 
   // Index by company (for cluster / repetitive detection)
   const byCompany = {};
@@ -125,18 +118,18 @@ function computeSignals(buys) {
     // Must have at least one same-insider peer AND the closest one must be >= 4 days away
     const isRepetitive = minGap !== null && minGap >= REP_MIN_GAP;
 
-    // ── PRE-EARNINGS: deterministic quarterly blackout windows ───────────────
-    const isPreEarnings = isPreEarningsWindow(t.transaction_date);
+    // ── PRE-BLACKOUT: 7-day window before estimated MAR blackout starts ──────
+    const isPreBlackout = isPreBlackoutBuy(t.transaction_date);
 
     // ── PRICE DIP: 10–60 % drawdown (excludes splits / delisting outliers) ────
     const dip = t.price_drawdown != null ? Number(t.price_drawdown) : null;
     const isPriceDip = dip !== null && dip >= DIP_MIN && dip <= DIP_MAX;
 
     results[t.id] = {
-      is_cluster_buy:    isCluster,
-      is_repetitive_buy: isRepetitive,
-      is_pre_earnings:   isPreEarnings,
-      is_price_dip:      isPriceDip,
+      is_cluster_buy:      isCluster,
+      is_repetitive_buy:   isRepetitive,
+      is_pre_blackout_buy: isPreBlackout,
+      is_price_dip:        isPriceDip,
     };
   }
 
@@ -188,42 +181,45 @@ async function main() {
   const buys = await loadAllBuys();
   console.log(`  ${buys.length} BUY transactions loaded`);
 
-  console.log('  Computing signals (pre-earnings: deterministic quarterly windows)…');
+  console.log('  Computing signals (pre-blackout: 7-day windows before quarterly blackout)…');
   const results = computeSignals(buys);
 
-  const cluster   = Object.values(results).filter(r => r.is_cluster_buy).length;
-  const repetitive= Object.values(results).filter(r => r.is_repetitive_buy).length;
-  const preEarn   = Object.values(results).filter(r => r.is_pre_earnings).length;
-  const dip       = Object.values(results).filter(r => r.is_price_dip).length;
+  const cluster    = Object.values(results).filter(r => r.is_cluster_buy).length;
+  const repetitive = Object.values(results).filter(r => r.is_repetitive_buy).length;
+  const preBlackout= Object.values(results).filter(r => r.is_pre_blackout_buy).length;
+  const dip        = Object.values(results).filter(r => r.is_price_dip).length;
 
   console.log(`  Signals computed:`);
-  console.log(`    🔄 Cluster buy:    ${cluster}`);
-  console.log(`    🔁 Repetitive buy: ${repetitive}`);
-  console.log(`    📅 Pre-earnings:   ${preEarn}`);
-  console.log(`    📉 Price dip:      ${dip}`);
+  console.log(`    🔄 Cluster buy:      ${cluster}`);
+  console.log(`    🔁 Repetitive buy:   ${repetitive}`);
+  console.log(`    ⚠️  Pre-blackout buy: ${preBlackout}`);
+  console.log(`    📉 Price dip:        ${dip}`);
 
   // ── Print examples for each signal type ──────────────────────────────────
   const examples = {
-    cluster:    buys.find(r => results[r.id]?.is_cluster_buy),
-    repetitive: buys.find(r => results[r.id]?.is_repetitive_buy),
-    preEarnings:buys.find(r => results[r.id]?.is_pre_earnings),
-    priceDip:   buys.find(r => results[r.id]?.is_price_dip),
+    cluster:     buys.find(r => results[r.id]?.is_cluster_buy),
+    repetitive:  buys.find(r => results[r.id]?.is_repetitive_buy),
+    preBlackout: buys.find(r => results[r.id]?.is_pre_blackout_buy),
+    priceDip:    buys.find(r => results[r.id]?.is_price_dip),
   };
-  if (examples.cluster)    console.log(`  🔄 Cluster example:    ${examples.cluster.company} — ${examples.cluster.insider_name} (${examples.cluster.transaction_date})`);
-  if (examples.repetitive) console.log(`  🔁 Repetitive example: ${examples.repetitive.company} — ${examples.repetitive.insider_name} (${examples.repetitive.transaction_date})`);
-  if (examples.preEarnings)console.log(`  📅 Pre-earn example:   ${examples.preEarnings.company} — ${examples.preEarnings.insider_name} (${examples.preEarnings.transaction_date}, ticker: ${examples.preEarnings.ticker})`);
-  if (examples.priceDip)   console.log(`  📉 Price dip example:  ${examples.priceDip.company} — ${examples.priceDip.insider_name} (drawdown: ${(Number(examples.priceDip.price_drawdown)*100).toFixed(1)}%)`);
+  if (examples.cluster)     console.log(`  🔄 Cluster example:       ${examples.cluster.company} — ${examples.cluster.insider_name} (${examples.cluster.transaction_date})`);
+  if (examples.repetitive)  console.log(`  🔁 Repetitive example:    ${examples.repetitive.company} — ${examples.repetitive.insider_name} (${examples.repetitive.transaction_date})`);
+  if (examples.preBlackout) console.log(`  ⚠️  Pre-blackout example:  ${examples.preBlackout.company} — ${examples.preBlackout.insider_name} (${examples.preBlackout.transaction_date})`);
+  if (examples.priceDip)    console.log(`  📉 Price dip example:     ${examples.priceDip.company} — ${examples.priceDip.insider_name} (drawdown: ${(Number(examples.priceDip.price_drawdown)*100).toFixed(1)}%)`);
 
   console.log('  Writing to DB…');
   const updated = await upsertSignals(results, buys);
 
   console.log(`  ✅ ${((Date.now() - t0) / 1000).toFixed(1)}s — ${updated} rows flagged`);
 
+  // Clear is_pre_earnings on all rows (column replaced by is_pre_blackout_buy)
+  await sb.from('insider_transactions').update({ is_pre_earnings: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+
   // Clear signal flags for all CH transactions — Swiss insider names are anonymised
   // ("Not disclosed"), so cluster/repetitive signals are meaningless there.
   const { error: chErr } = await sb
     .from('insider_transactions')
-    .update({ is_cluster_buy: false, is_repetitive_buy: false })
+    .update({ is_cluster_buy: false, is_repetitive_buy: false, is_pre_blackout_buy: false })
     .eq('country_code', 'CH');
   if (chErr) console.warn('  ⚠  CH flag-clear error:', chErr.message);
   else console.log('  ℹ  CH signal flags cleared (anonymous insiders)');
