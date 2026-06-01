@@ -4422,6 +4422,12 @@ function InsightsPage({ trades, tradesLoading }) {
                   href: '/articles/what-is-cluster-buying',
                   tag: 'Signal',
                 },
+                {
+                  title: 'How to Find Undervalued European Stocks Using Insider Data',
+                  desc: 'How to identify potentially undervalued European stocks using insider transaction data and signals.',
+                  href: '/articles/how-to-find-undervalued-european-stocks-using-insider-data',
+                  tag: 'Guide',
+                },
               ].map((a, i) => (
                 <a key={i} href={a.href} style={{
                   display: 'flex', flexDirection: 'column', gap: 6,
