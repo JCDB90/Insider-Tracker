@@ -52,6 +52,15 @@ function parseNum(s) {
   if (/,/.test(str) && !/\./.test(str)) return parseFloat(str.replace(',', '.'));
   return parseFloat(str.replace(/,/g, ''));
 }
+
+// Share/volume counts are always integers — strip all separators (comma, period, space).
+// "100,000" → 100000; "18,323" → 18323; "1.234.567" → 1234567.
+// Never treat comma as decimal for counts.
+function parseShares(s) {
+  if (!s) return null;
+  const n = parseInt(String(s).trim().replace(/[^\d]/g, ''), 10);
+  return isNaN(n) || n === 0 ? null : n;
+}
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
@@ -237,7 +246,7 @@ async function scrapeSE() {
     const txDate = parseSEDate(r.txDateStr);
     if (!txDate || txDate < co) continue;
     const txIso = isoDate(txDate);
-    const shares = parseNum(r.volume), price = parseNum(r.price);
+    const shares = parseShares(r.volume), price = parseNum(r.price);
     const total = (shares && price) ? Math.round(shares * price) : null;
     // Content-based ID: excludes ISIN to prevent duplicate entries when the same
     // person/transaction matches two different instrument ISINs in the FI search.

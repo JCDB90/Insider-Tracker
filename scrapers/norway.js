@@ -33,6 +33,13 @@ const { translateRole }           = require('./lib/translate');
 const { looksLikeCorp }           = require('./lib/entityUtils');
 const { contentId }               = require('./lib/contentId');
 
+// Share/volume counts are always integers — strip all separators.
+function parseShares(s) {
+  if (!s) return null;
+  const n = parseInt(String(s).trim().replace(/[^\d]/g, ''), 10);
+  return isNaN(n) || n === 0 ? null : n;
+}
+
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors / Euronext Oslo';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
@@ -201,7 +208,7 @@ function parsePdfMarBlock(text) {
 
   // "500,000 common shares" / "182 000 shares"
   const sharesM = agg.match(/([\d,. ]+)\s+(?:common\s+)?shares?\b/i);
-  if (sharesM) { const n = parseNum(sharesM[1]); if (n > 0) shares = Math.round(n); }
+  if (sharesM) { const n = parseShares(sharesM[1]); if (n > 0) shares = n; }
 
   // "for a total of USD 2,790,900" or "Aggregated price: NOK 196 741,21"
   const totM = agg.match(/\b(NOK|USD|EUR|SEK|DKK|GBP|CHF)\s+([\d,. ]+)/i);
@@ -330,7 +337,7 @@ function parseBody(raw) {
   let shares = null;
   const sharesM = text.match(/([\d,. ]+)\s+(?:shares?|aksjer?)\b/i);
   if (sharesM) {
-    const n = Math.round(parseNum(sharesM[1]));
+    const n = parseShares(sharesM[1]);
     if (n > 0) shares = n;
   }
 

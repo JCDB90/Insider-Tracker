@@ -49,6 +49,13 @@ function mapType(s) {
 }
 
 // Parse numbers in both Danish (period=thousands, comma=decimal) and English formats
+// Share/volume counts are always integers — strip all separators.
+function parseShares(s) {
+  if (!s) return null;
+  const n = parseInt(String(s).trim().replace(/[^\d]/g, ''), 10);
+  return isNaN(n) || n === 0 ? null : n;
+}
+
 function parseNum(raw) {
   if (!raw) return NaN;
   const s = raw.trim().replace(/\s/g, '');
@@ -240,8 +247,8 @@ function parseNotificationText(text) {
     const priceVolLine = text.match(/(?:DKK|EUR|SEK|NOK|CHF)\s+([\d,\.]+)\s{3,}([\d,\.]+)\s*(?:[a-zA-Z]+\s*)?$/im);
     if (priceVolLine) {
       const pv = parseNum(priceVolLine[1]);
-      const sv = parseNum(priceVolLine[2]);
-      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+      const sv = parseShares(priceVolLine[2]);
+      if (sv != null && sv > 0) shares = sv;
       if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
     }
   }
