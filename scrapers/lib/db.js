@@ -116,19 +116,35 @@ async function saveInsiderTransactions(rows, options = {}) {
     }
 
     // Sanity check: price × shares should roughly equal total_value.
-    // If off by >10×, the scraper likely swapped or mis-parsed one field.
-    // Attempt to recover using implied price from total_value / shares.
+    // If off by >10×, the scraper likely captured a wrong field.
     if (hasP && hasV && hasS) {
       const calc  = r.price_per_share * r.shares;
       const ratio = calc / r.total_value;
-      if (ratio > 10 || ratio < 0.1) {
-        const impliedPrice = r.total_value / r.shares;
-        if (impliedPrice > 0 && impliedPrice < r.price_per_share) {
-          console.warn(`  ⚠️  Price sanity fail for ${r.company || '?'} (${r.country_code}): ` +
-            `${r.price_per_share} × ${r.shares} ≠ ${r.total_value} (ratio ${ratio.toFixed(1)}). ` +
-            `Using implied price: ${impliedPrice.toFixed(4)}`);
-          r.price_per_share = parseFloat(impliedPrice.toFixed(6));
+      if (ratio > 10) {
+        // price × shares >> total_value → total likely wrong
+        // Sub-case: total ≤ price (scraper captured unit price as total_value)
+        if (r.total_value <= r.price_per_share * 1.1) {
+          const corrected = Math.round(calc);
+          console.warn(`  ⚠️  Total sanity (total≈price) for ${r.company || '?'} (${r.country_code}): ` +
+            `total ${r.total_value} → ${corrected}`);
+          r.total_value = corrected;
+        } else {
+          // total > price but still way off → try implied price from total / shares
+          const impliedPrice = r.total_value / r.shares;
+          if (impliedPrice > 0 && impliedPrice < r.price_per_share * 0.5) {
+            console.warn(`  ⚠️  Price sanity (>10×) for ${r.company || '?'} (${r.country_code}): ` +
+              `implied price ${impliedPrice.toFixed(4)} used instead of ${r.price_per_share}`);
+            r.price_per_share = parseFloat(impliedPrice.toFixed(6));
+            r.total_value     = Math.round(r.price_per_share * r.shares);
+          }
         }
+      } else if (ratio < 0.1) {
+        // price × shares << total_value → total is likely a program/portfolio aggregate
+        // Recalculate total_value from price × shares
+        const calculatedTotal = Math.round(calc);
+        console.warn(`  ⚠️  Total sanity (<0.1×) for ${r.company || '?'} (${r.country_code}): ` +
+          `total ${r.total_value} replaced with price×shares = ${calculatedTotal}`);
+        r.total_value = calculatedTotal;
       }
     }
   }
