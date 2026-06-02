@@ -172,6 +172,8 @@ const TICKERS = {
   'logistea': 'LOGIST-B',   // LOGIST-B.ST (was LOGIST)
   'knowit': 'KNOW',         // KNOW.ST    (was KNOWIT)
   'bergman & beving': 'BERG-B', // BERG-B.ST
+  // ── Companies whose first word is ambiguous / misleading ──────────────────
+  'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
 };
 function getTicker(n) {
   if (!n) return null;
