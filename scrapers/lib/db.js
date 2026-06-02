@@ -211,11 +211,11 @@ async function saveInsiderTransactions(rows, options = {}) {
     // natural key. Retry with ignoreDuplicates so we skip the conflicting rows
     // rather than failing the whole batch.
     if (error.code === '23505' || /unique/i.test(error.message)) {
-      console.log('  ℹ  Unique constraint hit — retrying batch with ignoreDuplicates');
       const { error: retryErr } = await supabase
         .from('insider_transactions')
         .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: true });
-      if (retryErr) {
+      if (retryErr && retryErr.code !== '23505') {
+        // 23505 on the retry is expected (new unique index catches cross-scraper dups) — silent
         console.error('  DB error (insider_transactions):', retryErr.message);
         return { inserted: 0, error: retryErr, drops };
       }
