@@ -188,10 +188,10 @@ async function saveInsiderTransactions(rows, options = {}) {
   }
   if (complete.length === 0) return { inserted: 0 };
 
-  // Warn about rows that pass all filters but still lack an insider name
-  // This helps track filings where the source genuinely doesn't expose names
+  // Warn about rows that pass all filters but genuinely lack an insider identity.
+  // Suppress when via_entity is set — that IS a valid identity (corporate disclosure).
   for (const r of complete) {
-    if (!r.insider_name) {
+    if (!r.insider_name && !r.via_entity) {
       console.warn(`  ⚠️  Missing insider name: ${r.company || '?'} (${r.country_code}) — filing ${r.filing_id}`);
     }
   }

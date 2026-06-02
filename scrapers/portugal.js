@@ -385,7 +385,17 @@ async function fetchTranList(browser) {
     }
   });
 
-  await page.goto(CMVM_SDI_URL, { waitUntil: 'networkidle2', timeout: 60000 });
+  // Retry initial navigation — CMVM portal is slow and occasionally times out
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto(CMVM_SDI_URL, { waitUntil: 'networkidle2', timeout: 120000 });
+      break;
+    } catch(e) {
+      if (attempt >= 3) throw e;
+      console.log(`  ⚠  CMVM portal navigation timeout (attempt ${attempt}/3), retrying in 10s…`);
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
   await new Promise(r => setTimeout(r, 2000));
 
   // Click "Participações e operações sobre valores mobiliários"
@@ -424,14 +434,21 @@ async function fetchPdfBase64(browser, encryptedURL) {
     }
   });
 
-  try {
-    await page.goto(encryptedURL, { waitUntil: 'networkidle2', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 4000));
-  } catch(e) {
-    // timeout is OK — we may have already captured the response
-  } finally {
-    await page.close();
+  // Retry up to 3 times — CMVM portal occasionally times out
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto(encryptedURL, { waitUntil: 'networkidle2', timeout: 60000 });
+      await new Promise(r => setTimeout(r, 4000));
+      break;
+    } catch(e) {
+      if (attempt < 3) {
+        console.log(`  ⚠  PDF navigation timeout (attempt ${attempt}/3), retrying…`);
+        await new Promise(r => setTimeout(r, 10000));
+      }
+      // timeout on final attempt is OK — may have already captured response
+    }
   }
+  await page.close();
 
   return base64;
 }
@@ -477,7 +494,15 @@ async function scrapePT() {
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+    ],
+    ...(process.env.PUPPETEER_EXECUTABLE_PATH
+      ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+      : {}),
   });
 
   try {
