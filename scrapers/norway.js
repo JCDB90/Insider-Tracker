@@ -63,9 +63,9 @@ function parseNum(s) {
     const parts = str.split(',');
     // Multiple commas: always thousands — "5,496,534" → 5496534
     if (parts.length > 2) return parseFloat(str.replace(/,/g, ''));
-    // 3-digit tail: thousands — "138,500" → 138500; "1,234" → 1234
-    if (parts[1] && parts[1].length === 3) return parseFloat(str.replace(/,/g, ''));
-    // 1-2 or 4-digit tail: decimal — "27,60" → 27.60; "61,7088" → 61.7088
+    // Nordic format: comma is decimal separator.
+    // "106,475" = 106.475 NOK (NOT 106,475 — Nordic filings use space for thousands).
+    // "27,60" → 27.60; "61,7088" → 61.7088; "106,475" → 106.475
     if (parts[1] && parts[1].length <= 4) return parseFloat(str.replace(',', '.'));
     return parseFloat(str.replace(/,/g, ''));
   }

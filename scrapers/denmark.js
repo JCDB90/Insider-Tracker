@@ -54,8 +54,8 @@ function parseNum(raw) {
   const s = raw.trim().replace(/\s/g, '');
   if (/\d\.\d{3},/.test(s)) return parseFloat(s.replace(/\./g, '').replace(',', '.'));   // 1.234,56
   if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));          // 22.345 (thousands)
-  if (/^\d{1,3}(?:,\d{3})+$/.test(s)) return parseFloat(s.replace(/,/g, ''));             // 50,000 (English thousands)
-  if (/,/.test(s) && !/\./.test(s)) return parseFloat(s.replace(',', '.'));               // 61,7088 (decimal)
+  if (/^\d{1,3}(?:,\d{3}){2,}$/.test(s)) return parseFloat(s.replace(/,/g, ''));          // 1,234,567 (English thousands, 2+ groups)
+  if (/,/.test(s) && !/\./.test(s)) return parseFloat(s.replace(',', '.'));               // 44,025 → 44.025 (Nordic decimal)
   return parseFloat(s.replace(/,/g, ''));
 }
 

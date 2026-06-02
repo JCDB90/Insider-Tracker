@@ -114,6 +114,23 @@ async function saveInsiderTransactions(rows, options = {}) {
     } else if (!hasV && hasP && hasS) {
       r.total_value = Math.round(r.price_per_share * r.shares);
     }
+
+    // Sanity check: price × shares should roughly equal total_value.
+    // If off by >10×, the scraper likely swapped or mis-parsed one field.
+    // Attempt to recover using implied price from total_value / shares.
+    if (hasP && hasV && hasS) {
+      const calc  = r.price_per_share * r.shares;
+      const ratio = calc / r.total_value;
+      if (ratio > 10 || ratio < 0.1) {
+        const impliedPrice = r.total_value / r.shares;
+        if (impliedPrice > 0 && impliedPrice < r.price_per_share) {
+          console.warn(`  ⚠️  Price sanity fail for ${r.company || '?'} (${r.country_code}): ` +
+            `${r.price_per_share} × ${r.shares} ≠ ${r.total_value} (ratio ${ratio.toFixed(1)}). ` +
+            `Using implied price: ${impliedPrice.toFixed(4)}`);
+          r.price_per_share = parseFloat(impliedPrice.toFixed(6));
+        }
+      }
+    }
   }
 
   const complete = withEntityResolved.filter(r => {

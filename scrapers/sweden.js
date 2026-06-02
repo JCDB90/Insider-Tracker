@@ -45,9 +45,10 @@ function parseNum(s) {
   if (/\d\.\d{3},/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
   // Period-only thousands: "5.000" or "1.234.567" → 5000 / 1234567
   if (/^\d{1,3}(?:\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
-  // Comma-only thousands: "50,000" → 50000
-  if (/^\d{1,3}(?:,\d{3})+$/.test(str)) return parseFloat(str.replace(/,/g, ''));
-  // Comma as decimal: "129,75" → 129.75
+  // Comma-only thousands with 2+ groups: "1,234,567" → 1234567
+  // Single-group "44,025" is Nordic decimal 44.025, not thousands — handled below.
+  if (/^\d{1,3}(?:,\d{3}){2,}$/.test(str)) return parseFloat(str.replace(/,/g, ''));
+  // Comma as decimal (Nordic): "44,025" → 44.025; "129,75" → 129.75
   if (/,/.test(str) && !/\./.test(str)) return parseFloat(str.replace(',', '.'));
   return parseFloat(str.replace(/,/g, ''));
 }
