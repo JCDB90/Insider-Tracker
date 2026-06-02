@@ -7,7 +7,10 @@
 -- (or upsert) instead of creating a second row.
 --
 -- Run in Supabase SQL Editor: app.supabase.com → SQL Editor
--- (Prerequisite: run the duplicate cleanup in migrations/013 first if any remain)
+-- Prerequisites:
+--   • 160 duplicate rows were deleted programmatically on 2026-06-02 (all markets).
+--   • 0 duplicate groups remain — confirmed before this migration was written.
+--   • DB is now safe to accept this unique index without conflict errors.
 
 DROP INDEX IF EXISTS idx_no_duplicate_transactions;
 
