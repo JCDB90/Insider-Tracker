@@ -37,6 +37,7 @@ const path                   = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { isinToTicker }            = require('./lib/isinToTicker');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'PT';
 const SOURCE         = 'CMVM Portugal';
@@ -606,7 +607,8 @@ async function scrapePT() {
         country_code:     COUNTRY_CODE,
         ticker:           fields.isin ? (await isinToTicker(fields.isin, COUNTRY_CODE) || '') : '',
         company,
-        insider_name:     fields.insiderName || null,
+        insider_name:     (fields.insiderName && looksLikeCorp(fields.insiderName)) ? null : (fields.insiderName || null),
+        via_entity:       (fields.insiderName && looksLikeCorp(fields.insiderName)) ? fields.insiderName : null,
         insider_role:     role || null,
         transaction_type: fields.transactionType,
         transaction_date: fields.transactionDate || item.DATA_FACT,
