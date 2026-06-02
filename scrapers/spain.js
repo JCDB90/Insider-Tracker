@@ -33,6 +33,7 @@ const { PDFParse }   = require('pdf-parse');
 const { saveInsiderTransactions } = require('./lib/db');
 const { isinToTicker }            = require('./lib/isinToTicker');
 const { translateRole }           = require('./lib/translate');
+const { looksLikeCorp }           = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
@@ -373,6 +374,11 @@ async function scrapeES() {
       const shares = pdf.shares ?? null;
       const price  = pdf.price  ?? null;
 
+      // When the CNMV lists a corporate entity as the filer, expose it as via_entity
+      // so the transaction appears on the platform as "Via CERTIMAB CONTROL S.L." etc.
+      // db.js would otherwise silently drop rows where insider_name looksLikeCorp.
+      const isCorp = f.insiderName && looksLikeCorp(f.insiderName);
+
       rows.push({
         filing_id:        `ES-${f.regNum}`,
         country_code:     COUNTRY_CODE,
@@ -380,7 +386,8 @@ async function scrapeES() {
         ticker:           getTicker(f.company) || '',
         _isin:            pdf.isin || null,
         company:          f.company,
-        insider_name:     f.insiderName,
+        insider_name:     isCorp ? null : f.insiderName,
+        via_entity:       isCorp ? f.insiderName : null,
         insider_role:     translateRole(f.role) || 'Not disclosed',
         transaction_type: pdf.txType,
         transaction_date: pdf.txDateFromPdf || f.txDate,
@@ -425,7 +432,8 @@ async function scrapeES() {
   const dbRows = rows.map(({ _isin, ...rest }) => rest);
 
   for (const r of dbRows.slice(0, 3)) {
-    console.log(`  • ${r.company} | ${r.insider_name} | ${r.transaction_type} | ${r.shares ?? '?'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
+    const who = r.insider_name || (r.via_entity ? `Via ${r.via_entity}` : '?');
+    console.log(`  • ${r.company} | ${who} | ${r.transaction_type} | ${r.shares ?? '?'} @ ${r.price_per_share ?? 'n/a'} | ${r.transaction_date}`);
   }
 
   const { error } = await saveInsiderTransactions(dbRows);
