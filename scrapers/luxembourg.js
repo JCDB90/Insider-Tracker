@@ -312,8 +312,10 @@ function parsePdf(text) {
   }
 
   // Standard HOS-2 form
-  // Fallback to 1-space gap for narrow-column PDFs (e.g. Grand City Properties)
-  const insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1);
+  // Fallback to 1-space gap for narrow-column PDFs (e.g. Grand City Properties).
+  // Also try bare "Name" label (no digit) for filers like Reinet that omit the field number.
+  const insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1)
+                   || getField(/^\s*Name\s*$/) || null;
   const issuerName  = getField(/\bName4\b/) || getField(/\bName4\b/, 1);
 
   const roleRaw = getField(/Position\/status\d/) || '';
@@ -418,8 +420,10 @@ async function scrapeLU() {
     const txt = pdfBufToText(buf);
     const f   = parsePdf(txt);
 
-    // Strip HOS-2 label artifacts that leak into OAM metadata (e.g. "Name4   Grand City Properties")
-    const stripLabel = s => s ? s.replace(/^Name\d[\s\t]+/i, '').trim() || null : null;
+    // Strip HOS-2 label artifacts that leak into the parsed name/company fields.
+    // Handles both "Name1   DIANE LONGDEN" (with digit) and "Name   DIANE LONGDEN" (no digit).
+    // Requires 3+ spaces so that real names starting with "Name" (extremely rare) aren't affected.
+    const stripLabel = s => s ? s.replace(/^Name\d*[\s\t]{3,}/i, '').trim() || null : null;
     const company = stripLabel(f.issuerName) || stripLabel(sub.issuerName) || null;
 
     // Resolve insider identity: address or corporate entity → via_entity, not insider_name
@@ -427,6 +431,11 @@ async function scrapeLU() {
     const isEntity = rawInsider && (looksLikeCorp(rawInsider) || looksLikeAddress(rawInsider));
     const insiderName = isEntity ? null : rawInsider;
     const viaEntity   = isEntity ? rawInsider : null;
+
+    // Log when name extraction failed so it's visible in scraper output
+    if (!insiderName && !viaEntity) {
+      console.log(`  ⚠  ${sub.submissionId} (${company || '?'}) — insider name not found in PDF; row will be dropped`);
+    }
     const isin    = f.isin || '';
     const txDate  = f.txDate || refIso || publishIso || from;
     const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
