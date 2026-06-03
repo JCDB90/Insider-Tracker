@@ -284,7 +284,16 @@ function parseDocumentContent(content, meta) {
   })();
 
   if (!price && volume && totalConsidGBP) {
-    price = parseFloat((totalConsidGBP / volume).toFixed(6));
+    const derived = parseFloat((totalConsidGBP / volume).toFixed(6));
+    // Sanity cap: no UK-listed stock trades above £500/share.
+    // If the derived price exceeds this, the aggregate consideration was likely
+    // captured in the wrong units (pence misread as GBP, or wrong field).
+    // Null price → row dropped rather than saved with garbage data.
+    if (derived <= 500) {
+      price = derived;
+    } else {
+      console.warn(`  UK price sanity: derived £${derived}/share from agg ${totalConsidGBP} / ${volume} shares — too high, dropping price`);
+    }
   }
 
   // ── Inline price in nature text ───────────────────────────────────────────
