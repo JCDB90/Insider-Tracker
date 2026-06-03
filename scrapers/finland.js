@@ -106,18 +106,26 @@ function parseNotificationText(text) {
     }
   }
 
-  // volume / shares — "Volume: 6187" (first occurrence, before "Aggregated")
-  const volRaw = grabAfter(text,
+  // volume — prefer the "Aggregated transactions (N): Volume: X" line which gives the total
+  // across all execution blocks. Fall back to the first "Volume:" for single-block filings.
+  const aggVolRaw = grabAfter(text,
+    /Aggregated\s+transactions[^:]*:\s*Volume\s*[:|]\s*([\d][\d\s,\.]*)/i,
+  );
+  const firstVolRaw = grabAfter(text,
     /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
   );
+  const volRaw = aggVolRaw || firstVolRaw;
   let shares = null;
   if (volRaw) {
     const n = parseFloat(volRaw.replace(/[\s,]/g, ''));
     if (!isNaN(n) && n > 0) shares = Math.round(n);
   }
 
-  // price — "Unit price: 0.00" or "Price: X"
-  const priceRaw = grabAfter(text,
+  // price — prefer VWAP from aggregated section; fall back to first unit price
+  const vwapRaw = grabAfter(text,
+    /Volume\s+weighted\s+average\s+price\s*[:|]\s*([\d,\.]+)/i,
+  );
+  const priceRaw = vwapRaw || grabAfter(text,
     /Unit\s+price\s*[:|]\s*([\d,\.]+)/i,
     /Price\s*\(s\)\s*[:|]\s*([\d,\.]+)/i,
     /\bPrice\s*[:|]\s*([\d,\.]+)/i,
