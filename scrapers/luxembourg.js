@@ -341,7 +341,16 @@ function parsePdf(text) {
   let pricePerShare = null;
   if (totalValue && shares && shares > 0) {
     const pps = totalValue / shares;
-    pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
+    // Sanity check: if pps is absurdly small (< MIN_PRICE_PER_SHARE) but totalValue itself
+    // is a plausible per-share price, the PDF put the per-share price in Price11 rather than
+    // the aggregate total (common in newer HOS-2 PDFs from LuxSE filers).
+    // In that case: treat totalValue as the per-share price and recalculate the aggregate.
+    if (pps < MIN_PRICE_PER_SHARE && totalValue >= MIN_PRICE_PER_SHARE) {
+      pricePerShare = parseFloat(totalValue.toFixed(6));
+      totalValue    = Math.round(pricePerShare * shares);
+    } else if (pps >= MIN_PRICE_PER_SHARE) {
+      pricePerShare = parseFloat(pps.toFixed(6));
+    }
   }
 
   const dateTxt = getField(/Date of the transaction\d+/) || '';
