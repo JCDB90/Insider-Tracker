@@ -503,7 +503,12 @@ export default function CompanyPage({
         const timestamps = result.timestamp || [];
         const closes = result.indicators?.adjclose?.[0]?.adjclose
                     || result.indicators?.quote?.[0]?.close || [];
-        setPriceCurrency(result.meta?.currency || 'USD');
+        const rawCurrency = result.meta?.currency || 'USD';
+        // Yahoo Finance returns UK stocks in pence (GBp / GBX). Our transaction prices
+        // are stored in pounds (GBP). Divide chart prices by 100 so both use the same unit.
+        const isPence = rawCurrency === 'GBp' || rawCurrency === 'GBX';
+        const priceDivisor = isPence ? 100 : 1;
+        setPriceCurrency(isPence ? 'GBP' : rawCurrency);
 
         const points = [];
         for (let i = 0; i < timestamps.length; i++) {
@@ -511,7 +516,7 @@ export default function CompanyPage({
           if (v != null && v > 0) {
             points.push({
               time:  new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
-              value: Math.round(v * 10000) / 10000,
+              value: Math.round((v / priceDivisor) * 10000) / 10000,
             });
           }
         }
