@@ -97,6 +97,7 @@ const TICKER_MAP = {
   'stock3':                   'ST3',
   'simona aktiengesellschaft': 'SIM',
   'simona ag':                'SIM',
+  'leifheit':                 'LEI',
 };
 
 function getTicker(companyName) {

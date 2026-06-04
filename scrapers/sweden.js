@@ -76,7 +76,7 @@ function mapType(s) {
 const TICKERS = {
   // Large caps with share classes
   'evolution': 'EVO', 'hexagon': 'HEXA-B', 'ericsson': 'ERIC-B',
-  'betsson': 'BETS-B', 'kindred': 'KIND-SDB',
+  'betsson': 'BETS-B', 'kindred': 'KIND-SDB', 'i-tech': 'ITECH',
   'volvo cars': 'VOLCAR-B', 'volvo': 'VOLV-B',
   'abb': 'ABB', 'atlas copco': 'ATCO-A', 'investor': 'INVE-B',
   'essity': 'ESSITY-B', 'sandvik': 'SAND',
