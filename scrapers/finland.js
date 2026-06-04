@@ -15,6 +15,7 @@ const https = require('https');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
+const { looksLikeCorp }          = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'FI';
 const SOURCE         = 'Nasdaq Helsinki / MAR';
@@ -312,7 +313,8 @@ async function scrapeFI() {
       country_code:     COUNTRY_CODE,
       ticker,
       company:          r.company || null,
-      insider_name:     det && det.insiderName ? det.insiderName : null,
+      insider_name:     (det?.insiderName && looksLikeCorp(det.insiderName)) ? null  : (det?.insiderName ?? null),
+      via_entity:       (det?.insiderName && looksLikeCorp(det.insiderName)) ? det.insiderName : null,
       insider_role:     translateRole(det && det.insiderRole ? det.insiderRole : null),
       transaction_type: (det && det.transactionType !== 'UNKNOWN') ? det.transactionType : mapType(r.headline || ''),
       transaction_date: txIso,

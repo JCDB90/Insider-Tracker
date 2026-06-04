@@ -24,6 +24,7 @@ const cheerio  = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
+const { looksLikeCorp }          = require('./lib/entityUtils');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -263,7 +264,8 @@ function parseCsv(csvText, letter) {
       ticker:           getTicker(company) || '',
       company,
       isin:             isin || null,
-      insider_name:     insider || null,
+      insider_name:     (insider && looksLikeCorp(insider)) ? null  : (insider || null),
+      via_entity:       (insider && looksLikeCorp(insider)) ? insider : null,
       insider_role:     translateRole(role) || null,
       transaction_type: txType,
       transaction_date: txDateIso,

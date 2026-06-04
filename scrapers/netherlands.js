@@ -34,6 +34,7 @@
 const https   = require('https');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
+const { looksLikeCorp }          = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
@@ -255,7 +256,8 @@ function parseXml(xml, cutoffDate) {
       source:           SOURCE,
       ticker:           getTicker(company) || '',
       company:          company || null,
-      insider_name:     insiderName || null,
+      insider_name:     (insiderName && looksLikeCorp(insiderName)) ? null  : (insiderName || null),
+      via_entity:       (insiderName && looksLikeCorp(insiderName)) ? insiderName : null,
       insider_role:     'Director / Commissioner',
       transaction_date: txDate,
       filing_url:       `https://www.afm.nl/nl-nl/sector/registers/meldingenregisters/bestuurders-commissarissen/details?id=${id}`,
