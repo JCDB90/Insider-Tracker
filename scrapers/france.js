@@ -223,7 +223,9 @@ function parseFrPdf(text) {
   // Prefer PRIX UNITAIRE; fall back to PRIX in the aggregated section.
   // French numbers use a non-breaking space (U+00A0) or regular space as thousands
   // separator: "1 575.7679" — so [\d  .,]+ is required to capture the full value.
+  // For multi-execution PDFs, prefer VWAP (prix moyen ponderé) over per-block unit price
   const priceRaw = grab([
+    /prix\s+moyen\s+pond[eé]r[eé]\s*:\s*(\d[\d .,]+)/im,
     /PRIX UNITAIRE\s*:\s*(\d[\d  .,]+)/im,
     /PRIX D.EXERCICE\s*:\s*(\d[\d  .,]+)/im,
     /PRIX D.ATTRIBUTION\s*:\s*(\d[\d  .,]+)/im,

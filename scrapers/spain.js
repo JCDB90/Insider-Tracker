@@ -259,7 +259,7 @@ function parseEsNum(s) {
 }
 
 function parsePdfText(text) {
-  if (!text || text.length < 50) return {};
+  if (!text || text.length < 50) return [];
 
   // ── Transaction type ──────────────────────────────────────────────────────
   // CNMV PDFs use ESMA standard column 4.c "Naturaleza de la operación":
@@ -273,17 +273,29 @@ function parsePdfText(text) {
     txType = 'BUY';
   }
 
-  // ── ISIN, price, volume: from ISIN-anchored data row ─────────────────────
+  // ── ISIN, price, volume: from ISIN-anchored data rows ────────────────────
   // CNMV PDFs: data row format is:
   //   ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
   // e.g.: ES0105229001 Acción Otros 09/04/2026 XOFF 115513,00 0,63 EUR
+  // Use matchAll to capture ALL execution blocks (multi-day VWAP filings have multiple rows).
   let isin = null, shares = null, price = null, currency = CURRENCY, txDateFromPdf = null;
 
-  // Primary: ISIN-anchored row pattern (handles 1–4 words between ISIN and date)
-  // Row format: ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
-  const rowMatch = text.match(
-    /([A-Z]{2}[A-Z0-9]{10})\s+\S+(?:\s+\S+){1,4}\s+(\d{2}\/\d{2}\/\d{4})\s+\S+\s+([\d.,]+)\s+([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/
-  );
+  const ROW_RE = /([A-Z]{2}[A-Z0-9]{10})\s+\S+(?:\s+\S+){1,4}\s+(\d{2}\/\d{2}\/\d{4})\s+\S+\s+([\d.,]+)\s+([\d.,]+)\s+(EUR|USD|GBP|CHF|SEK|DKK|NOK)\b/g;
+  const allRowMatches = [...text.matchAll(ROW_RE)];
+
+  if (allRowMatches.length > 1) {
+    // Multi-execution: return array of individual blocks — caller handles each separately
+    return allRowMatches.map(m => ({
+      txType,
+      isin:          m[1],
+      txDateFromPdf: cnmvToIso(m[2]),
+      shares:        Math.round(parseEsNum(m[3]) || 0) || null,
+      price:         parseEsNum(m[4]),
+      currency:      m[5],
+    }));
+  }
+
+  const rowMatch = allRowMatches[0] || null;
   if (rowMatch) {
     isin          = rowMatch[1];
     txDateFromPdf = cnmvToIso(rowMatch[2]);  // actual transaction date, more accurate than listing date
@@ -317,19 +329,26 @@ function parsePdfText(text) {
     if (currMatch) currency = currMatch[1];
   }
 
+  // Single-block result (or empty fallback)
   return { txType, isin, price, shares, currency, txDateFromPdf };
 }
 
+// Normalise parsePdfText result to array for uniform handling downstream
+function parsePdfNorm(text) {
+  const r = parsePdfText(text);
+  return Array.isArray(r) ? r : [r];
+}
+
 async function parsePdfFromUrl(docUrl) {
-  if (!docUrl) return {};
+  if (!docUrl) return [];
   try {
     const fullUrl = docUrl.startsWith('http') ? docUrl : `https://www.cnmv.es${docUrl}`;
     const parser = new PDFParse({ url: fullUrl });
     const result = await parser.getText();
     await parser.destroy().catch(() => {});
-    return parsePdfText(result.text || '');
+    return parsePdfNorm(result.text || '');
   } catch {
-    return {};
+    return [];
   }
 }
 
@@ -364,38 +383,42 @@ async function scrapeES() {
     );
 
     for (const { f, pdf } of results) {
-      if (!pdf.txType) {
+      // pdf is now always an array; empty or first element missing txType = parse failed
+      const pdfBlocks = Array.isArray(pdf) ? pdf.filter(p => p?.txType) : [];
+      if (!pdfBlocks.length) {
         pdfFailed++;
-        // Log first few failures to help diagnose PDF format issues
         if (pdfFailed <= 3) console.log(`  ⚠  PDF parse failed (no txType): ${f.company} ${f.txDate} — ${f.docUrl}`);
         continue;
       }
+      if (pdfBlocks.length > 1) {
+        console.log(`  ℹ  Multi-block PDF: ${f.company} — ${pdfBlocks.length} execution blocks`);
+      }
 
-      const shares = pdf.shares ?? null;
-      const price  = pdf.price  ?? null;
-
-      // When the CNMV lists a corporate entity as the filer, expose it as via_entity
-      // so the transaction appears on the platform as "Via CERTIMAB CONTROL S.L." etc.
-      // db.js would otherwise silently drop rows where insider_name looksLikeCorp.
       const isCorp = f.insiderName && looksLikeCorp(f.insiderName);
 
-      rows.push({
-        filing_id:        `ES-${f.regNum}`,
-        country_code:     COUNTRY_CODE,
-        source:           SOURCE,
-        ticker:           getTicker(f.company) || '',
-        _isin:            pdf.isin || null,
-        company:          f.company,
-        insider_name:     isCorp ? null : f.insiderName,
-        via_entity:       isCorp ? f.insiderName : null,
-        insider_role:     translateRole(f.role) || 'Not disclosed',
-        transaction_type: pdf.txType,
-        transaction_date: pdf.txDateFromPdf || f.txDate,
-        shares,
-        price_per_share:  price,
-        total_value:      (price != null && shares) ? Math.round(price * shares) : null,
-        currency:         pdf.currency || CURRENCY,
-        filing_url:       f.docUrl || `https://www.cnmv.es/Portal/Consultas/Directivos-Resultado.aspx`,
+      pdfBlocks.forEach((p, idx) => {
+        const shares = p.shares ?? null;
+        const price  = p.price  ?? null;
+        // For multi-block filings, append block index to filing_id to avoid upsert collision
+        const fid = pdfBlocks.length > 1 ? `ES-${f.regNum}-${idx}` : `ES-${f.regNum}`;
+        rows.push({
+          filing_id:        fid,
+          country_code:     COUNTRY_CODE,
+          source:           SOURCE,
+          ticker:           getTicker(f.company) || '',
+          _isin:            p.isin || null,
+          company:          f.company,
+          insider_name:     isCorp ? null : f.insiderName,
+          via_entity:       isCorp ? f.insiderName : null,
+          insider_role:     translateRole(f.role) || 'Not disclosed',
+          transaction_type: p.txType,
+          transaction_date: p.txDateFromPdf || f.txDate,
+          shares,
+          price_per_share:  price,
+          total_value:      (price != null && shares) ? Math.round(price * shares) : null,
+          currency:         p.currency || CURRENCY,
+          filing_url:       f.docUrl || `https://www.cnmv.es/Portal/Consultas/Directivos-Resultado.aspx`,
+        });
       });
     }
 
