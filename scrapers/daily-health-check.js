@@ -183,6 +183,38 @@ async function checkUnusualPrices(since) {
   return flagged;
 }
 
+// ── Check g): Stale scrapers ──────────────────────────────────────────────────
+// A market is "stale" if its newest row (by created_at) is older than STALE_HOURS.
+// This catches silent failures where a scraper hung/crashed without logging an error.
+const STALE_HOURS = 48; // alert if a market hasn't produced new rows in 2 days
+const CORE_MARKETS = ['DE','FR','SE','NO','DK','FI','NL','BE','ES','IT','CH','GB','PT','LU','KR'];
+
+async function checkStaleScrapers() {
+  const { data } = await sb
+    .from('insider_transactions')
+    .select('country_code, created_at')
+    .in('country_code', CORE_MARKETS)
+    .order('created_at', { ascending: false });
+  if (!data) return [];
+
+  // Get most recent created_at per market
+  const latest = {};
+  for (const r of data) {
+    if (!latest[r.country_code]) latest[r.country_code] = r.created_at;
+  }
+
+  const stale = [];
+  const now = Date.now();
+  for (const cc of CORE_MARKETS) {
+    const lastRun = latest[cc] ? new Date(latest[cc]).getTime() : 0;
+    const hoursAgo = Math.round((now - lastRun) / 3600000);
+    if (hoursAgo >= STALE_HOURS) {
+      stale.push({ country_code: cc, hours_ago: hoursAgo, last_seen: latest[cc]?.slice(0,16) || 'never' });
+    }
+  }
+  return stale;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -190,7 +222,7 @@ async function main() {
   const since  = cutoffDate(LOOKBACK_DAYS);
   const today  = new Date().toISOString().slice(0, 10);
 
-  const [priceAnomalies, missingFields, suspiciousNames, duplicates, bilateralTransfers, unusualPrices] =
+  const [priceAnomalies, missingFields, suspiciousNames, duplicates, bilateralTransfers, unusualPrices, staleScrapers] =
     await Promise.all([
       checkPriceAnomalies(since),
       checkMissingFields(since),
@@ -198,11 +230,13 @@ async function main() {
       checkDuplicates(since),
       checkBilateralTransfers(since),
       checkUnusualPrices(since),
+      checkStaleScrapers(),
     ]);
 
   const missingCount  = Object.values(missingFields).reduce((s, n) => s + n, 0);
   const totalIssues   = priceAnomalies.length + missingCount + suspiciousNames.length +
-                        duplicates.length + bilateralTransfers.length + unusualPrices.length;
+                        duplicates.length + bilateralTransfers.length + unusualPrices.length +
+                        staleScrapers.length;
 
   // Log summary
   console.log(`  a) Price anomalies:       ${priceAnomalies.length}`);
@@ -211,6 +245,7 @@ async function main() {
   console.log(`  d) Duplicates:            ${duplicates.length}`);
   console.log(`  e) Bilateral transfers:   ${bilateralTransfers.length}`);
   console.log(`  f) Unusual prices:        ${unusualPrices.length}`);
+  console.log(`  g) Stale scrapers (>${STALE_HOURS}h): ${staleScrapers.length}${staleScrapers.length?(' — '+staleScrapers.map(s=>s.country_code+'('+s.hours_ago+'h)').join(', ')):''}`);
   console.log(`  Total issues:             ${totalIssues}`);
 
   if (totalIssues === 0) {
@@ -224,6 +259,7 @@ async function main() {
     ...Object.keys(missingFields),
     ...suspiciousNames.map(r=>r.country_code),
     ...unusualPrices.map(r=>r.country),
+    ...staleScrapers.map(r=>r.country_code),
   ])].join(', ') || 'various';
 
   const html = `
@@ -252,6 +288,10 @@ async function main() {
   <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">f) Unusual Prices — likely option exercises (${unusualPrices.length})</h3>
   <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Transaction price &lt; 75% of company peer median — review manually</p>
   ${tableHtml(['Company','Country','Insider','Tx Price','Peer Median','Ratio','Date'],unusualPrices.map(r=>[r.company,r.country,r.insider,r.tx_price,r.peer_median,r.ratio,r.date]))}
+
+  <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">g) Stale Scrapers — no new data in ${STALE_HOURS}h+ (${staleScrapers.length})</h3>
+  <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Markets whose scraper may have hung or failed silently</p>
+  ${tableHtml(['Market','Hours Since Last Row','Last Seen'],staleScrapers.map(r=>[r.country_code,r.hours_ago+'h',r.last_seen]))}
 
   <hr style="margin:24px 0;border:none;border-top:1px solid #f0f0f0">
   <p style="font-size:11px;color:#9CA3AF">InsidersAlpha automated health check · <a href="https://www.insidersalpha.com" style="color:#9CA3AF">insidersalpha.com</a></p>

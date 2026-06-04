@@ -91,6 +91,8 @@ function timestamp() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
+const MARKET_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes — kills hanging scrapers
+
 function runScript(scriptPath, label) {
   return new Promise((resolve) => {
     const start = Date.now();
@@ -100,8 +102,26 @@ function runScript(scriptPath, label) {
     });
 
     const lines = [];
+    let settled = false;
 
-    const collect = (stream, prefix) => {
+    function finish(ok, code) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      resolve({ label, ok, elapsed, code, lines });
+    }
+
+    // Kill the child after MARKET_TIMEOUT_MS so a single hanging scraper
+    // (e.g. Portugal Puppeteer, slow PDF downloads) never blocks the rest.
+    const timer = setTimeout(() => {
+      console.error(`  ⏱  ${label} TIMEOUT after ${MARKET_TIMEOUT_MS / 60000}min — killing`);
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 5000); // force-kill if SIGTERM ignored
+      finish(false, -2);
+    }, MARKET_TIMEOUT_MS);
+
+    const collect = (stream) => {
       stream.on('data', chunk => {
         chunk.toString().split('\n').forEach(line => {
           const trimmed = line.trim();
@@ -113,18 +133,14 @@ function runScript(scriptPath, label) {
       });
     };
 
-    collect(child.stdout, '');
-    collect(child.stderr, '');
+    collect(child.stdout);
+    collect(child.stderr);
 
-    child.on('close', code => {
-      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      const ok = code === 0;
-      resolve({ label, ok, elapsed, code, lines });
-    });
+    child.on('close', code => finish(code === 0, code));
 
     child.on('error', err => {
       console.error(`  ❌ spawn error: ${err.message}`);
-      resolve({ label, ok: false, elapsed: '0.0', code: -1, lines: [] });
+      finish(false, -1);
     });
   });
 }
