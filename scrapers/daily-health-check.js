@@ -188,6 +188,7 @@ async function checkUnusualPrices(since) {
 // This catches silent failures where a scraper hung/crashed without logging an error.
 const STALE_HOURS = 48; // alert if a market hasn't produced new rows in 2 days
 const CORE_MARKETS = ['DE','FR','SE','NO','DK','FI','NL','BE','ES','IT','CH','GB','PT','LU','KR'];
+// PL excluded — Poland removed from platform
 
 async function checkStaleScrapers() {
   const { data } = await sb
