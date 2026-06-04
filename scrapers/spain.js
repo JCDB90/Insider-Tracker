@@ -263,13 +263,47 @@ function toSpanishTitleCase(s) {
   return s.toLowerCase().replace(/(?:^|[\s\-])([a-záéíóúàèìòùñü])/gi, m => m.toUpperCase());
 }
 
-// Returns true if the string is a role/job title, not a person name.
-// Person names have at least one word that is not a common Spanish executive role keyword.
-const ES_ROLE_RE = /^(?:consejero|consejera|directivo|directiva|director|directora|presidente|presidenta|vicepresidente|vicepresidenta|administrador|administradora|secretario|secretaria|tesorero|tesorera|vocal|independiente|dominical|ejecutivo|ejecutiva|primero|primera|coordinador|dpto|del|de|la|las|los|el|y|coo|cfo|ceo|cto|externo|externa|comisario)\b/i;
+// Checks if the FIRST word of a string is a Spanish executive role keyword.
+// This is the reliable discriminator: person names never start with Consejero/Director etc.
+const ES_ROLE_FIRST_RE = /^(?:consejero|consejera|directivo|directiva|director|directora|presidente|presidenta|vicepresidente|vicepresidenta|administrador|administradora|secretario|secretaria|tesorero|tesorera|vocal|independiente|dominical|ejecutivo|ejecutiva|primero|primera|coordinador|dpto|coo|cfo|ceo|cto|externo|externa|comisario|delegado|gerente|responsable|jefe)\b/i;
 function isRoleTitle(s) {
-  const words = s.split(/[\s\-–\.,()/]+/).filter(w => w.length > 1);
-  const personWords = words.filter(w => !ES_ROLE_RE.test(w));
-  return personWords.length === 0;
+  const first = (s||'').trim().split(/[\s\-–;,()]+/)[0].toLowerCase();
+  return ES_ROLE_FIRST_RE.test(first);
+}
+
+// Extract real PDMR person name from section 2a "Cargo - posición" line.
+// All CNMV formats place the person name on ONE side of a separator and the role on the other.
+// This function detects which side is the role (first word = role keyword) and returns the other.
+function extractPdmrFromCargo(cargoLine) {
+  if (!cargoLine || cargoLine.length < 4) return null;
+  const line = cargoLine.trim();
+
+  // Try separators in order: " - ", "; ", "- " (no leading space), ", " (last comma)
+  for (const sep of [' - ', '; ', '- ']) {
+    const idx = line.indexOf(sep);
+    if (idx < 0) continue;
+    const before = line.slice(0, idx).trim();
+    const after  = line.slice(idx + sep.length).trim();
+    if (!before || !after) continue;
+    // If after is a role and before is a person (≥2 words, not corp, not role)
+    if (isRoleTitle(after) && !isRoleTitle(before) && !looksLikeCorp(before) && before.split(/\s+/).length >= 2) {
+      return toSpanishTitleCase(before);
+    }
+    // If before is a role and after is a person (Mendibea/CONSEJERO-first format)
+    if (isRoleTitle(before) && !isRoleTitle(after) && !looksLikeCorp(after) && after.split(/\s+/).length >= 2) {
+      return toSpanishTitleCase(after);
+    }
+  }
+  // Last resort: comma — "Name, Role" (use last comma to avoid splitting on name particles)
+  const ci = line.lastIndexOf(', ');
+  if (ci > 0) {
+    const before = line.slice(0, ci).trim();
+    const after  = line.slice(ci + 2).trim();
+    if (isRoleTitle(after) && !isRoleTitle(before) && !looksLikeCorp(before) && before.split(/\s+/).length >= 2) {
+      return toSpanishTitleCase(before);
+    }
+  }
+  return null;
 }
 
 function parsePdfText(text) {
@@ -344,25 +378,16 @@ function parsePdfText(text) {
   }
 
   // ── PDMR real-person name from section 2a ────────────────────────────────
-  // When section 1a has a corporate entity (e.g. "MENDIBEA 2002, S.L."), the
-  // PDF's section 2a "Cargo - posición / Job title" contains the real person:
-  //   "CONSEJERO - JOSE IGNACIO COMENGE SÁNCHEZ-REAL"
-  // Extract everything after the " - " separator as the person's name.
+  // When section 1a is a corporate entity, section 2a "Cargo - posición" contains
+  // the real person. All observed CNMV formats have the person on one side of a
+  // separator and the role on the other — extractPdmrFromCargo handles all variants.
   let pdmrName = null;
   const cargoM = text.match(/(?:cargo\s*[-–]\s*posici[oó]n|job\s+title)\s*\n+\s*([^\n]+)/i);
   if (cargoM) {
-    const cargo = cargoM[1].trim();
-    const dashIdx = cargo.indexOf(' - ');
-    if (dashIdx >= 0) {
-      const afterDash = cargo.slice(dashIdx + 3).trim();
-      // Only accept if it's not a corporate entity AND not just a role title
-      if (afterDash && afterDash.length > 3 && !looksLikeCorp(afterDash) && !isRoleTitle(afterDash)) {
-        pdmrName = toSpanishTitleCase(afterDash);
-      } else if (dashIdx > 0 && !isRoleTitle(afterDash)) {
-        // Some PDFs have reversed format: "PERSON_NAME - ROLE"
-        // already handled above; nothing extra needed
-      }
-    }
+    let name = extractPdmrFromCargo(cargoM[1]);
+    // Strip "Persona Estrechamente Vinculada De D." prefix that sometimes leaks in
+    if (name) name = name.replace(/^Persona\s+Estrechamente\s+Vinculada\s+De\s+D[ñ]?\.?\s*/i, '').trim();
+    if (name && name.length >= 5) pdmrName = name;
   }
 
   // Single-block result (or empty fallback)
