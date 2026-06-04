@@ -258,6 +258,20 @@ function parseEsNum(s) {
   return parseFloat(str.replace(/,/g, '')) || null;
 }
 
+// Convert ALL-CAPS Spanish name to title case: "JOSÉ IGNACIO COMENGE" → "José Ignacio Comenge"
+function toSpanishTitleCase(s) {
+  return s.toLowerCase().replace(/(?:^|[\s\-])([a-záéíóúàèìòùñü])/gi, m => m.toUpperCase());
+}
+
+// Returns true if the string is a role/job title, not a person name.
+// Person names have at least one word that is not a common Spanish executive role keyword.
+const ES_ROLE_RE = /^(?:consejero|consejera|directivo|directiva|director|directora|presidente|presidenta|vicepresidente|vicepresidenta|administrador|administradora|secretario|secretaria|tesorero|tesorera|vocal|independiente|dominical|ejecutivo|ejecutiva|primero|primera|coordinador|dpto|del|de|la|las|los|el|y|coo|cfo|ceo|cto|externo|externa|comisario)\b/i;
+function isRoleTitle(s) {
+  const words = s.split(/[\s\-–\.,()/]+/).filter(w => w.length > 1);
+  const personWords = words.filter(w => !ES_ROLE_RE.test(w));
+  return personWords.length === 0;
+}
+
 function parsePdfText(text) {
   if (!text || text.length < 50) return [];
 
@@ -329,8 +343,30 @@ function parsePdfText(text) {
     if (currMatch) currency = currMatch[1];
   }
 
+  // ── PDMR real-person name from section 2a ────────────────────────────────
+  // When section 1a has a corporate entity (e.g. "MENDIBEA 2002, S.L."), the
+  // PDF's section 2a "Cargo - posición / Job title" contains the real person:
+  //   "CONSEJERO - JOSE IGNACIO COMENGE SÁNCHEZ-REAL"
+  // Extract everything after the " - " separator as the person's name.
+  let pdmrName = null;
+  const cargoM = text.match(/(?:cargo\s*[-–]\s*posici[oó]n|job\s+title)\s*\n+\s*([^\n]+)/i);
+  if (cargoM) {
+    const cargo = cargoM[1].trim();
+    const dashIdx = cargo.indexOf(' - ');
+    if (dashIdx >= 0) {
+      const afterDash = cargo.slice(dashIdx + 3).trim();
+      // Only accept if it's not a corporate entity AND not just a role title
+      if (afterDash && afterDash.length > 3 && !looksLikeCorp(afterDash) && !isRoleTitle(afterDash)) {
+        pdmrName = toSpanishTitleCase(afterDash);
+      } else if (dashIdx > 0 && !isRoleTitle(afterDash)) {
+        // Some PDFs have reversed format: "PERSON_NAME - ROLE"
+        // already handled above; nothing extra needed
+      }
+    }
+  }
+
   // Single-block result (or empty fallback)
-  return { txType, isin, price, shares, currency, txDateFromPdf };
+  return { txType, isin, price, shares, currency, txDateFromPdf, pdmrName };
 }
 
 // Normalise parsePdfText result to array for uniform handling downstream
@@ -395,6 +431,8 @@ async function scrapeES() {
       }
 
       const isCorp = f.insiderName && looksLikeCorp(f.insiderName);
+      // For corporate filers, try to use the real PDMR name from PDF section 2a
+      const pdmrName = pdfBlocks[0]?.pdmrName || null;
 
       pdfBlocks.forEach((p, idx) => {
         const shares = p.shares ?? null;
@@ -408,7 +446,7 @@ async function scrapeES() {
           ticker:           getTicker(f.company) || '',
           _isin:            p.isin || null,
           company:          f.company,
-          insider_name:     isCorp ? null : f.insiderName,
+          insider_name:     isCorp ? pdmrName : f.insiderName,
           via_entity:       isCorp ? f.insiderName : null,
           insider_role:     translateRole(f.role) || 'Not disclosed',
           transaction_type: p.txType,
