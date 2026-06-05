@@ -67,7 +67,7 @@ function mapType(s) {
   if (l.includes('acqui') || l.includes('subscript') || l.includes('grant') ||
       l.includes('purchas') || l.includes('receiv') || l.includes('gift') ||
       l.includes('award') || l.includes('exercis') || l.includes('convert') ||
-      l.includes('inherit')) return 'BUY';
+      l.includes('inherit') || l.includes('allotm')) return 'BUY';  // "Allotment" = RSU/LTIP grant
   if (l.includes('dispos') || l.includes('sale') || l.includes('redem') ||
       l.includes('divest')) return 'SELL';
   return 'OTHER';
