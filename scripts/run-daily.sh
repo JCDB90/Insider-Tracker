@@ -79,26 +79,24 @@ EXIT_CODE=$?
 
 echo ""
 echo "── Scoring & Performance ──────────────────────────────"
-"$NODE_BIN" scrapers/score-insiders.js
-"$NODE_BIN" scrapers/track-performance.js
-"$NODE_BIN" scrapers/flag-signals.js
-"$NODE_BIN" scrapers/daily-health-check.js || true  # non-fatal
-"$NODE_BIN" scrapers/enrich-sectors.js
+"$NODE_BIN" scrapers/score-insiders.js       || true  # non-fatal
+"$NODE_BIN" scrapers/track-performance.js    || true  # non-fatal
+"$NODE_BIN" scrapers/flag-signals.js         || true  # non-fatal
+"$NODE_BIN" scrapers/daily-health-check.js   || true  # non-fatal
+"$NODE_BIN" scrapers/enrich-sectors.js       || true  # non-fatal
 
 echo ""
 echo "── Watchlist Notifications ────────────────────────────"
-"$NODE_BIN" scrapers/notify-watchlist.js || true  # non-fatal
+"$NODE_BIN" scrapers/notify-watchlist.js     || true  # non-fatal
 
 echo ""
 echo "── Lifecycle Emails ───────────────────────────────────"
-"$NODE_BIN" scrapers/emails/welcome-flow.js || true  # non-fatal
-
-set -e
+"$NODE_BIN" scrapers/emails/welcome-flow.js  || true  # non-fatal
 
 # ── Post-run ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo "  Exit code: $EXIT_CODE"
+echo "  Scraper exit code: $EXIT_CODE  (individual failures logged above)"
 echo "  Finished:  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -106,4 +104,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 find "$LOG_DIR" -name "scrape-*.log" -mtime +30 -delete 2>/dev/null || true
 
-exit $EXIT_CODE
+# Always exit 0 — individual scraper failures are logged and reported via
+# daily-health-check.js email alerts. A non-zero cron exit causes unnecessary
+# system noise without adding actionable information.
+exit 0
