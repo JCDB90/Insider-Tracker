@@ -60,29 +60,18 @@ const MARKETS = [
   { code: 'DK', name: 'Denmark',        file: 'denmark',     mode: 'http' },
   { code: 'NO', name: 'Norway',         file: 'norway',      mode: 'http' },
   { code: 'FI', name: 'Finland',        file: 'finland',     mode: 'http' },
-  { code: 'AT', name: 'Austria',        file: 'austria',     mode: 'http' },
   { code: 'CH', name: 'Switzerland',    file: 'switzerland', mode: 'http' },
   { code: 'PT', name: 'Portugal',       file: 'portugal',    mode: 'http' },
-  { code: 'IE', name: 'Ireland',        file: 'ireland',     mode: 'http' },
-  { code: 'PL', name: 'Poland',         file: 'poland',      mode: 'http' },
-  { code: 'CZ', name: 'Czech Republic', file: 'czech',       mode: 'http' },
   { code: 'LU', name: 'Luxembourg',     file: 'luxembourg',  mode: 'http' },
+  // AT, IE, PL, CZ removed — not on platform
 
   // ── Europe (Puppeteer) ───────────────────────────────────────────────────
   { code: 'NL', name: 'Netherlands',    file: 'netherlands', mode: 'http' },
 
   // ── Asia-Pacific ─────────────────────────────────────────────────────────
   // AU disabled: ASX Appendix 3Y metadata has no price/shares/name data (all null)
-  { code: 'HK', name: 'Hong Kong',      file: 'hongkong',    mode: 'http' },
-  { code: 'JP', name: 'Japan',          file: 'japan',       mode: 'http' },
   { code: 'KR', name: 'South Korea',    file: 'southkorea',  mode: 'http' },
-  { code: 'SG', name: 'Singapore',      file: 'singapore',   mode: 'http' },
-
-  // ── Americas ─────────────────────────────────────────────────────────────
-  { code: 'CA', name: 'Canada',         file: 'canada',      mode: 'http' },
-
-  // ── Africa ───────────────────────────────────────────────────────────────
-  { code: 'ZA', name: 'South Africa',   file: 'southafrica', mode: 'http' },
+  // HK, JP, SG, CA, ZA removed — not on platform
 ];
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
