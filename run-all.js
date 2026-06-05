@@ -13,9 +13,33 @@
 
 'use strict';
 
+require('dotenv').config();
+
 const { spawn }  = require('child_process');
 const path       = require('path');
 const fs         = require('fs');
+
+// Log each market run to scraper_runs table so health-check can detect
+// genuinely missed runs vs markets that ran but found no new filings.
+const { createClient } = require('@supabase/supabase-js');
+const _sb = (() => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+})();
+
+async function logRun(countryCode, rowsSaved, durationS, status) {
+  if (!_sb || !countryCode) return;
+  try {
+    await _sb.from('scraper_runs').insert({
+      country_code: countryCode,
+      rows_saved:   rowsSaved ?? 0,
+      duration_s:   durationS,
+      status,
+    });
+  } catch { /* non-fatal */ }
+}
 
 // ─── Market registry ──────────────────────────────────────────────────────────
 //
@@ -170,6 +194,15 @@ async function main() {
     console.log(`\n[${market.code}] ${market.name}`);
     const result = await runScript(scriptPath, market.code);
     results.push(result);
+
+    // Log to scraper_runs so health-check can tell the difference between
+    // "scraper ran but found nothing new" vs "scraper never ran"
+    await logRun(
+      market.code,
+      null,                                               // rows_saved unknown at this level
+      parseFloat(result.elapsed) || 0,
+      result.ok ? 'success' : (result.code === -2 ? 'timeout' : 'failed'),
+    );
   }
 
   // Buyback scrapers run on a separate weekly schedule (scripts/run-buybacks.sh)

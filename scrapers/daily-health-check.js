@@ -184,33 +184,53 @@ async function checkUnusualPrices(since) {
 }
 
 // ── Check g): Stale scrapers ──────────────────────────────────────────────────
-// A market is "stale" if its newest row (by created_at) is older than STALE_HOURS.
-// This catches silent failures where a scraper hung/crashed without logging an error.
-const STALE_HOURS = 48; // alert if a market hasn't produced new rows in 2 days
+// Uses scraper_runs table (populated by run-all.js) to detect scrapers that
+// genuinely didn't run — as opposed to scrapers that ran but found nothing new.
+// Falls back to insider_transactions.created_at if scraper_runs has no data yet.
+const STALE_HOURS = 48; // alert if a market hasn't run in 2 days
 const CORE_MARKETS = ['DE','FR','SE','NO','DK','FI','NL','BE','ES','IT','CH','GB','PT','LU','KR'];
 // PL excluded — Poland removed from platform
 
 async function checkStaleScrapers() {
-  const { data } = await sb
+  const now = Date.now();
+
+  // Primary: check scraper_runs table
+  const { data: runs } = await sb
+    .from('scraper_runs')
+    .select('country_code, ran_at, status')
+    .in('country_code', CORE_MARKETS)
+    .order('ran_at', { ascending: false });
+
+  // Fallback: newest created_at per market from insider_transactions
+  const { data: txRows } = await sb
     .from('insider_transactions')
     .select('country_code, created_at')
     .in('country_code', CORE_MARKETS)
     .order('created_at', { ascending: false });
-  if (!data) return [];
 
-  // Get most recent created_at per market
-  const latest = {};
-  for (const r of data) {
-    if (!latest[r.country_code]) latest[r.country_code] = r.created_at;
-  }
+  const latestRun = {};   // from scraper_runs
+  const latestTx  = {};   // from insider_transactions (fallback)
+
+  for (const r of runs   || []) if (!latestRun[r.country_code]) latestRun[r.country_code] = r.ran_at;
+  for (const r of txRows || []) if (!latestTx[r.country_code])  latestTx[r.country_code]  = r.created_at;
+
+  const hasRunData = Object.keys(latestRun).length > 0;
 
   const stale = [];
-  const now = Date.now();
   for (const cc of CORE_MARKETS) {
-    const lastRun = latest[cc] ? new Date(latest[cc]).getTime() : 0;
-    const hoursAgo = Math.round((now - lastRun) / 3600000);
+    const lastTimestamp = hasRunData
+      ? (latestRun[cc] || null)        // use scraper_runs if available
+      : (latestTx[cc]  || null);       // fall back to created_at
+    const hoursAgo = lastTimestamp
+      ? Math.round((now - new Date(lastTimestamp).getTime()) / 3600000)
+      : 9999;
     if (hoursAgo >= STALE_HOURS) {
-      stale.push({ country_code: cc, hours_ago: hoursAgo, last_seen: latest[cc]?.slice(0,16) || 'never' });
+      stale.push({
+        country_code: cc,
+        hours_ago:    hoursAgo,
+        last_seen:    lastTimestamp?.slice(0, 16) || 'never',
+        source:       hasRunData ? 'scraper_runs' : 'tx_created_at',
+      });
     }
   }
   return stale;
