@@ -30,6 +30,8 @@
  */
 'use strict';
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const https = require('https');
 const path  = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
