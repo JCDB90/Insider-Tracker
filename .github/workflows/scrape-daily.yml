@@ -85,6 +85,7 @@ jobs:
       - name: 🇫🇷 France (AMF)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FR' }}
         continue-on-error: true
+        timeout-minutes: 15   # PDF-heavy — many AMF documents to download
         run: node scrapers/france.js
 
       - name: 🇫🇮 Finland (FIN-FSA)
@@ -100,6 +101,7 @@ jobs:
       - name: 🇵🇹 Portugal (CMVM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'PT' }}
         continue-on-error: true
+        timeout-minutes: 12   # Puppeteer can hang — cap it so NO/CH/KR aren't starved
         run: node scrapers/portugal.js
 
       - name: 🇧🇪 Belgium (FSMA)
@@ -110,11 +112,13 @@ jobs:
       - name: 🇱🇺 Luxembourg (LuxSE)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'LU' }}
         continue-on-error: true
+        timeout-minutes: 12   # PDF downloads from LuxSE
         run: node scrapers/luxembourg.js
 
       - name: 🇬🇧 United Kingdom (FCA NSM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
         continue-on-error: true
+        timeout-minutes: 15   # Many FCA PDF fetches
         run: node scrapers/uk.js
 
       - name: 🇮🇹 Italy (CONSOB)
@@ -136,6 +140,7 @@ jobs:
       - name: 🇰🇷 South Korea (FSS)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'KR' }}
         continue-on-error: true
+        timeout-minutes: 15   # DART API + ZIP downloads
         run: node scrapers/southkorea.js
 
       # ── Maintenance ─────────────────────────────────────────────────────────
