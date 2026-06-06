@@ -227,14 +227,17 @@ async function fetchPage(from, to, page) {
     });
   });
 
-  // Extract total page count from pager on page 1
+  // Extract total page count from pager on page 1.
+  // Must use cheerio attr() — raw HTML has &amp;page=N (entity-encoded) which
+  // a plain regex on the HTML string would not match.
   let totalPages = null;
   if (page === 1) {
-    const lastPage = Math.max(
-      0,
-      ...html.match(/[?&]page=(\d+)/gi)?.map(m => parseInt(m.split('=')[1])) ?? [],
-    );
-    totalPages = lastPage || 1;
+    const pageNums = [];
+    $('a[href]').each((_, el) => {
+      const m = ($(el).attr('href') || '').match(/[?&]page=(\d+)/i);
+      if (m) pageNums.push(parseInt(m[1]));
+    });
+    totalPages = pageNums.length ? Math.max(...pageNums) : 1;
   }
 
   return { rows, totalPages };
