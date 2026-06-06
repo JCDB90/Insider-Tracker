@@ -4,15 +4,15 @@
  * Source: Finansinspektionen (FI) — Insynsregistret
  * URL: https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search
  *
- * Strategy: Puppeteer-based CSV export.
- *   FI blocks raw HTTP requests from datacenter IPs (Hetzner, Azure) after
- *   ~7 requests. Puppeteer's real browser fingerprint bypasses this block.
+ * Strategy: Puppeteer + CDP CSV export.
+ *   FI blocks the export endpoint (?button=export) for datacenter IPs (Hetzner,
+ *   Azure) with a hard TCP RST — no Puppeteer fingerprinting can bypass this.
+ *   Must run on a non-datacenter IP (GitHub Actions EU runner).
  *
  *   Flow:
- *   1. Launch headless Chrome; navigate to FI search page (passes bot-detection)
- *   2. page.screenshot → /tmp/fi-debug.png for diagnostics
- *   3. Attach CDP Network session (page.on/waitForResponse never fire for downloads)
- *   4. page.goto(exportUrl) fire-and-forget; CDP requestWillBeSent+loadingFinished capture body
+ *   1. Launch headless Chrome; navigate to FI search page (establishes session)
+ *   2. Attach CDP Network session (page.on/waitForResponse skip download responses)
+ *   3. page.goto(exportUrl) fire-and-forget; CDP requestWillBeSent+loadingFinished capture body
  *   5. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
@@ -216,14 +216,21 @@ async function fetchCsv(from, to) {
   const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
     `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
 
-  // Full export URL with all params baked in.
-  // Clicking the export button on the search page does NOT work: GET forms only
-  // serialise their own <input> fields, so the date values from the page URL are
-  // never included — the server returns an HTML search page instead of a CSV.
+  // Build the export URL to exactly match what the browser submits when the export
+  // button is clicked.  Key points established by form inspection:
+  //   - Field name is PersonILedandeStällningNamn (ä, plus Namn suffix)
+  //   - Dates must be DD/MM/YYYY (the server converts ISO → DD/MM/YYYY for form display)
+  //   - Publiceringsdatum.From/To fields exist and must be included (empty)
+  //   - Note: FI blocks button=export requests from datacenter IPs (Hetzner/Azure);
+  //     this scraper only works on non-datacenter IPs (e.g. GitHub Actions EU runners).
+  const fromDMY = from.split('-').reverse().join('/');  // 2026-06-03 → 03/06/2026
+  const toDMY   = to.split('-').reverse().join('/');
   const exportUrl = `${BASE}?SearchFunctionType=Insyn` +
-    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
-    `&Utgivare=&PersonILedandeStallning=` +
-    `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=` +
+    `&Utgivare=` +
+    `&PersonILedandeSt%C3%A4llningNamn=` +
+    `&Transaktionsdatum.From=${encodeURIComponent(fromDMY)}` +
+    `&Transaktionsdatum.To=${encodeURIComponent(toDMY)}` +
+    `&Publiceringsdatum.From=&Publiceringsdatum.To=` +
     `&Page=1&button=export`;
 
   const chromiumPath = findChromium();
@@ -243,10 +250,6 @@ async function fetchCsv(from, to) {
 
     // Step 1: visit the search page so FI's session/bot-detection is satisfied
     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-    // Debug screenshot to diagnose page state before export
-    await page.screenshot({ path: '/tmp/fi-debug.png' });
-    console.log('  Debug screenshot saved to /tmp/fi-debug.png');
 
     // Step 2: use CDP Network layer to capture the CSV download.
     // page.on('response') / waitForResponse never fire for Content-Disposition:attachment
@@ -294,11 +297,6 @@ async function fetchCsv(from, to) {
   } finally {
     await browser.close();
   }
-
-  // Debug: persist raw bytes and log a decoded sample
-  require('fs').writeFileSync('/tmp/fi-export.csv', buf);
-  console.log(`  Raw CSV bytes: ${buf.length}`);
-  console.log(`  CSV sample (utf16le): ${JSON.stringify(buf.toString('utf16le').substring(0, 500))}`);
 
   const text = buf.toString('utf16le');  // Node.js spelling (no hyphens)
   const lines = text.split('\n').map(l => l.replace(/\r$/, '').trim()).filter(Boolean);
