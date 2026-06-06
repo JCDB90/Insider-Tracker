@@ -227,10 +227,10 @@ async function fetchPage(from, to, page) {
     });
   });
 
-  // Extract total page count from pager on page 1.
+  // Extract total page count and result count from pager on page 1.
   // Must use cheerio attr() — raw HTML has &amp;page=N (entity-encoded) which
   // a plain regex on the HTML string would not match.
-  let totalPages = null;
+  let totalPages = null, totalResults = null;
   if (page === 1) {
     const pageNums = [];
     $('a[href]').each((_, el) => {
@@ -238,9 +238,12 @@ async function fetchPage(from, to, page) {
       if (m) pageNums.push(parseInt(m[1]));
     });
     totalPages = pageNums.length ? Math.max(...pageNums) : 1;
+    // "Showing X to Y of Z result" — Z is in the badge-info span
+    const badge = $('.badge-info').first().text().trim();
+    if (badge) totalResults = parseInt(badge);
   }
 
-  return { rows, totalPages };
+  return { rows, totalPages, totalResults };
 }
 
 async function scrapeSE() {
@@ -259,6 +262,8 @@ async function scrapeSE() {
   for (let page = 1; ; page++) {
     if (totalPages !== null && page > totalPages) break;
 
+    console.log(`  Fetching p${page}${totalPages ? `/${totalPages}` : ''}…`);
+
     let result = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -270,15 +275,19 @@ async function scrapeSE() {
         await new Promise(r => setTimeout(r, 5000));
       }
     }
-    if (!result) { page++; continue; }
+    // Do NOT page++ here — for-loop already increments; double-increment
+    // would silently skip the page after every failed page (p9 fail → jumps to p11).
+    if (!result) continue;
 
     if (page === 1) {
-      totalPages = result.totalPages;
-      console.log(`  Total pages: ${totalPages}`);
+      totalPages   = result.totalPages;
+      const hits   = result.totalResults ?? '?';
+      console.log(`  Total: ${hits} results across ${totalPages} page(s)`);
     }
 
+    console.log(`  p${page}: ${result.rows.length} rows`);
     allRaw.push(...result.rows);
-    if (result.rows.length < 10) break;  // last page (partial)
+    if (result.rows.length < 10) break;  // last page (partial — fewer than 10 rows)
 
     if (page < (totalPages ?? Infinity))
       await new Promise(r => setTimeout(r, DELAY_MS));
