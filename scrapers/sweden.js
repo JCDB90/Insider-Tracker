@@ -4,13 +4,16 @@
  * Source: Finansinspektionen (FI) — Insynsregistret
  * URL: https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search
  *
- * Strategy: single CSV export request per run.
- *   The search form has an "Export" button (button=export) that returns a
- *   UTF-16 LE semicolon-delimited CSV with ALL rows matching the date filter
- *   in one response — no pagination, no ECONNRESET from rate-limiting.
+ * Strategy: Puppeteer-based CSV export.
+ *   FI blocks raw HTTP requests from datacenter IPs (Hetzner, Azure) after
+ *   ~7 requests. Puppeteer's real browser fingerprint bypasses this block.
  *
- *   Previously the scraper paginated HTML pages, but FI rate-limits IP ranges
- *   after ~7 rapid requests, causing ECONNRESET data gaps.
+ *   Flow:
+ *   1. Launch headless Chrome; navigate to FI search page (establishes session)
+ *   2. Fetch the export URL via page.evaluate() — runs inside the browser,
+ *      inherits the session and passes bot-detection
+ *   3. Return UTF-16 LE CSV bytes to Node.js as Uint8Array
+ *   4. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
  *   [0]  Publication date      [1]  Issuer (company)
@@ -23,7 +26,7 @@
  */
 'use strict';
 
-const fetch   = require('node-fetch');
+const puppeteer = require('puppeteer');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
@@ -188,19 +191,65 @@ function getTicker(n) {
   return clean.split(/\s+/)[0].toUpperCase().slice(0, 6) || null;
 }
 
-// ─── CSV export ───────────────────────────────────────────────────────────────
+// ─── Chromium path resolution (mirrors portugal.js) ──────────────────────────
+
+function findChromium() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  const candidates = [
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ];
+  const { execSync } = require('child_process');
+  for (const p of candidates) {
+    try { execSync(`test -x ${p}`, { stdio: 'ignore' }); return p; } catch {}
+  }
+  try { return puppeteer.executablePath(); } catch {}
+  return undefined;
+}
+
+// ─── CSV export via Puppeteer ─────────────────────────────────────────────────
 
 async function fetchCsv(from, to) {
-  const url = `${BASE}?SearchFunctionType=Insyn` +
+  const exportUrl = `${BASE}?SearchFunctionType=Insyn` +
     `&Utgivare=&PersonILedandeStallning=` +
     `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
     `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=` +
     `&Page=1&button=export`;
 
-  const res = await fetch(url, { headers: HEADERS, timeout: 30000 });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const chromiumPath = findChromium();
+  console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
-  const buf = await res.buffer();
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    ...(chromiumPath ? { executablePath: chromiumPath } : {}),
+  });
+
+  let buf;
+  try {
+    const page = await browser.newPage();
+    await page.setUserAgent(HEADERS['User-Agent']);
+    await page.setExtraHTTPHeaders({ 'Accept-Language': HEADERS['Accept-Language'] });
+
+    // Step 1: visit the search page so FI's session/bot-detection is satisfied
+    await page.goto(`${BASE}?SearchFunctionType=Insyn`, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Step 2: fetch the CSV export from inside the browser (inherits cookies/session)
+    const bytes = await page.evaluate(async (url) => {
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const ab = await resp.arrayBuffer();
+      return Array.from(new Uint8Array(ab));
+    }, exportUrl);
+
+    buf = Buffer.from(bytes);
+  } finally {
+    await browser.close();
+  }
+
   const text = buf.toString('utf16le');  // Node.js spelling (no hyphens)
   const lines = text.split('\n').map(l => l.replace(/\r$/, '').trim()).filter(Boolean);
 
