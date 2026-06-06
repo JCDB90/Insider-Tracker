@@ -9,11 +9,11 @@
  *   ~7 requests. Puppeteer's real browser fingerprint bypasses this block.
  *
  *   Flow:
- *   1. Launch headless Chrome; navigate to FI search page (establishes session)
- *   2. Fetch the export URL via page.evaluate() — runs inside the browser,
- *      inherits the session and passes bot-detection
- *   3. Return UTF-16 LE CSV bytes to Node.js as Uint8Array
- *   4. Parse and save (one request = all rows, no pagination)
+ *   1. Launch headless Chrome; navigate to FI search page (passes bot-detection)
+ *   2. Register page.on('response') interceptor for the export URL
+ *   3. page.goto(exportUrl) fire-and-forget — download never fires load event
+ *   4. Response interceptor captures the UTF-16 LE CSV bytes
+ *   5. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
  *   [0]  Publication date      [1]  Issuer (company)
@@ -213,9 +213,11 @@ function findChromium() {
 // ─── CSV export via Puppeteer ─────────────────────────────────────────────────
 
 async function fetchCsv(from, to) {
-  const exportUrl = `${BASE}?SearchFunctionType=Insyn` +
+  const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
+    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
+
+  const exportUrl = searchUrl +
     `&Utgivare=&PersonILedandeStallning=` +
-    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
     `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=` +
     `&Page=1&button=export`;
 
@@ -235,17 +237,30 @@ async function fetchCsv(from, to) {
     await page.setExtraHTTPHeaders({ 'Accept-Language': HEADERS['Accept-Language'] });
 
     // Step 1: visit the search page so FI's session/bot-detection is satisfied
-    await page.goto(`${BASE}?SearchFunctionType=Insyn`, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Step 2: fetch the CSV export from inside the browser (inherits cookies/session)
-    const bytes = await page.evaluate(async (url) => {
-      const resp = await fetch(url, { credentials: 'include' });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const ab = await resp.arrayBuffer();
-      return Array.from(new Uint8Array(ab));
-    }, exportUrl);
+    // Step 2: set up response interceptor BEFORE triggering the export request.
+    // page.evaluate(fetch()) fails in the browser sandbox for download responses;
+    // intercepting the response event is more reliable.
+    const csvReady = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('CSV response not received within 30s')), 30000
+      );
+      page.on('response', async response => {
+        if (response.url().includes('button=export') && response.status() === 200) {
+          clearTimeout(timer);
+          try { resolve(await response.buffer()); }
+          catch (e) { reject(e); }
+        }
+      });
+    });
 
-    buf = Buffer.from(bytes);
+    // Step 3: navigate to the export URL — fire-and-forget.
+    // A CSV download never triggers the page 'load' event, so we don't await it;
+    // the response interceptor above captures the body.
+    page.goto(exportUrl, { timeout: 30000 }).catch(() => {});
+
+    buf = await csvReady;
   } finally {
     await browser.close();
   }
