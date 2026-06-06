@@ -4,11 +4,18 @@
  * Source: Finansinspektionen (FI) — Insynsregistret
  * URL: https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search
  *
- * Key discovery: the /en-GB/ URL path respects Transaktionsdatum.From/To filters
- * server-side, unlike /en/Search which ignores all filters and returns ALL history.
- * With date filtering, a 14-day window needs ~15-30 pages instead of 100+, which
- * eliminates the ECONNRESET rate-limit problem that plagued the old URL.
- * Pagination stops naturally when rows.length < 10 (end of filtered results).
+ * Strategy: pagination via publication-date filter + AJAX partial endpoint.
+ *
+ *   Key findings from investigation (2026-06-06):
+ *   - Transaction-date filter: 836 results / 84 pages for 14 days → rate-limit issues
+ *   - Publication-date filter: ~85 results / 9 pages for yesterday → 90% fewer requests
+ *   - AJAX partial endpoint (/Search/Insyn?paging=True) is NOT IP-blocked from
+ *     Hetzner datacenter IPs (unlike the CSV export endpoint).  Returns 15KB vs 29KB
+ *     per page (47% smaller).  Used for pages 2+; page 1 uses the full URL to get
+ *     the pager metadata (total pages).
+ *   - MAR Article 19 requires disclosure within 3 business days, so transaction
+ *     dates in recent publications can be up to ~4 days older than publication date.
+ *     No transaction-date cutoff is applied; publication date is the time anchor.
  */
 'use strict';
 
@@ -19,12 +26,15 @@ const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
 const { contentId }              = require('./lib/contentId');
 
-const COUNTRY_CODE   = 'SE';
-const SOURCE         = 'Finansinspektionen Sweden';
-const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
-const DELAY_MS       = 800;   // en-GB URL is server-filtered — far fewer pages needed
-const BASE           = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
-const HEADERS        = {
+const COUNTRY_CODE = 'SE';
+const SOURCE       = 'Finansinspektionen Sweden';
+// Publication-date window.  3 days covers Mon runs that must capture Fri+Sat+Sun.
+// Set LOOKBACK_DAYS=14 (or higher) for backfills.
+const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '3');
+const DELAY_MS      = 500;
+const BASE          = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
+const AJAX_BASE     = `${BASE}/Insyn`;
+const HEADERS       = {
   'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   'Accept':          'text/html,application/xhtml+xml,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.5',
@@ -39,7 +49,6 @@ function parseSEDate(s) {
   const dt = new Date(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
   return isNaN(dt) ? null : dt;
 }
-function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
 function parseNum(s) {
   if (!s || s.trim() === '-') return null;
   const str = s.trim().replace(/\s/g, '');
@@ -192,58 +201,87 @@ function getTicker(n) {
   return clean.split(/\s+/)[0].toUpperCase().slice(0, 6) || null;
 }
 
+// Returns { rows, totalPages } for page 1; { rows } for subsequent pages.
+// Page 1 uses the full search URL (needed to read pager metadata).
+// Pages 2+ use the AJAX partial endpoint — 47% smaller, same column layout,
+// not IP-blocked from datacenter IPs unlike the CSV export endpoint.
 async function fetchPage(from, to, page) {
-  const url = `${BASE}?SearchFunctionType=Insyn&Utgivare=&PersonILedandeStallning=` +
-    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
-    `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=&Page=${page}`;
+  const url = page === 1
+    ? `${BASE}?SearchFunctionType=Insyn&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}&Page=1`
+    : `${AJAX_BASE}?button=search&SearchFunctionType=Insyn&paging=True` +
+      `&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}&page=${page}`;
+
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const $ = cheerio.load(await res.text());
+  const html = await res.text();
+  const $    = cheerio.load(html);
+
   const rows = [];
   $('tbody tr').each((_, tr) => {
     const c = $(tr).find('td').map((_, td) => $(td).text().trim()).get();
     if (c.length < 13) return;
-    // c[4] = closely associated entity name or "Yes" — captured for logging/future use
-    rows.push({ company: c[1], insider: c[2], position: c[3], closely: c[4] || null, nature: c[5],
-                isin: c[8], txDateStr: c[9], volume: c[10], price: c[12], currency: c[13] || 'SEK' });
+    rows.push({
+      company: c[1], insider: c[2], position: c[3], closely: c[4] || null,
+      nature:  c[5], isin:    c[8], txDateStr: c[9],
+      volume:  c[10], price:  c[12], currency: c[13] || 'SEK',
+    });
   });
-  return rows;
+
+  // Extract total page count from pager on page 1
+  let totalPages = null;
+  if (page === 1) {
+    const lastPage = Math.max(
+      0,
+      ...html.match(/[?&]page=(\d+)/gi)?.map(m => parseInt(m.split('=')[1])) ?? [],
+    );
+    totalPages = lastPage || 1;
+  }
+
+  return { rows, totalPages };
 }
 
 async function scrapeSE() {
   console.log('🇸🇪  Finansinspektionen Sweden — Insynsregistret');
   const t0 = Date.now();
-  const co = cutoff();
-  const to = isoDate(new Date()), from = isoDate(co);
 
-  console.log(`  Fetching ${from} → ${to}…`);
+  const pubTo   = new Date();
+  const pubFrom = new Date(Date.now() - LOOKBACK_DAYS * 86400000);
+  const from = isoDate(pubFrom), to = isoDate(pubTo);
+
+  console.log(`  Publication dates ${from} → ${to} (LOOKBACK_DAYS=${LOOKBACK_DAYS})…`);
+
   const allRaw = [];
-  let page = 1, emptyRun = 0;
+  let totalPages = null;
 
-  // With server-side date filtering, the 14-day window is ~150 pages max.
-  // Pagination stops naturally when rows.length < 10 (end of filtered results).
-  while (emptyRun < 2 && page <= 200) {
-    let rows;
-    let attempt = 0;
-    while (attempt < 3) {
+  for (let page = 1; ; page++) {
+    if (totalPages !== null && page > totalPages) break;
+
+    let result = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        rows = await fetchPage(from, to, page);
+        result = await fetchPage(from, to, page);
         break;
       } catch (err) {
-        attempt++;
-        if (attempt >= 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up after 3 tries)`); rows = null; break; }
+        if (attempt === 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up)`); break; }
         console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 5s`);
         await new Promise(r => setTimeout(r, 5000));
       }
     }
-    if (!rows) { page++; continue; }  // skip failed page, don't abort remaining pages
-    if (rows.length === 0) { emptyRun++; } else { emptyRun = 0; allRaw.push(...rows); }
-    if (rows.length < 10) break;
-    page++;
-    if (page > 1) await new Promise(r => setTimeout(r, DELAY_MS));
+    if (!result) { page++; continue; }
+
+    if (page === 1) {
+      totalPages = result.totalPages;
+      console.log(`  Total pages: ${totalPages}`);
+    }
+
+    allRaw.push(...result.rows);
+    if (result.rows.length < 10) break;  // last page (partial)
+
+    if (page < (totalPages ?? Infinity))
+      await new Promise(r => setTimeout(r, DELAY_MS));
   }
 
-  console.log(`  ${allRaw.length} rows from ${page} page(s)`);
+  console.log(`  ${allRaw.length} rows fetched`);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
 
   const { looksLikeCorp } = require('./lib/entityUtils');
@@ -252,7 +290,8 @@ async function scrapeSE() {
   let corpFilings = 0;
   for (const r of allRaw) {
     const txDate = parseSEDate(r.txDateStr);
-    if (!txDate || txDate < co) continue;
+    // No transaction-date cutoff: pub-date is the time anchor.  Skip only if unparseable.
+    if (!txDate) continue;
     const txIso = isoDate(txDate);
     const shares = parseShares(r.volume), price = parseNum(r.price);
     const total = (shares && price) ? Math.round(shares * price) : null;
@@ -278,7 +317,7 @@ async function scrapeSE() {
       transaction_type: txType, transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
       price_per_share: price, total_value: total, currency: r.currency,
-      filing_url: `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,
+      filing_url: `${BASE}?SearchFunctionType=Insyn&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}`,
       source: SOURCE,
     });
   }
