@@ -285,7 +285,10 @@ async function scrapeFR() {
   const from = isoDate(co);
   const to   = isoDate(new Date());
   const fromApi = toApiDate(co);
-  const toApi   = toApiDate(new Date());
+  // AMF API treats DateFin as exclusive (< DateFin), so midnight-of-today misses
+  // same-day filings. Use midnight of tomorrow to include today's filings.
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const toApi   = toApiDate(tomorrow);
   console.log(`  Fetching ${from} → ${to}…`);
 
   const allItems = [];
