@@ -2,12 +2,13 @@
  * Sweden (SE) — Insider Transactions Scraper
  *
  * Source: Finansinspektionen (FI) — Insynsregistret
- * URL: https://marknadssok.fi.se/publiceringsklient/en/Search?SearchFunctionType=Insyn
+ * URL: https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search
  *
- * Pagination: 10 rows/page, GET request.  NOTE: FI portal ignores date/filter parameters
- * without a browser session, so date filtering is applied CLIENT-SIDE after fetching. The
- * 14-day window spans ~100 pages; FI rate-limits after ~8 rapid requests (ECONNRESET).
- * Fields: company, insider, role, Acquisition(BUY)/Disposal(SELL), shares, price, SEK.
+ * Key discovery: the /en-GB/ URL path respects Transaktionsdatum.From/To filters
+ * server-side, unlike /en/Search which ignores all filters and returns ALL history.
+ * With date filtering, a 14-day window needs ~15-30 pages instead of 100+, which
+ * eliminates the ECONNRESET rate-limit problem that plagued the old URL.
+ * Pagination stops naturally when rows.length < 10 (end of filtered results).
  */
 'use strict';
 
@@ -21,8 +22,8 @@ const { contentId }              = require('./lib/contentId');
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
-const DELAY_MS       = 1500;  // FI server rate-limits after ~8 rapid requests; was 600ms
-const BASE           = 'https://marknadssok.fi.se/publiceringsklient/en/Search';
+const DELAY_MS       = 800;   // en-GB URL is server-filtered — far fewer pages needed
+const BASE           = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const HEADERS        = {
   'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   'Accept':          'text/html,application/xhtml+xml,*/*;q=0.8',
@@ -219,7 +220,9 @@ async function scrapeSE() {
   const allRaw = [];
   let page = 1, emptyRun = 0;
 
-  while (emptyRun < 2 && page <= 500) {
+  // With server-side date filtering, the 14-day window is ~150 pages max.
+  // Pagination stops naturally when rows.length < 10 (end of filtered results).
+  while (emptyRun < 2 && page <= 200) {
     let rows;
     let attempt = 0;
     while (attempt < 3) {
@@ -229,8 +232,8 @@ async function scrapeSE() {
       } catch (err) {
         attempt++;
         if (attempt >= 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up after 3 tries)`); rows = null; break; }
-        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 10s`);
-        await new Promise(r => setTimeout(r, 10000));  // long backoff: FI server needs time to recover
+        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 5s`);
+        await new Promise(r => setTimeout(r, 5000));
       }
     }
     if (!rows) { page++; continue; }  // skip failed page, don't abort remaining pages
