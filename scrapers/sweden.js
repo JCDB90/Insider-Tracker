@@ -282,7 +282,16 @@ async function fetchCsv(from, to) {
         console.log(`  Export data received: ${event.encodedDataLength} bytes`);
         try {
           const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
-          resolve(Buffer.from(result.body, result.base64Encoded ? 'base64' : 'utf8'));
+          console.log(`  base64Encoded: ${result.base64Encoded}`);
+          console.log(`  body.length:   ${result.body.length}`);
+          const raw = result.base64Encoded
+            ? Buffer.from(result.body, 'base64')
+            : Buffer.from(result.body, 'utf8');
+          console.log(`  BOM bytes:     ${raw.slice(0, 4).toString('hex')}`);
+          console.log(`  UTF-16LE[0:120]: ${JSON.stringify(raw.toString('utf16le').substring(0, 120))}`);
+          console.log(`  UTF-8[0:120]:    ${JSON.stringify(raw.toString('utf8').substring(0, 120))}`);
+          require('fs').writeFileSync('/tmp/fi-raw.bin', raw);
+          resolve(raw);
         } catch (e) {
           reject(e);
         }

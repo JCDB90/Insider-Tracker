@@ -82,6 +82,14 @@ jobs:
         continue-on-error: true
         run: node scrapers/sweden.js
 
+      - name: 🇸🇪 Sweden — upload raw CSV debug artifact
+        if: ${{ (github.event.inputs.country == '' || github.event.inputs.country == 'SE') && hashFiles('/tmp/fi-raw.bin') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fi-raw-csv
+          path: /tmp/fi-raw.bin
+          retention-days: 3
+
       - name: 🇫🇷 France (AMF)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FR' }}
         continue-on-error: true
