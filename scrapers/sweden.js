@@ -4,104 +4,94 @@
  * Source: Finansinspektionen (FI) — Insynsregistret
  * URL: https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search
  *
- * Strategy: Puppeteer + CDP CSV export.
- *   FI blocks the export endpoint (?button=export) for datacenter IPs (Hetzner,
- *   Azure) with a hard TCP RST — no Puppeteer fingerprinting can bypass this.
- *   Must run on a non-datacenter IP (GitHub Actions EU runner).
- *
- *   Flow:
- *   1. Launch headless Chrome; navigate to FI search page (establishes session)
- *   2. Attach CDP Network session (page.on/waitForResponse skip download responses)
- *   3. page.goto(exportUrl) fire-and-forget; CDP requestWillBeSent+loadingFinished capture body
- *   5. Parse and save (one request = all rows, no pagination)
- *
- * CSV columns (0-indexed):
- *   [0]  Publication date      [1]  Issuer (company)
- *   [2]  LEI-code              [3]  Notifier
- *   [4]  Person discharging managerial responsibilities
- *   [5]  Position              [6]  Closely associated (Yes/empty)
- *   [11] Nature of transaction [12] Instrument type
- *   [14] ISIN                  [15] Transaction date
- *   [16] Volume                [18] Price     [19] Currency
+ * Key discovery: the /en-GB/ URL path respects Transaktionsdatum.From/To filters
+ * server-side, unlike /en/Search which ignores all filters and returns ALL history.
+ * With date filtering, a 14-day window needs ~15-30 pages instead of 100+, which
+ * eliminates the ECONNRESET rate-limit problem that plagued the old URL.
+ * Pagination stops naturally when rows.length < 10 (end of filtered results).
  */
 'use strict';
 
-const puppeteer = require('puppeteer');
+const fetch   = require('node-fetch');
+const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
 const { contentId }              = require('./lib/contentId');
-const { looksLikeCorp }          = require('./lib/entityUtils');
 
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
+const DELAY_MS       = 800;   // en-GB URL is server-filtered — far fewer pages needed
 const BASE           = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const HEADERS        = {
   'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   'Accept':          'text/html,application/xhtml+xml,*/*;q=0.8',
-  'Accept-Language': 'en-GB,en;q=0.9',
+  'Accept-Language': 'en-US,en;q=0.5',
 };
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-
-// CSV date format: "04/06/2026 00:00:00" (DD/MM/YYYY HH:MM:SS)
-function parseFIDate(s) {
+function parseSEDate(s) {
   if (!s) return null;
-  const m = s.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (!m) return null;
-  const dt = new Date(`${m[3]}-${m[2]}-${m[1]}`);
-  return isNaN(dt.getTime()) ? null : dt;
+  const [d, m, y] = s.trim().split('/');
+  const dt = new Date(`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+  return isNaN(dt) ? null : dt;
 }
-
 function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
-
 function parseNum(s) {
-  if (!s || s.trim() === '-' || s.trim() === '') return null;
+  if (!s || s.trim() === '-') return null;
   const str = s.trim().replace(/\s/g, '');
   if (!str) return null;
+  // European decimal with thousands: "1.234,56" → 1234.56
   if (/\d\.\d{3},/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+  // Period-only thousands: "5.000" or "1.234.567" → 5000 / 1234567
   if (/^\d{1,3}(?:\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
+  // Comma-only thousands with 2+ groups: "1,234,567" → 1234567
+  // Single-group "44,025" is Nordic decimal 44.025, not thousands — handled below.
   if (/^\d{1,3}(?:,\d{3}){2,}$/.test(str)) return parseFloat(str.replace(/,/g, ''));
+  // Comma as decimal (Nordic): "44,025" → 44.025; "129,75" → 129.75
   if (/,/.test(str) && !/\./.test(str)) return parseFloat(str.replace(',', '.'));
   return parseFloat(str.replace(/,/g, ''));
 }
 
+// Share/volume counts are always integers — strip all separators (comma, period, space).
+// "100,000" → 100000; "18,323" → 18323; "1.234.567" → 1234567.
+// Never treat comma as decimal for counts.
 function parseShares(s) {
   if (!s) return null;
-  // CSV volume is like "231351.0" or "2164.0" — strip decimal
-  const n = parseFloat(String(s).trim().replace(/[^\d.]/g, ''));
-  return isNaN(n) || n === 0 ? null : Math.round(n);
+  const n = parseInt(String(s).trim().replace(/[^\d]/g, ''), 10);
+  return isNaN(n) || n === 0 ? null : n;
 }
-
 function mapType(s) {
   if (!s) return 'UNKNOWN';
   const l = s.toLowerCase();
   if (l.includes('acqui') || l.includes('subscript') || l.includes('grant') ||
       l.includes('purchas') || l.includes('receiv') || l.includes('gift') ||
       l.includes('award') || l.includes('exercis') || l.includes('convert') ||
-      l.includes('inherit') || l.includes('allotm')) return 'BUY';
+      l.includes('inherit') || l.includes('allotm')) return 'BUY';  // "Allotment" = RSU/LTIP grant
   if (l.includes('dispos') || l.includes('sale') || l.includes('redem') ||
       l.includes('divest')) return 'SELL';
   return 'OTHER';
 }
 
 const TICKERS = {
+  // Large caps with share classes
   'evolution': 'EVO', 'hexagon': 'HEXA-B', 'ericsson': 'ERIC-B',
   'betsson': 'BETS-B', 'kindred': 'KIND-SDB', 'i-tech': 'ITECH',
   'volvo cars': 'VOLCAR-B', 'volvo': 'VOLV-B',
   'abb': 'ABB', 'atlas copco': 'ATCO-A', 'investor': 'INVE-B',
   'essity': 'ESSITY-B', 'sandvik': 'SAND',
   'handelsbanken': 'SHB-A', 'swedbank': 'SWED-A',
-  'seb ': 'SEB-A',
+  'seb ': 'SEB-A',  // trailing space prevents matching "sebago" etc.
   'nordea': 'NDA-SE', 'alfa laval': 'ALFA', 'nibe': 'NIBE-B',
   'sinch': 'SINCH', 'tele2': 'TEL2-B', 'telia': 'TELIA',
   'boliden': 'BOL', 'h&m': 'HM-B', 'hennes & mauritz': 'HM-B',
   'autoliv': 'ALIV-SDB', 'elekta': 'EKTA-B',
   'getinge': 'GETI-B', 'ssab': 'SSAB-A',
   'husqvarna': 'HUSQ-B', 'skanska': 'SKA-B',
+  // Additional commonly-filed companies — prevents "AB X" → "AB" ticker bug
   'electrolux': 'ELUX-B',
   'kinnevik': 'KINV-B',
   'industrivärden': 'INDU-C', 'industrivarden': 'INDU-C',
@@ -126,13 +116,14 @@ const TICKERS = {
   'nolato': 'NOLA-B',
   'troax': 'TROAX',
   'vitec': 'VIT-B',
+  // Extended — companies that hit 6-char truncation bug or have special tickers
   'indutrade': 'INDT',
-  'dometic': 'DOM',
+  'dometic': 'DOM',          // DOM.ST (was wrongly DOMETIC)
   'eeducation albert': 'ALBER',
   'medicover': 'MCOV-B',
   'avanza bank': 'AZA',
   'avanza': 'AZA',
-  'scandic hotels': 'SCST',
+  'scandic hotels': 'SCST', // SCST.ST (was wrongly SCAND)
   'diös fastigheter': 'DIOS',
   'dios fastigheter': 'DIOS',
   'cellavision': 'CEVI',
@@ -144,46 +135,56 @@ const TICKERS = {
   'nordnet': 'NORDNET',
   'flowscape': 'FLOW-B',
   'greater than': 'GREAT',
-  'lindab': 'LIAB',
-  'alleima': 'ALLEI',
-  'proact it': 'PACT',
-  'proact': 'PACT',
-  'nederman': 'NMAN',
-  'fagerhult': 'FAG',
-  'ework group': 'EWRK',
-  'ework': 'EWRK',
-  'invisio': 'IVSO',
-  'bonesupport': 'BONEX',
-  'teqnion': 'TEQ',
-  'pandox': 'PNDX-B',
-  'samhällsbyggnadsbolaget': 'SBB-B',
-  'samhallsbyggnadsbolaget': 'SBB-B',
-  'addlife': 'ALIF-B',
-  'add life': 'ALIF-B',
-  'assa abloy': 'ASSA-B',
-  'ncc ': 'NCC-B',
-  'securitas': 'SECU-B',
-  'billerud': 'BILL',
-  'sweco': 'SWEC-B',
-  'trelleborg': 'TREL-B',
-  'truecaller': 'TRUE-B',
-  'wallenstam': 'WALL-B',
-  'storytel': 'STORY-B',
-  'dustin': 'DUST',
-  'holmen': 'HOLM-B',
-  'rejlers': 'REJL-B',
-  'ratos': 'RATO-B',
-  'nobia': 'NOBI',
-  'logistea': 'LOGIST-B',
-  'knowit': 'KNOW',
-  'bergman & beving': 'BERG-B',
-  'investment aktiebolaget spiltan': 'SPILTAN',
-};
 
+  // ── Broken-ticker fixes (confirmed correct Yahoo Finance symbols) ──────────
+  // Previously these companies had no working chart because the auto-derived
+  // ticker (6-char name truncation) didn't match any Yahoo Finance symbol.
+  'lindab': 'LIAB',         // LIAB.ST  (was LINDAB — no Yahoo listing)
+  'alleima': 'ALLEI',       // ALLEI.ST (Sandvik spin-off, was ALLEIM)
+  'proact it': 'PACT',      // PACT.ST  (was PROACT)
+  'proact': 'PACT',
+  'nederman': 'NMAN',       // NMAN.ST  (was NEDERM)
+  'fagerhult': 'FAG',       // FAG.ST   (was FAGERH)
+  'ework group': 'EWRK',    // EWRK.ST  (was EWORK)
+  'ework': 'EWRK',
+  'invisio': 'IVSO',        // IVSO.ST  (was INVISI)
+  'bonesupport': 'BONEX',   // BONEX.ST (was BONESU)
+  'teqnion': 'TEQ',         // TEQ.ST   (was TEQNIO)
+  'pandox': 'PNDX-B',       // PNDX-B.ST (was PANDOX)
+  'samhällsbyggnadsbolaget': 'SBB-B', // SBB-B.ST (was SAMHÄL with ä)
+  'samhallsbyggnadsbolaget': 'SBB-B', // ASCII fallback
+  'addlife': 'ALIF-B',      // ALIF-B.ST (was ADDLIF)
+  'add life': 'ALIF-B',
+
+  // ── Fallback-to-primary fixes (chart loaded via alt symbol, now use correct) ─
+  // These companies' charts worked but loaded via a secondary candidate symbol.
+  // Setting the correct primary avoids the extra API calls.
+  'assa abloy': 'ASSA-B',   // ASSA-B.ST  (was ASSA → tries ASSA-B.ST 3rd)
+  'ncc ': 'NCC-B',          // NCC-B.ST   (trailing space avoids matching "BNCC")
+  'securitas': 'SECU-B',    // SECU-B.ST  (was SECURI)
+  'billerud': 'BILL',       // BILL.ST    (was BILLER)
+  'sweco': 'SWEC-B',        // SWEC-B.ST  (was SWECO)
+  'trelleborg': 'TREL-B',   // TREL-B.ST  (was TRELLE)
+  'truecaller': 'TRUE-B',   // TRUE-B.ST  (was TRUECA)
+  'wallenstam': 'WALL-B',   // WALL-B.ST  (was WALLEN)
+  'storytel': 'STORY-B',    // STORY-B.ST (was STORYT; STOR-B.ST is Storskogen)
+  'dustin': 'DUST',         // DUST.ST    (was DUSTIN)
+  'holmen': 'HOLM-B',       // HOLM-B.ST  (was HOLMEN)
+  'rejlers': 'REJL-B',      // REJL-B.ST  (was REJLER)
+  'ratos': 'RATO-B',        // RATO-B.ST  (was RATOS)
+  'nobia': 'NOBI',          // NOBI.ST    (was NOBIA)
+  'logistea': 'LOGIST-B',   // LOGIST-B.ST (was LOGIST)
+  'knowit': 'KNOW',         // KNOW.ST    (was KNOWIT)
+  'bergman & beving': 'BERG-B', // BERG-B.ST
+  // ── Companies whose first word is ambiguous / misleading ──────────────────
+  'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
+};
 function getTicker(n) {
   if (!n) return null;
   const l = n.toLowerCase();
   for (const [k, v] of Object.entries(TICKERS)) if (l.includes(k)) return v;
+  // Strip leading "AB " (Aktiebolag = Swedish "Inc.") and trailing " AB (publ)"
+  // to prevent "AB Electrolux" → "AB" which Yahoo Finance maps to AllianceBernstein (US)
   const clean = n
     .replace(/^AB\s+/i, '')
     .replace(/\s+AB(?:\s+\(publ\))?\.?\s*$/i, '')
@@ -191,226 +192,98 @@ function getTicker(n) {
   return clean.split(/\s+/)[0].toUpperCase().slice(0, 6) || null;
 }
 
-// ─── Chromium path resolution (mirrors portugal.js) ──────────────────────────
-
-function findChromium() {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  const candidates = [
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-  ];
-  const { execSync } = require('child_process');
-  for (const p of candidates) {
-    try { execSync(`test -x ${p}`, { stdio: 'ignore' }); return p; } catch {}
-  }
-  try { return puppeteer.executablePath(); } catch {}
-  return undefined;
-}
-
-// ─── CSV export via Puppeteer ─────────────────────────────────────────────────
-
-async function fetchCsv(from, to) {
-  const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
-    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
-
-  const chromiumPath = findChromium();
-  console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    ...(chromiumPath ? { executablePath: chromiumPath } : {}),
+async function fetchPage(from, to, page) {
+  const url = `${BASE}?SearchFunctionType=Insyn&Utgivare=&PersonILedandeStallning=` +
+    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
+    `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=&Page=${page}`;
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const $ = cheerio.load(await res.text());
+  const rows = [];
+  $('tbody tr').each((_, tr) => {
+    const c = $(tr).find('td').map((_, td) => $(td).text().trim()).get();
+    if (c.length < 13) return;
+    // c[4] = closely associated entity name or "Yes" — captured for logging/future use
+    rows.push({ company: c[1], insider: c[2], position: c[3], closely: c[4] || null, nature: c[5],
+                isin: c[8], txDateStr: c[9], volume: c[10], price: c[12], currency: c[13] || 'SEK' });
   });
-
-  let buf;
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent(HEADERS['User-Agent']);
-    await page.setExtraHTTPHeaders({ 'Accept-Language': HEADERS['Accept-Language'] });
-
-    // Step 1: load search page — establishes session context; date inputs are
-    // pre-populated by the server from the ISO query params (shows DD/MM/YYYY).
-    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-    // Step 2: CDP session for capturing the download response.
-    // page.on('response') / waitForResponse never fire for Content-Disposition:attachment
-    // because headless Chrome silently discards downloads.  CDP Network layer sees all.
-    const cdp = await page.createCDPSession();
-    await cdp.send('Network.enable');
-
-    // Log every Search-endpoint request for diagnostics.
-    cdp.on('Network.requestWillBeSent', event => {
-      if (!event.request.url.includes('/Search/Search')) return;
-      const url = event.request.url;
-      console.log(`  → ${event.request.method} ${url.substring(0, 250)}`);
-      const ref = event.request.headers['Referer'] || event.request.headers['referer'];
-      if (ref) console.log(`    Referer: ${ref.substring(0, 120)}`);
-    });
-
-    // Step 3: click the Search button first (proper same-origin form navigation).
-    // This avoids page.goto(exportUrl) which sends a direct navigation request that
-    // some servers distinguish from an on-page form submission via Sec-Fetch-* headers.
-    const searchDone = page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 })
-      .catch(() => {});   // connection-reset on blocked IPs — tolerate
-    await page.evaluate(() => document.querySelector('button[value="search"]').click());
-    await searchDone;
-    const afterSearch = page.url();
-    console.log(`  Search URL: ${afterSearch.substring(0, 120)}`);
-
-    if (afterSearch.startsWith('chrome-error://')) {
-      throw new Error('FI search blocked (likely datacenter IP restriction); run via GitHub Actions');
-    }
-
-    // Step 4: capture the export response via CDP, click Export from the results page.
-    buf = await new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('CSV download not received within 60s')), 60000
-      );
-
-      let exportRequestId = null;
-
-      cdp.on('Network.requestWillBeSent', event => {
-        if (!event.request.url.includes('button=export')) return;
-        exportRequestId = event.requestId;
-        console.log(`  Export request captured (${event.requestId})`);
-      });
-
-      // loadingFinished fires even when the server closes the connection ungracefully
-      // (ERR_CONNECTION_RESET) — the data is still available via getResponseBody.
-      cdp.on('Network.loadingFinished', async event => {
-        if (event.requestId !== exportRequestId) return;
-        clearTimeout(timer);
-        console.log(`  Export data received: ${event.encodedDataLength} bytes`);
-        try {
-          const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
-          const raw = result.base64Encoded
-            ? Buffer.from(result.body, 'base64')
-            : Buffer.from(result.body, 'utf8');
-          console.log(`  BOM bytes: ${raw.slice(0, 4).toString('hex')}`);
-          console.log(`  UTF-8[0:120]:    ${JSON.stringify(raw.toString('utf8').substring(0, 120))}`);
-          console.log(`  UTF-16LE[0:120]: ${JSON.stringify(raw.toString('utf16le').substring(0, 120))}`);
-          require('fs').writeFileSync('/tmp/fi-raw.bin', raw);
-          // Detect HTML-instead-of-CSV (server blocking or wrong endpoint)
-          if (raw.slice(0, 9).toString('utf8').toLowerCase().startsWith('<!doctype')) {
-            reject(new Error(`Server returned HTML (${raw.length}B) instead of CSV — IP may be blocked`));
-            return;
-          }
-          resolve(raw);
-        } catch (e) {
-          reject(e);
-        }
-      });
-
-      // Click Export from the results page — proper same-origin form submission.
-      page.evaluate(() => document.querySelector('button[value="export"]').click())
-        .catch(reject);
-    });
-  } finally {
-    await browser.close();
-  }
-
-  const text = buf.toString('utf16le');  // Node.js spelling (no hyphens)
-  const lines = text.split('\n').map(l => l.replace(/\r$/, '').trim()).filter(Boolean);
-
-  if (lines.length < 2) return [];
-
-  // Skip header row (line 0)
-  return lines.slice(1).map(line => {
-    const c = line.split(';');
-    return {
-      publicationDate:   c[0]?.trim()  || null,
-      company:           c[1]?.trim()  || null,
-      lei:               c[2]?.trim()  || null,
-      notifier:          c[3]?.trim()  || null,
-      insider:           c[4]?.trim()  || null,   // Person discharging mgmt responsibilities
-      position:          c[5]?.trim()  || null,
-      closelyAssociated: c[6]?.trim()  || null,   // "Yes" or empty
-      nature:            c[11]?.trim() || null,   // "Acquisition" / "Disposal"
-      instrumentType:    c[12]?.trim() || null,
-      isin:              c[14]?.trim() || null,
-      txDateStr:         c[15]?.trim() || null,   // "DD/MM/YYYY 00:00:00"
-      volume:            c[16]?.trim() || null,   // "12345.0"
-      price:             c[18]?.trim() || null,
-      currency:          c[19]?.trim() || 'SEK',
-    };
-  });
+  return rows;
 }
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapeSE() {
-  console.log('🇸🇪  Finansinspektionen Sweden — Insynsregistret (CSV export)');
+  console.log('🇸🇪  Finansinspektionen Sweden — Insynsregistret');
   const t0 = Date.now();
   const co = cutoff();
-  const from = isoDate(co), to = isoDate(new Date());
+  const to = isoDate(new Date()), from = isoDate(co);
 
-  console.log(`  Fetching CSV export ${from} → ${to}…`);
+  console.log(`  Fetching ${from} → ${to}…`);
+  const allRaw = [];
+  let page = 1, emptyRun = 0;
 
-  let allRaw;
-  try {
-    allRaw = await fetchCsv(from, to);
-  } catch (err) {
-    console.error(`  ❌ CSV fetch failed: ${err.message}`);
-    return { saved: 0 };
+  // With server-side date filtering, the 14-day window is ~150 pages max.
+  // Pagination stops naturally when rows.length < 10 (end of filtered results).
+  while (emptyRun < 2 && page <= 200) {
+    let rows;
+    let attempt = 0;
+    while (attempt < 3) {
+      try {
+        rows = await fetchPage(from, to, page);
+        break;
+      } catch (err) {
+        attempt++;
+        if (attempt >= 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up after 3 tries)`); rows = null; break; }
+        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 5s`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+    if (!rows) { page++; continue; }  // skip failed page, don't abort remaining pages
+    if (rows.length === 0) { emptyRun++; } else { emptyRun = 0; allRaw.push(...rows); }
+    if (rows.length < 10) break;
+    page++;
+    if (page > 1) await new Promise(r => setTimeout(r, DELAY_MS));
   }
 
-  console.log(`  ${allRaw.length} rows in CSV`);
+  console.log(`  ${allRaw.length} rows from ${page} page(s)`);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
 
-  const seen   = new Set();
+  const { looksLikeCorp } = require('./lib/entityUtils');
+  const seen = new Set();
   const dbRows = [];
-  let corpFilings = 0, skippedOld = 0;
-
+  let corpFilings = 0;
   for (const r of allRaw) {
-    // Parse and validate transaction date
-    const txDate = parseFIDate(r.txDateStr);
-    if (!txDate || txDate < co) { skippedOld++; continue; }
+    const txDate = parseSEDate(r.txDateStr);
+    if (!txDate || txDate < co) continue;
     const txIso = isoDate(txDate);
-
-    // Insider identity: use PDMR name [4]; if closely associated, notifier [3] → via_entity
-    const insiderRaw   = r.insider   || r.notifier || null;
-    const viaEntityRaw = (r.closelyAssociated === 'Yes' && r.notifier !== r.insider)
-      ? r.notifier : null;
-
+    const shares = parseShares(r.volume), price = parseNum(r.price);
+    const total = (shares && price) ? Math.round(shares * price) : null;
+    // Content-based ID: excludes ISIN to prevent duplicate entries when the same
+    // person/transaction matches two different instrument ISINs in the FI search.
     const txType = mapType(r.nature);
-    const shares = parseShares(r.volume);
-    const price  = parseNum(r.price);
-    const total  = (shares && price) ? Math.round(shares * price) : null;
-
-    const fid = contentId(COUNTRY_CODE, r.company, insiderRaw, txType, txIso, shares, price);
+    const fid = contentId(COUNTRY_CODE, r.company, r.insider, txType, txIso, shares, price);
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    if (insiderRaw && looksLikeCorp(insiderRaw) && !viaEntityRaw) {
-      console.log(`  ⚠  Corp entity insider: "${insiderRaw}" @ ${r.company} on ${txIso}`);
+    // Log closely-associated or corporate entity filings for visibility
+    // (looksLikeCorp rows will be dropped by saveInsiderTransactions — log here first)
+    if (r.insider && looksLikeCorp(r.insider)) {
+      console.log(`  ⚠  Corp entity insider: "${r.insider}" @ ${r.company} on ${txIso} (type: ${r.nature}, closely: ${r.closely || 'n/a'})`);
       corpFilings++;
     }
 
     dbRows.push({
-      filing_id:        fid,
-      country_code:     COUNTRY_CODE,
-      ticker:           getTicker(r.company),
-      _isin:            r.isin || null,
-      company:          r.company || null,
-      insider_name:     insiderRaw || null,
-      via_entity:       viaEntityRaw || null,
-      insider_role:     translateRole(r.position) || null,
-      transaction_type: txType,
-      transaction_date: txIso,
-      shares:           shares !== null ? Math.round(shares) : null,
-      price_per_share:  price,
-      total_value:      total,
-      currency:         r.currency || 'SEK',
-      filing_url:       `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,
-      source:           SOURCE,
+      filing_id: fid, country_code: COUNTRY_CODE,
+      ticker: getTicker(r.company), _isin: r.isin || null,
+      company: r.company || null,
+      insider_name: r.insider || null, insider_role: translateRole(r.position) || null,
+      transaction_type: txType, transaction_date: txIso,
+      shares: shares !== null ? Math.round(shares) : null,
+      price_per_share: price, total_value: total, currency: r.currency,
+      filing_url: `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,
+      source: SOURCE,
     });
   }
+  if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (will be dropped by db filter)`);
 
-  if (skippedOld)   console.log(`  ℹ  Skipped ${skippedOld} rows older than cutoff`);
-  if (corpFilings)  console.log(`  ℹ  ${corpFilings} corporate-entity insider rows (will be dropped by db filter)`);
   console.log(`  ${dbRows.length} unique rows`);
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
@@ -425,11 +298,13 @@ async function scrapeSE() {
   }
   if (isinResolved) console.log(`  Resolved ${isinResolved} tickers via ISIN lookup`);
 
+  // Strip temporary _isin field before DB save
   const saveRows = dbRows.map(({ _isin, ...rest }) => rest);
+
   const { error } = await saveInsiderTransactions(saveRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  const buys  = saveRows.filter(r => r.transaction_type === 'BUY').length;
+  const buys = saveRows.filter(r => r.transaction_type === 'BUY').length;
   const sells = saveRows.filter(r => r.transaction_type === 'SELL').length;
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${saveRows.length} saved (${buys} BUY, ${sells} SELL)`);
   console.log(`  Sample: ${saveRows.slice(0,3).map(r=>`${r.company}/${r.transaction_type}`).join(', ')}`);

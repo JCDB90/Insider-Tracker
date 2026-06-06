@@ -56,9 +56,7 @@ const MARKETS = [
   { code: 'ES', name: 'Spain',          file: 'spain',       mode: 'http' },
   { code: 'IT', name: 'Italy',          file: 'italy',       mode: 'http' },
   { code: 'BE', name: 'Belgium',        file: 'belgium',     mode: 'http' },
-  // SE: FI hard-blocks the CSV export endpoint (?button=export) for datacenter
-  // IPs (Hetzner, Azure) via TCP RST. Must run on GitHub Actions EU runners.
-  { code: 'SE', name: 'Sweden',         file: 'sweden',      mode: 'http', timeoutMs: 15 * 60 * 1000, ghaOnly: true },
+  { code: 'SE', name: 'Sweden',         file: 'sweden',      mode: 'http', timeoutMs: 15 * 60 * 1000 },
   { code: 'DK', name: 'Denmark',        file: 'denmark',     mode: 'http' },
   { code: 'NO', name: 'Norway',         file: 'norway',      mode: 'http' },
   { code: 'FI', name: 'Finland',        file: 'finland',     mode: 'http' },
@@ -172,16 +170,8 @@ async function main() {
 
   const results = [];
 
-  const isGHA = process.env.GITHUB_ACTIONS === 'true';
-
   for (const market of markets) {
     const scriptPath = path.join(ROOT, 'scrapers', `${market.file}.js`);
-
-    if (market.ghaOnly && !isGHA) {
-      console.log(`\n[${market.code}] ${market.name} — SKIPPED (GitHub Actions only; datacenter IP blocked)`);
-      results.push({ label: market.code, ok: null, elapsed: '-', code: null, skipReason: 'gha-only' });
-      continue;
-    }
 
     if (!fs.existsSync(scriptPath)) {
       console.log(`\n[${market.code}] ${market.name} — SKIPPED (scraper not yet built)`);
@@ -236,8 +226,7 @@ async function main() {
 
   for (const r of results) {
     if (r.ok === null) {
-      const why = r.skipReason === 'gha-only' ? 'GHA only' : 'not built';
-      console.log(`  ⬜ ${pad(r.label, PAD)} skipped (${why})`);
+      console.log(`  ⬜ ${pad(r.label, PAD)} skipped (not built)`);
     } else if (r.ok) {
       console.log(`  ✅ ${pad(r.label, PAD)} ${r.elapsed}s`);
     } else {
