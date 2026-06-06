@@ -231,7 +231,7 @@ async function scrapeSE() {
         await new Promise(r => setTimeout(r, 3000));
       }
     }
-    if (!rows) break;
+    if (!rows) { page++; continue; }  // skip failed page, don't abort remaining pages
     if (rows.length === 0) { emptyRun++; } else { emptyRun = 0; allRaw.push(...rows); }
     if (rows.length < 10) break;
     page++;

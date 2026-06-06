@@ -46,7 +46,8 @@ const REGISTER_TYPE = '1b934036-12ad-4950-9773-31361d5adbd9';
 
 // Ordinary share security types that determine BUY/SELL direction.
 // "Gewoon aandeel" is the main type; also match English names for dual-listed companies.
-const ORDINARY_SHARE_TYPES = /gewoon\s+aandeel|ordinary\s+share|common\s+share|aandeel op naam/i;
+// "Certificaat van aandeel" = Dutch SAK certificate, economically equivalent to an ordinary share.
+const ORDINARY_SHARE_TYPES = /gewoon\s+aandeel|ordinary\s+share|common\s+share|aandeel op naam|certificaat\s+van\s+aandeel/i;
 
 // Conditional/restricted/performance share types — vestings and exercises of these
 // are also reportable insider transactions.  Price is typically 0 (free grant).
