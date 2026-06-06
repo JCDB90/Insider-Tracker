@@ -216,23 +216,6 @@ async function fetchCsv(from, to) {
   const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
     `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
 
-  // Build the export URL to exactly match what the browser submits when the export
-  // button is clicked.  Key points established by form inspection:
-  //   - Field name is PersonILedandeStällningNamn (ä, plus Namn suffix)
-  //   - Dates must be DD/MM/YYYY (the server converts ISO → DD/MM/YYYY for form display)
-  //   - Publiceringsdatum.From/To fields exist and must be included (empty)
-  //   - Note: FI blocks button=export requests from datacenter IPs (Hetzner/Azure);
-  //     this scraper only works on non-datacenter IPs (e.g. GitHub Actions EU runners).
-  const fromDMY = from.split('-').reverse().join('/');  // 2026-06-03 → 03/06/2026
-  const toDMY   = to.split('-').reverse().join('/');
-  const exportUrl = `${BASE}?SearchFunctionType=Insyn` +
-    `&Utgivare=` +
-    `&PersonILedandeSt%C3%A4llningNamn=` +
-    `&Transaktionsdatum.From=${encodeURIComponent(fromDMY)}` +
-    `&Transaktionsdatum.To=${encodeURIComponent(toDMY)}` +
-    `&Publiceringsdatum.From=&Publiceringsdatum.To=` +
-    `&Page=1&button=export`;
-
   const chromiumPath = findChromium();
   console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
@@ -248,16 +231,40 @@ async function fetchCsv(from, to) {
     await page.setUserAgent(HEADERS['User-Agent']);
     await page.setExtraHTTPHeaders({ 'Accept-Language': HEADERS['Accept-Language'] });
 
-    // Step 1: visit the search page so FI's session/bot-detection is satisfied
+    // Step 1: load search page — establishes session context; date inputs are
+    // pre-populated by the server from the ISO query params (shows DD/MM/YYYY).
     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Step 2: use CDP Network layer to capture the CSV download.
+    // Step 2: CDP session for capturing the download response.
     // page.on('response') / waitForResponse never fire for Content-Disposition:attachment
-    // responses because headless Chrome silently discards downloads at the browser level.
-    // CDP Network.responseReceived + Network.getResponseBody bypasses this.
+    // because headless Chrome silently discards downloads.  CDP Network layer sees all.
     const cdp = await page.createCDPSession();
     await cdp.send('Network.enable');
 
+    // Log every Search-endpoint request for diagnostics.
+    cdp.on('Network.requestWillBeSent', event => {
+      if (!event.request.url.includes('/Search/Search')) return;
+      const url = event.request.url;
+      console.log(`  → ${event.request.method} ${url.substring(0, 250)}`);
+      const ref = event.request.headers['Referer'] || event.request.headers['referer'];
+      if (ref) console.log(`    Referer: ${ref.substring(0, 120)}`);
+    });
+
+    // Step 3: click the Search button first (proper same-origin form navigation).
+    // This avoids page.goto(exportUrl) which sends a direct navigation request that
+    // some servers distinguish from an on-page form submission via Sec-Fetch-* headers.
+    const searchDone = page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 })
+      .catch(() => {});   // connection-reset on blocked IPs — tolerate
+    await page.evaluate(() => document.querySelector('button[value="search"]').click());
+    await searchDone;
+    const afterSearch = page.url();
+    console.log(`  Search URL: ${afterSearch.substring(0, 120)}`);
+
+    if (afterSearch.startsWith('chrome-error://')) {
+      throw new Error('FI search blocked (likely datacenter IP restriction); run via GitHub Actions');
+    }
+
+    // Step 4: capture the export response via CDP, click Export from the results page.
     buf = await new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error('CSV download not received within 60s')), 60000
@@ -265,13 +272,10 @@ async function fetchCsv(from, to) {
 
       let exportRequestId = null;
 
-      // Network.requestWillBeSent fires for ALL requests (including downloads).
-      // Network.responseReceived does NOT fire for Content-Disposition:attachment
-      // responses — use requestWillBeSent to capture the requestId instead.
       cdp.on('Network.requestWillBeSent', event => {
         if (!event.request.url.includes('button=export')) return;
         exportRequestId = event.requestId;
-        console.log(`  Export request started: ${event.request.url.substring(0, 120)}`);
+        console.log(`  Export request captured (${event.requestId})`);
       });
 
       // loadingFinished fires even when the server closes the connection ungracefully
@@ -282,26 +286,27 @@ async function fetchCsv(from, to) {
         console.log(`  Export data received: ${event.encodedDataLength} bytes`);
         try {
           const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
-          console.log(`  base64Encoded: ${result.base64Encoded}`);
-          console.log(`  body.length:   ${result.body.length}`);
           const raw = result.base64Encoded
             ? Buffer.from(result.body, 'base64')
             : Buffer.from(result.body, 'utf8');
-          console.log(`  BOM bytes:     ${raw.slice(0, 4).toString('hex')}`);
-          console.log(`  UTF-16LE[0:120]: ${JSON.stringify(raw.toString('utf16le').substring(0, 120))}`);
+          console.log(`  BOM bytes: ${raw.slice(0, 4).toString('hex')}`);
           console.log(`  UTF-8[0:120]:    ${JSON.stringify(raw.toString('utf8').substring(0, 120))}`);
+          console.log(`  UTF-16LE[0:120]: ${JSON.stringify(raw.toString('utf16le').substring(0, 120))}`);
           require('fs').writeFileSync('/tmp/fi-raw.bin', raw);
+          // Detect HTML-instead-of-CSV (server blocking or wrong endpoint)
+          if (raw.slice(0, 9).toString('utf8').toLowerCase().startsWith('<!doctype')) {
+            reject(new Error(`Server returned HTML (${raw.length}B) instead of CSV — IP may be blocked`));
+            return;
+          }
           resolve(raw);
         } catch (e) {
           reject(e);
         }
       });
 
-      // Navigate directly to the export URL — date params are baked into the URL.
-      // Fire-and-forget: the navigation never completes (download response), so
-      // page.goto() will timeout/reject — that's expected; the CDP listener above
-      // captures the body before the timeout matters.
-      page.goto(exportUrl, { timeout: 0 }).catch(() => {});
+      // Click Export from the results page — proper same-origin form submission.
+      page.evaluate(() => document.querySelector('button[value="export"]').click())
+        .catch(reject);
     });
   } finally {
     await browser.close();
