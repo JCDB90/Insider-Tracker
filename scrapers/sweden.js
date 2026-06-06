@@ -12,7 +12,7 @@
  *   1. Launch headless Chrome; navigate to FI search page (passes bot-detection)
  *   2. page.screenshot → /tmp/fi-debug.png for diagnostics
  *   3. Attach CDP Network session (page.on/waitForResponse never fire for downloads)
- *   4. Click export button; CDP Network.responseReceived + loadingFinished capture body
+ *   4. page.goto(exportUrl) fire-and-forget; CDP requestWillBeSent+loadingFinished capture body
  *   5. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
@@ -216,6 +216,16 @@ async function fetchCsv(from, to) {
   const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
     `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
 
+  // Full export URL with all params baked in.
+  // Clicking the export button on the search page does NOT work: GET forms only
+  // serialise their own <input> fields, so the date values from the page URL are
+  // never included — the server returns an HTML search page instead of a CSV.
+  const exportUrl = `${BASE}?SearchFunctionType=Insyn` +
+    `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}` +
+    `&Utgivare=&PersonILedandeStallning=` +
+    `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=` +
+    `&Page=1&button=export`;
+
   const chromiumPath = findChromium();
   console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
@@ -275,12 +285,11 @@ async function fetchCsv(from, to) {
         }
       });
 
-      // Click the export button — CDP listeners are already attached
-      page.evaluate(() => {
-        const btn = document.querySelector('button[value="export"]');
-        if (!btn) throw new Error('Export button not found on FI page');
-        btn.click();
-      }).catch(reject);
+      // Navigate directly to the export URL — date params are baked into the URL.
+      // Fire-and-forget: the navigation never completes (download response), so
+      // page.goto() will timeout/reject — that's expected; the CDP listener above
+      // captures the body before the timeout matters.
+      page.goto(exportUrl, { timeout: 0 }).catch(() => {});
     });
   } finally {
     await browser.close();
