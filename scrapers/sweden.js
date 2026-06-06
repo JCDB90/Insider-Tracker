@@ -252,17 +252,21 @@ async function fetchCsv(from, to) {
 
       let exportRequestId = null;
 
-      cdp.on('Network.responseReceived', event => {
-        if (!event.response.url.includes('button=export')) return;
+      // Network.requestWillBeSent fires for ALL requests (including downloads).
+      // Network.responseReceived does NOT fire for Content-Disposition:attachment
+      // responses — use requestWillBeSent to capture the requestId instead.
+      cdp.on('Network.requestWillBeSent', event => {
+        if (!event.request.url.includes('button=export')) return;
         exportRequestId = event.requestId;
-        console.log(`  Export response URL: ${event.response.url.substring(0, 120)}`);
-        console.log(`  Export response status: ${event.response.status}`);
-        console.log(`  Export content-type: ${event.response.headers['content-type'] || '(none)'}`);
+        console.log(`  Export request started: ${event.request.url.substring(0, 120)}`);
       });
 
+      // loadingFinished fires even when the server closes the connection ungracefully
+      // (ERR_CONNECTION_RESET) — the data is still available via getResponseBody.
       cdp.on('Network.loadingFinished', async event => {
         if (event.requestId !== exportRequestId) return;
         clearTimeout(timer);
+        console.log(`  Export data received: ${event.encodedDataLength} bytes`);
         try {
           const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
           resolve(Buffer.from(result.body, result.base64Encoded ? 'base64' : 'utf8'));
@@ -271,13 +275,7 @@ async function fetchCsv(from, to) {
         }
       });
 
-      cdp.on('Network.loadingFailed', event => {
-        if (event.requestId !== exportRequestId) return;
-        clearTimeout(timer);
-        reject(new Error(`Export request failed: ${event.errorText}`));
-      });
-
-      // Click the export button — CDP listener is already attached
+      // Click the export button — CDP listeners are already attached
       page.evaluate(() => {
         const btn = document.querySelector('button[value="export"]');
         if (!btn) throw new Error('Export button not found on FI page');
