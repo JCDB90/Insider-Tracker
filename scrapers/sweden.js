@@ -239,21 +239,22 @@ async function fetchCsv(from, to) {
     console.log('  Debug screenshot saved to /tmp/fi-debug.png');
 
     // Step 2: click the export button and intercept the CSV response in parallel.
-    // waitForResponse is more reliable than page.on('response') + manual timer.
+    // waitForResponse listener is registered before page.evaluate fires (Promise.all
+    // initialises both promises synchronously before either can settle).
     const [response] = await Promise.all([
       page.waitForResponse(
-        r => r.url().includes('Search') &&
-             ((r.headers()['content-type'] || '').includes('csv') ||
-              r.url().includes('button=export')),
+        r => r.url().includes('button=export'),
         { timeout: 60000 }
       ),
       page.evaluate(() => {
-        const btn = document.querySelector('button[value="export"]') ||
-                    document.querySelector('input[name="button"]');
-        if (btn) btn.click();
+        const btn = document.querySelector('button[value="export"]');
+        if (!btn) throw new Error('Export button not found on FI page');
+        btn.click();
       }),
     ]);
 
+    console.log(`  Export response URL: ${response.url()}`);
+    console.log(`  Export response status: ${response.status()}`);
     buf = await response.buffer();
   } finally {
     await browser.close();
