@@ -4,7 +4,9 @@
  * Source: Finansinspektionen (FI) — Insynsregistret
  * URL: https://marknadssok.fi.se/publiceringsklient/en/Search?SearchFunctionType=Insyn
  *
- * Pagination: 10 rows/page, GET request, date-filtered.
+ * Pagination: 10 rows/page, GET request.  NOTE: FI portal ignores date/filter parameters
+ * without a browser session, so date filtering is applied CLIENT-SIDE after fetching. The
+ * 14-day window spans ~100 pages; FI rate-limits after ~8 rapid requests (ECONNRESET).
  * Fields: company, insider, role, Acquisition(BUY)/Disposal(SELL), shares, price, SEK.
  */
 'use strict';
@@ -19,7 +21,7 @@ const { contentId }              = require('./lib/contentId');
 const COUNTRY_CODE   = 'SE';
 const SOURCE         = 'Finansinspektionen Sweden';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
-const DELAY_MS       = 600;
+const DELAY_MS       = 1500;  // FI server rate-limits after ~8 rapid requests; was 600ms
 const BASE           = 'https://marknadssok.fi.se/publiceringsklient/en/Search';
 const HEADERS        = {
   'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -227,8 +229,8 @@ async function scrapeSE() {
       } catch (err) {
         attempt++;
         if (attempt >= 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up after 3 tries)`); rows = null; break; }
-        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 3s`);
-        await new Promise(r => setTimeout(r, 3000));
+        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 10s`);
+        await new Promise(r => setTimeout(r, 10000));  // long backoff: FI server needs time to recover
       }
     }
     if (!rows) { page++; continue; }  // skip failed page, don't abort remaining pages
