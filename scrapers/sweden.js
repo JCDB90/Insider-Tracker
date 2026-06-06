@@ -11,8 +11,8 @@
  *   Flow:
  *   1. Launch headless Chrome; navigate to FI search page (passes bot-detection)
  *   2. page.screenshot → /tmp/fi-debug.png for diagnostics
- *   3. Promise.all([page.waitForResponse(csv), page.evaluate(exportBtn.click())])
- *   4. waitForResponse captures the UTF-16 LE CSV bytes
+ *   3. Attach CDP Network session (page.on/waitForResponse never fire for downloads)
+ *   4. Click export button; CDP Network.responseReceived + loadingFinished capture body
  *   5. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
@@ -238,24 +238,52 @@ async function fetchCsv(from, to) {
     await page.screenshot({ path: '/tmp/fi-debug.png' });
     console.log('  Debug screenshot saved to /tmp/fi-debug.png');
 
-    // Step 2: click the export button and intercept the CSV response in parallel.
-    // waitForResponse listener is registered before page.evaluate fires (Promise.all
-    // initialises both promises synchronously before either can settle).
-    const [response] = await Promise.all([
-      page.waitForResponse(
-        r => r.url().includes('button=export'),
-        { timeout: 60000 }
-      ),
+    // Step 2: use CDP Network layer to capture the CSV download.
+    // page.on('response') / waitForResponse never fire for Content-Disposition:attachment
+    // responses because headless Chrome silently discards downloads at the browser level.
+    // CDP Network.responseReceived + Network.getResponseBody bypasses this.
+    const cdp = await page.createCDPSession();
+    await cdp.send('Network.enable');
+
+    buf = await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('CSV download not received within 60s')), 60000
+      );
+
+      let exportRequestId = null;
+
+      cdp.on('Network.responseReceived', event => {
+        if (!event.response.url.includes('button=export')) return;
+        exportRequestId = event.requestId;
+        console.log(`  Export response URL: ${event.response.url.substring(0, 120)}`);
+        console.log(`  Export response status: ${event.response.status}`);
+        console.log(`  Export content-type: ${event.response.headers['content-type'] || '(none)'}`);
+      });
+
+      cdp.on('Network.loadingFinished', async event => {
+        if (event.requestId !== exportRequestId) return;
+        clearTimeout(timer);
+        try {
+          const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
+          resolve(Buffer.from(result.body, result.base64Encoded ? 'base64' : 'utf8'));
+        } catch (e) {
+          reject(e);
+        }
+      });
+
+      cdp.on('Network.loadingFailed', event => {
+        if (event.requestId !== exportRequestId) return;
+        clearTimeout(timer);
+        reject(new Error(`Export request failed: ${event.errorText}`));
+      });
+
+      // Click the export button — CDP listener is already attached
       page.evaluate(() => {
         const btn = document.querySelector('button[value="export"]');
         if (!btn) throw new Error('Export button not found on FI page');
         btn.click();
-      }),
-    ]);
-
-    console.log(`  Export response URL: ${response.url()}`);
-    console.log(`  Export response status: ${response.status()}`);
-    buf = await response.buffer();
+      }).catch(reject);
+    });
   } finally {
     await browser.close();
   }
