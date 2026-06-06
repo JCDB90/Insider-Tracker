@@ -56,7 +56,7 @@ const MARKETS = [
   { code: 'ES', name: 'Spain',          file: 'spain',       mode: 'http' },
   { code: 'IT', name: 'Italy',          file: 'italy',       mode: 'http' },
   { code: 'BE', name: 'Belgium',        file: 'belgium',     mode: 'http' },
-  { code: 'SE', name: 'Sweden',         file: 'sweden',      mode: 'http' },
+  { code: 'SE', name: 'Sweden',         file: 'sweden',      mode: 'http', timeoutMs: 15 * 60 * 1000 },
   { code: 'DK', name: 'Denmark',        file: 'denmark',     mode: 'http' },
   { code: 'NO', name: 'Norway',         file: 'norway',      mode: 'http' },
   { code: 'FI', name: 'Finland',        file: 'finland',     mode: 'http' },
@@ -104,9 +104,9 @@ function timestamp() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
-const MARKET_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes — kills hanging scrapers
+const DEFAULT_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes default
 
-function runScript(scriptPath, label) {
+function runScript(scriptPath, label, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const start = Date.now();
     const child = spawn(process.execPath, [scriptPath], {
@@ -125,10 +125,9 @@ function runScript(scriptPath, label) {
       resolve({ label, ok, elapsed, code, lines });
     }
 
-    // Kill the child after MARKET_TIMEOUT_MS so a single hanging scraper
-    // (e.g. Portugal Puppeteer, slow PDF downloads) never blocks the rest.
+    // Kill the child after timeoutMs so a single hanging scraper never blocks the rest.
     const timer = setTimeout(() => {
-      console.error(`  ⏱  ${label} TIMEOUT after ${MARKET_TIMEOUT_MS / 60000}min — killing`);
+      console.error(`  ⏱  ${label} TIMEOUT after ${timeoutMs / 60000}min — killing`);
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 5000); // force-kill if SIGTERM ignored
       finish(false, -2);
@@ -181,7 +180,7 @@ async function main() {
     }
 
     console.log(`\n[${market.code}] ${market.name}`);
-    const result = await runScript(scriptPath, market.code);
+    const result = await runScript(scriptPath, market.code, market.timeoutMs);
     results.push(result);
 
     // Log to scraper_runs so health-check can tell the difference between

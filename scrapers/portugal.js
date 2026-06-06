@@ -492,7 +492,7 @@ async function scrapePT() {
   const cutoffIso = isoDate(cutoffDate);
   console.log(`  Fetching transactions since ${cutoffIso}…`);
 
-  // Resolve Chromium path: env var → common Linux paths → let Puppeteer auto-detect
+  // Resolve Chromium path: env var → common Linux paths → puppeteer bundled cache
   const { execSync: _exec } = require('child_process');
   function findChromium() {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -506,10 +506,14 @@ async function scrapePT() {
     for (const p of candidates) {
       try { _exec(`test -x ${p}`, { stdio: 'ignore' }); return p; } catch {}
     }
-    return undefined; // let Puppeteer use its bundled browser
+    // Explicitly resolve puppeteer's own downloaded browser (~/.cache/puppeteer/).
+    // Returning undefined would let puppeteer auto-detect, but on some server
+    // environments that silently fails; explicit path is more reliable.
+    try { return puppeteer.executablePath(); } catch {}
+    return undefined;
   }
   const chromiumPath = findChromium();
-  if (chromiumPath) console.log(`  Using Chromium: ${chromiumPath}`);
+  console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
   const browser = await puppeteer.launch({
     headless: true,
