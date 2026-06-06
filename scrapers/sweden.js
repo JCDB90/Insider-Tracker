@@ -246,6 +246,83 @@ async function fetchPage(from, to, page) {
   return { rows, totalPages, totalResults };
 }
 
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+// Three-pass fetch: Pass 1 sweeps all pages; Passes 2+3 retry any that were
+// rate-limited (ECONNRESET) with increasing waits to let the server throttle reset.
+async function fetchAllPages(from, to) {
+  const allRows  = [];
+  let totalPages = null, totalResults = null;
+
+  // ── Pass 1: sequential sweep ───────────────────────────────────────────────
+  const failedPages = [];
+  for (let page = 1; ; page++) {
+    if (totalPages !== null && page > totalPages) break;
+    process.stdout.write(`  p${page}${totalPages ? `/${totalPages}` : ''}… `);
+
+    let result = null;
+    try {
+      result = await fetchPage(from, to, page);
+    } catch (err) {
+      console.warn(`FAIL (${err.message.slice(0, 40)})`);
+      failedPages.push(page);
+      await delay(DELAY_MS);
+      continue;
+    }
+
+    if (page === 1) {
+      totalPages   = result.totalPages;
+      totalResults = result.totalResults;
+      console.log(`\n  Total: ${totalResults ?? '?'} results / ${totalPages} page(s)`);
+      process.stdout.write(`  p1… `);
+    }
+    console.log(`${result.rows.length} rows`);
+    allRows.push(...result.rows);
+    if (result.rows.length < 10) break;
+    if (page < (totalPages ?? Infinity)) await delay(DELAY_MS);
+  }
+
+  // ── Pass 2: retry after 30s ────────────────────────────────────────────────
+  if (failedPages.length > 0) {
+    console.log(`  ⏳ ${failedPages.length} page(s) rate-limited [${failedPages.join(',')}] — waiting 30s…`);
+    await delay(30000);
+    const stillFailed = [];
+    for (const page of failedPages) {
+      process.stdout.write(`  retry p${page}… `);
+      try {
+        const result = await fetchPage(from, to, page);
+        console.log(`${result.rows.length} rows`);
+        allRows.push(...result.rows);
+      } catch (err) {
+        console.warn(`FAIL`);
+        stillFailed.push(page);
+      }
+      await delay(2500);
+    }
+
+    // ── Pass 3: final retry after 60s ───────────────────────────────────────
+    if (stillFailed.length > 0) {
+      console.log(`  ⏳ ${stillFailed.length} page(s) still failing [${stillFailed.join(',')}] — waiting 60s…`);
+      await delay(60000);
+      for (const page of stillFailed) {
+        process.stdout.write(`  final p${page}… `);
+        try {
+          const result = await fetchPage(from, to, page);
+          console.log(`${result.rows.length} rows`);
+          allRows.push(...result.rows);
+        } catch (err) {
+          console.error(`FAIL — permanently missed`);
+        }
+        await delay(2500);
+      }
+    }
+  }
+
+  const reported = totalResults ?? ((totalPages ?? 0) * 10);
+  console.log(`  Coverage: ${allRows.length} rows fetched (reported total: ${reported})`);
+  return allRows;
+}
+
 async function scrapeSE() {
   console.log('🇸🇪  Finansinspektionen Sweden — Insynsregistret');
   const t0 = Date.now();
@@ -256,44 +333,7 @@ async function scrapeSE() {
 
   console.log(`  Publication dates ${from} → ${to} (LOOKBACK_DAYS=${LOOKBACK_DAYS})…`);
 
-  const allRaw = [];
-  let totalPages = null;
-
-  for (let page = 1; ; page++) {
-    if (totalPages !== null && page > totalPages) break;
-
-    console.log(`  Fetching p${page}${totalPages ? `/${totalPages}` : ''}…`);
-
-    let result = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        result = await fetchPage(from, to, page);
-        break;
-      } catch (err) {
-        if (attempt === 3) { console.warn(`  ⚠  p${page}: ${err.message} (gave up)`); break; }
-        console.warn(`  ⚠  p${page} attempt ${attempt}: ${err.message} — retrying in 5s`);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-    }
-    // Do NOT page++ here — for-loop already increments; double-increment
-    // would silently skip the page after every failed page (p9 fail → jumps to p11).
-    if (!result) continue;
-
-    if (page === 1) {
-      totalPages   = result.totalPages;
-      const hits   = result.totalResults ?? '?';
-      console.log(`  Total: ${hits} results across ${totalPages} page(s)`);
-    }
-
-    console.log(`  p${page}: ${result.rows.length} rows`);
-    allRaw.push(...result.rows);
-    if (result.rows.length < 10) break;  // last page (partial — fewer than 10 rows)
-
-    if (page < (totalPages ?? Infinity))
-      await new Promise(r => setTimeout(r, DELAY_MS));
-  }
-
-  console.log(`  ${allRaw.length} rows fetched`);
+  const allRaw = await fetchAllPages(from, to);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
 
   const { looksLikeCorp } = require('./lib/entityUtils');
