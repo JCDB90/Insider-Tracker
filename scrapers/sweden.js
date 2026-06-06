@@ -286,6 +286,11 @@ async function fetchCsv(from, to) {
     await browser.close();
   }
 
+  // Debug: persist raw bytes and log a decoded sample
+  require('fs').writeFileSync('/tmp/fi-export.csv', buf);
+  console.log(`  Raw CSV bytes: ${buf.length}`);
+  console.log(`  CSV sample (utf16le): ${JSON.stringify(buf.toString('utf16le').substring(0, 500))}`);
+
   const text = buf.toString('utf16le');  // Node.js spelling (no hyphens)
   const lines = text.split('\n').map(l => l.replace(/\r$/, '').trim()).filter(Boolean);
 
