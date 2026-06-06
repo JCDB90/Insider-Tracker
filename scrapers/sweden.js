@@ -10,9 +10,9 @@
  *
  *   Flow:
  *   1. Launch headless Chrome; navigate to FI search page (passes bot-detection)
- *   2. Register page.on('response') interceptor for the export URL
- *   3. page.goto(exportUrl) fire-and-forget — download never fires load event
- *   4. Response interceptor captures the UTF-16 LE CSV bytes
+ *   2. page.screenshot → /tmp/fi-debug.png for diagnostics
+ *   3. Promise.all([page.waitForResponse(csv), page.evaluate(exportBtn.click())])
+ *   4. waitForResponse captures the UTF-16 LE CSV bytes
  *   5. Parse and save (one request = all rows, no pagination)
  *
  * CSV columns (0-indexed):
@@ -216,11 +216,6 @@ async function fetchCsv(from, to) {
   const searchUrl = `${BASE}?SearchFunctionType=Insyn` +
     `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`;
 
-  const exportUrl = searchUrl +
-    `&Utgivare=&PersonILedandeStallning=` +
-    `&Volym=&Instrument.Typ=&IsinKod=&Transaktionstyp=` +
-    `&Page=1&button=export`;
-
   const chromiumPath = findChromium();
   console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
@@ -239,28 +234,27 @@ async function fetchCsv(from, to) {
     // Step 1: visit the search page so FI's session/bot-detection is satisfied
     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Step 2: set up response interceptor BEFORE triggering the export request.
-    // page.evaluate(fetch()) fails in the browser sandbox for download responses;
-    // intercepting the response event is more reliable.
-    const csvReady = new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('CSV response not received within 30s')), 30000
-      );
-      page.on('response', async response => {
-        if (response.url().includes('button=export') && response.status() === 200) {
-          clearTimeout(timer);
-          try { resolve(await response.buffer()); }
-          catch (e) { reject(e); }
-        }
-      });
-    });
+    // Debug screenshot to diagnose page state before export
+    await page.screenshot({ path: '/tmp/fi-debug.png' });
+    console.log('  Debug screenshot saved to /tmp/fi-debug.png');
 
-    // Step 3: navigate to the export URL — fire-and-forget.
-    // A CSV download never triggers the page 'load' event, so we don't await it;
-    // the response interceptor above captures the body.
-    page.goto(exportUrl, { timeout: 30000 }).catch(() => {});
+    // Step 2: click the export button and intercept the CSV response in parallel.
+    // waitForResponse is more reliable than page.on('response') + manual timer.
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        r => r.url().includes('Search') &&
+             ((r.headers()['content-type'] || '').includes('csv') ||
+              r.url().includes('button=export')),
+        { timeout: 60000 }
+      ),
+      page.evaluate(() => {
+        const btn = document.querySelector('button[value="export"]') ||
+                    document.querySelector('input[name="button"]');
+        if (btn) btn.click();
+      }),
+    ]);
 
-    buf = await csvReady;
+    buf = await response.buffer();
   } finally {
     await browser.close();
   }
