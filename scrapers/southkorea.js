@@ -40,7 +40,7 @@ const { romanizeKoreanName }      = require('./lib/korean');
 
 const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
-const RETENTION_DAYS  = 14;
+const RETENTION_DAYS  = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CONCURRENCY     = 3;
 const DELAY_MS        = 300;
 const API_HOST        = 'opendart.fss.or.kr';
