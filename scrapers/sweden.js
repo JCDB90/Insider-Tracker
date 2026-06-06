@@ -31,7 +31,7 @@ const SOURCE       = 'Finansinspektionen Sweden';
 // Publication-date window.  3 days covers Mon runs that must capture Fri+Sat+Sun.
 // Set LOOKBACK_DAYS=14 (or higher) for backfills.
 const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '3');
-const DELAY_MS      = 500;
+const DELAY_MS      = 1200;  // ~8 reqs/min — avoids ECONNRESET rate-limit on AJAX endpoint
 const BASE          = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const AJAX_BASE     = `${BASE}/Insyn`;
 const HEADERS       = {
