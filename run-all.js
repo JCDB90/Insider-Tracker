@@ -185,10 +185,18 @@ async function main() {
     results.push(result);
 
     // Log to scraper_runs so health-check can tell the difference between
-    // "scraper ran but found nothing new" vs "scraper never ran"
+    // "scraper ran but found nothing new" vs "scraper never ran".
+    // Parse rows_saved from the scraper's stdout: look for "N saved" or "N rows saved".
+    const savedMatch = result.lines
+      .slice()
+      .reverse()
+      .map(l => l.match(/(\d+)\s+(?:rows?\s+)?saved/i))
+      .find(Boolean);
+    const rowsSaved = savedMatch ? parseInt(savedMatch[1], 10) : 0;
+
     await logRun(
       market.code,
-      null,                                               // rows_saved unknown at this level
+      rowsSaved,
       parseFloat(result.elapsed) || 0,
       result.ok ? 'success' : (result.code === -2 ? 'timeout' : 'failed'),
     );
