@@ -209,10 +209,16 @@ function getTicker(n) {
 // Pages 2+ use the AJAX partial endpoint — 47% smaller, same column layout,
 // not IP-blocked from datacenter IPs unlike the CSV export endpoint.
 async function fetchPage(from, to, page) {
+  // Page 1 (full HTML): ISO dates work fine.
+  // Pages 2+ (AJAX partial endpoint): ISO dates are silently IGNORED — the server
+  // returns recently-published data regardless of the date param.  Must use
+  // DD%2FMM%2FYYYY (URL-encoded slashes) to match what the server puts in pager links.
+  const toDMY   = to.split('-').reverse().join('%2F');    // 2026-06-07 → 07%2F06%2F2026
+  const fromDMY = from.split('-').reverse().join('%2F');
   const url = page === 1
     ? `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}&Page=1`
     : `${AJAX_BASE}?button=search&SearchFunctionType=Insyn&paging=True` +
-      `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}&page=${page}`;
+      `&Transaktionsdatum.From=${fromDMY}&Transaktionsdatum.To=${toDMY}&page=${page}`;
 
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
