@@ -403,6 +403,10 @@ async function scrapeSE() {
   // Strip temporary _isin field before DB save
   const saveRows = dbRows.map(({ _isin, ...rest }) => rest);
 
+  // Debug: print all rows that are not trivially already-in-DB
+  console.log('  All saveRows filing_ids + company:');
+  saveRows.forEach(r => console.log(`    ${r.filing_id} ${r.company?.slice(0,25)} ${r.transaction_date} ${r.shares}@${r.price_per_share}`));
+
   const saveResult = await saveInsiderTransactions(saveRows);
   console.log(`  saveInsiderTransactions result: inserted=${saveResult.inserted} error=${saveResult.error?.message ?? 'none'}`);
   if (saveResult.error) { console.error('  ❌ Supabase:', saveResult.error.message); process.exit(1); }
