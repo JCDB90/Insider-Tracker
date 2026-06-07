@@ -207,19 +207,34 @@ async function saveInsiderTransactions(rows, options = {}) {
     .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
-    // Unique constraint violation: a content-hash ID matched an existing row's
-    // natural key. Retry with ignoreDuplicates so we skip the conflicting rows
-    // rather than failing the whole batch.
+    // Unique constraint violation: content-hash ID matched an existing row's natural key,
+    // OR two rows in the batch share the same natural key (within-batch conflict).
+    // Retry with ignoreDuplicates skips filing_id conflicts, but if a natural-key
+    // conflict still blocks the batch, fall back to per-row upserts.
     if (error.code === '23505' || /unique/i.test(error.message)) {
       const { error: retryErr } = await supabase
         .from('insider_transactions')
         .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: true });
-      if (retryErr && retryErr.code !== '23505') {
-        // 23505 on the retry is expected (new unique index catches cross-scraper dups) — silent
+      if (!retryErr) return { inserted: complete.length, drops };
+      if (retryErr.code !== '23505') {
         console.error('  DB error (insider_transactions):', retryErr.message);
         return { inserted: 0, error: retryErr, drops };
       }
-      return { inserted: complete.length, drops };
+      // Both batch attempts hit 23505 — within-batch natural-key conflict.
+      // Fall back to per-row upserts so every saveable row is persisted.
+      console.log('  ℹ  Within-batch unique conflict — retrying row-by-row');
+      let saved = 0;
+      for (const row of upsertRows) {
+        const { error: rowErr } = await supabase
+          .from('insider_transactions')
+          .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: true });
+        if (!rowErr) {
+          saved++;
+        } else if (rowErr.code !== '23505') {
+          console.warn(`  ⚠  Row upsert failed (${row.company}): ${rowErr.code} ${rowErr.message}`);
+        }
+      }
+      return { inserted: saved, drops };
     }
     console.error('  DB error (insider_transactions):', error.message);
     return { inserted: 0, error, drops };
