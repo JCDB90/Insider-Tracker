@@ -58,8 +58,9 @@ function parseNum(s) {
   if (!str) return null;
   // European decimal with thousands: "1.234,56" → 1234.56
   if (/\d\.\d{3},/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
-  // Period-only thousands: "5.000" or "1.234.567" → 5000 / 1234567
-  if (/^\d{1,3}(?:\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
+  // Period-only thousands: "1.234.567" → 1234567.
+  // Requires 2+ groups: "1.178" has only one group and is a decimal, not thousands.
+  if (/^\d{1,3}(?:\.\d{3}){2,}$/.test(str)) return parseFloat(str.replace(/\./g, ''));
   // Comma-only thousands with 2+ groups: "1,234,567" → 1234567
   // Single-group "44,025" is Nordic decimal 44.025, not thousands — handled below.
   if (/^\d{1,3}(?:,\d{3}){2,}$/.test(str)) return parseFloat(str.replace(/,/g, ''));
