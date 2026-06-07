@@ -286,7 +286,8 @@ async function fetchAllPages(from, to) {
       console.log(`\n  Total: ${totalResults ?? '?'} results / ${totalPages} page(s)`);
       process.stdout.write(`  p1… `);
     }
-    console.log(`${result.rows.length} rows`);
+    const sample = result.rows.slice(0,2).map(r=>`${(r.company||'').slice(0,14)}@${r.price}`).join(', ');
+    console.log(`${result.rows.length} rows [${sample}]`);
     allRows.push(...result.rows);
     if (result.rows.length < 10) break;
     if (page < (totalPages ?? Infinity)) await delay(DELAY_MS);
