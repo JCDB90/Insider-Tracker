@@ -402,8 +402,9 @@ async function scrapeSE() {
   // Strip temporary _isin field before DB save
   const saveRows = dbRows.map(({ _isin, ...rest }) => rest);
 
-  const { error } = await saveInsiderTransactions(saveRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  const saveResult = await saveInsiderTransactions(saveRows);
+  console.log(`  saveInsiderTransactions result: inserted=${saveResult.inserted} error=${saveResult.error?.message ?? 'none'}`);
+  if (saveResult.error) { console.error('  ❌ Supabase:', saveResult.error.message); process.exit(1); }
 
   const buys = saveRows.filter(r => r.transaction_type === 'BUY').length;
   const sells = saveRows.filter(r => r.transaction_type === 'SELL').length;
