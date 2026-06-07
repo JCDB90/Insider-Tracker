@@ -6,16 +6,16 @@
  *
  * Strategy: pagination via publication-date filter + AJAX partial endpoint.
  *
- *   Key findings from investigation (2026-06-06):
- *   - Transaction-date filter: 836 results / 84 pages for 14 days → rate-limit issues
- *   - Publication-date filter: ~85 results / 9 pages for yesterday → 90% fewer requests
+ *   Key findings from investigation (2026-06-06/07):
+ *   - Publication-date filter tried but rejected: some filings (e.g. Investor AB)
+ *     appear only under transaction date — FI can delay the publication date by
+ *     several days after the actual transaction.
+ *   - Transaction-date 2-day window = ~20–30 rows / 2–3 pages → no rate limiting.
+ *     Old 14-day window = 836 results / 84 pages → rate-limit ECONNRESET cascade.
  *   - AJAX partial endpoint (/Search/Insyn?paging=True) is NOT IP-blocked from
  *     Hetzner datacenter IPs (unlike the CSV export endpoint).  Returns 15KB vs 29KB
  *     per page (47% smaller).  Used for pages 2+; page 1 uses the full URL to get
  *     the pager metadata (total pages).
- *   - MAR Article 19 requires disclosure within 3 business days, so transaction
- *     dates in recent publications can be up to ~4 days older than publication date.
- *     No transaction-date cutoff is applied; publication date is the time anchor.
  */
 'use strict';
 
@@ -28,9 +28,12 @@ const { contentId }              = require('./lib/contentId');
 
 const COUNTRY_CODE = 'SE';
 const SOURCE       = 'Finansinspektionen Sweden';
-// Publication-date window.  3 days covers Mon runs that must capture Fri+Sat+Sun.
+// Transaction-date window.  2 days captures yesterday + today reliably.
+// Publication date was tried but some filings (e.g. Investor AB) appear under
+// transaction date only — FI can delay the public-date by days after the tx date.
+// 2-day tx window = ~20–30 rows / 2–3 pages → no rate-limit issues.
 // Set LOOKBACK_DAYS=14 (or higher) for backfills.
-const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '3');
+const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '2');
 const DELAY_MS      = 1200;  // ~8 reqs/min — avoids ECONNRESET rate-limit on AJAX endpoint
 const BASE          = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const AJAX_BASE     = `${BASE}/Insyn`;
@@ -207,9 +210,9 @@ function getTicker(n) {
 // not IP-blocked from datacenter IPs unlike the CSV export endpoint.
 async function fetchPage(from, to, page) {
   const url = page === 1
-    ? `${BASE}?SearchFunctionType=Insyn&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}&Page=1`
+    ? `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}&Page=1`
     : `${AJAX_BASE}?button=search&SearchFunctionType=Insyn&paging=True` +
-      `&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}&page=${page}`;
+      `&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}&page=${page}`;
 
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -327,11 +330,11 @@ async function scrapeSE() {
   console.log('🇸🇪  Finansinspektionen Sweden — Insynsregistret');
   const t0 = Date.now();
 
-  const pubTo   = new Date();
-  const pubFrom = new Date(Date.now() - LOOKBACK_DAYS * 86400000);
-  const from = isoDate(pubFrom), to = isoDate(pubTo);
+  const txTo   = new Date();
+  const txFrom = new Date(Date.now() - LOOKBACK_DAYS * 86400000);
+  const from = isoDate(txFrom), to = isoDate(txTo);
 
-  console.log(`  Publication dates ${from} → ${to} (LOOKBACK_DAYS=${LOOKBACK_DAYS})…`);
+  console.log(`  Transaction dates ${from} → ${to} (LOOKBACK_DAYS=${LOOKBACK_DAYS})…`);
 
   const allRaw = await fetchAllPages(from, to);
   if (!allRaw.length) { console.log('  No data.'); return { saved: 0 }; }
@@ -369,7 +372,7 @@ async function scrapeSE() {
       transaction_type: txType, transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
       price_per_share: price, total_value: total, currency: r.currency,
-      filing_url: `${BASE}?SearchFunctionType=Insyn&Publiceringsdatum.From=${from}&Publiceringsdatum.To=${to}`,
+      filing_url: `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,
       source: SOURCE,
     });
   }
