@@ -131,7 +131,7 @@ function runScript(scriptPath, label, timeoutMs = DEFAULT_TIMEOUT_MS) {
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 5000); // force-kill if SIGTERM ignored
       finish(false, -2);
-    }, MARKET_TIMEOUT_MS);
+    }, timeoutMs);
 
     const collect = (stream) => {
       stream.on('data', chunk => {
