@@ -356,8 +356,18 @@ async function scrapeSE() {
     // No transaction-date cutoff: pub-date is the time anchor.  Skip only if unparseable.
     if (!txDate) continue;
     const txIso = isoDate(txDate);
-    const shares = parseShares(r.volume), price = parseNum(r.price);
-    const total = (shares && price) ? Math.round(shares * price) : null;
+    const shares = parseShares(r.volume);
+    let price = parseNum(r.price);
+    let total = (shares && price) ? Math.round(shares * price) : null;
+    // Sanity: total > 10 billion SEK is implausible for any Swedish insider transaction.
+    // When the FI table shows a monetary total in the volume column (instead of share count),
+    // parseShares captures that large value and parseNum captures the same → total = value².
+    // Null price so saveInsiderTransactions drops the row rather than storing garbage data.
+    if (total && total > 10_000_000_000) {
+      console.warn(`  ⚠  Implausible computed total (${total.toLocaleString()} SEK) for ${r.company} (${r.insider}) — price field likely captured total value; row dropped`);
+      price = null;
+      total = null;
+    }
     // Content-based ID: excludes ISIN to prevent duplicate entries when the same
     // person/transaction matches two different instrument ISINs in the FI search.
     const txType = mapType(r.nature);

@@ -67,7 +67,8 @@ async function checkPriceAnomalies(since) {
     .select('company, ticker, country_code, insider_name, price_per_share, transaction_date')
     .gte('transaction_date', since)
     .gt('price_per_share', 0)
-    .or('price_per_share.lt.0.01,price_per_share.gt.100000');
+    .or('price_per_share.lt.0.01,price_per_share.gt.100000')
+    .neq('country_code', 'KR');  // KRW prices (100k–500k range) are normal for Korean stocks
   return data || [];
 }
 
@@ -76,10 +77,16 @@ async function checkMissingFields(since) {
     .from('insider_transactions')
     .select('country_code, company, insider_name, shares, price_per_share, total_value, transaction_date')
     .gte('transaction_date', since)
-    .or('insider_name.is.null,shares.is.null,shares.eq.0,price_per_share.is.null,price_per_share.eq.0,total_value.is.null,total_value.eq.0');
+    // Only flag truly unknown data: NULL fields (not zero — price=0 is a legitimate vesting/grant)
+    .or('insider_name.is.null,shares.is.null,price_per_share.is.null,total_value.is.null');
   if (!data) return {};
   const byCc = {};
-  for (const r of data) byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
+  for (const r of data) {
+    // Exclude explicit zero-price vestings saved via allowPartial — these are intentional free grants,
+    // not parsing errors. A NULL price (truly unknown) is the real flag.
+    if (r.price_per_share === 0) continue;
+    byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
+  }
   return byCc;
 }
 
@@ -146,7 +153,8 @@ async function checkUnusualPrices(since) {
     .select('id, company, insider_name, country_code, price_per_share, transaction_date, transaction_type')
     .gte('transaction_date', since)
     .in('transaction_type', ['BUY', 'SELL'])
-    .gt('price_per_share', 1);
+    .gt('price_per_share', 1)
+    .eq('is_unusual_price', false);  // skip rows already flagged by flag-signals (option exercises, dual-class shares)
   if (!recent?.length) return [];
 
   // Load last 90 days of data for company-peer comparison
@@ -306,8 +314,8 @@ async function main() {
   <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Same insider, same day, same shares — BUY + SELL pair (should be filtered by db.js)</p>
   ${tableHtml(['Company','Insider','Date'],bilateralTransfers.map(r=>[r.company,r.insider,r.date]))}
 
-  <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">f) Unusual Prices — likely option exercises (${unusualPrices.length})</h3>
-  <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Transaction price &lt; 75% of company peer median — review manually</p>
+  <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">f) Unusual Prices — NEW anomalies only (${unusualPrices.length})</h3>
+  <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Transaction price &lt; 75% of company peer median, excluding rows already flagged as unusual (option exercises, dual-class shares) — review manually</p>
   ${tableHtml(['Company','Country','Insider','Tx Price','Peer Median','Ratio','Date'],unusualPrices.map(r=>[r.company,r.country,r.insider,r.tx_price,r.peer_median,r.ratio,r.date]))}
 
   <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">g) Stale Scrapers — no new data in ${STALE_HOURS}h+ (${staleScrapers.length})</h3>
