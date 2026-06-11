@@ -121,6 +121,17 @@ function useAccess(plan) {
   };
 }
 
+// ─── Disposable email block ───────────────────────────────────────────────────
+
+const BLOCKED_DOMAINS = [
+  'mailinator.com', 'maildrop.cc', 'guerrillamail.com', 'guerrillamailblock.com',
+  'tempmail.com', 'yopmail.com', 'throwam.com', 'sharklasers.com',
+];
+const isDisposableEmail = (email) => {
+  const domain = (email || '').split('@')[1]?.toLowerCase();
+  return !!domain && BLOCKED_DOMAINS.includes(domain);
+};
+
 // ─── LoginModal ───────────────────────────────────────────────────────────────
 
 function LoginModal({ onClose, initialMode = 'signin' }) {
@@ -139,6 +150,11 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
       if (err) setError(err.message);
       else onClose();
     } else {
+      if (isDisposableEmail(email)) {
+        setError('Please use a permanent email address to sign up.');
+        setLoading(false);
+        return;
+      }
       const { error: err } = await supabase.auth.signUp({
         email, password,
         options: { emailRedirectTo: 'https://www.insidersalpha.com' },
