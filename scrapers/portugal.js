@@ -365,6 +365,23 @@ manually to identify any missed filings.</p>
   }
 }
 
+// ─── Browser launch helper ────────────────────────────────────────────────────
+
+function launchBrowser(chromiumPath) {
+  return puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--js-flags=--max-old-space-size=512',
+    ],
+    ...(chromiumPath ? { executablePath: chromiumPath } : {}),
+  });
+}
+
 // ─── Puppeteer navigation ─────────────────────────────────────────────────────
 
 async function fetchTranList(browser) {
@@ -434,13 +451,20 @@ async function fetchPdfBase64(browser, encryptedURL) {
     }
   });
 
-  // Retry up to 3 times — CMVM portal occasionally times out
+  // Retry up to 3 times for navigation timeouts.
+  // Connection/target-closed errors are rethrown immediately — the outer loop
+  // will restart the browser rather than retrying with a dead session.
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await page.goto(encryptedURL, { waitUntil: 'networkidle2', timeout: 60000 });
       await new Promise(r => setTimeout(r, 4000));
       break;
     } catch(e) {
+      const isConnectionErr = /connection closed|target closed|session closed|context.*destroyed/i.test(e.message);
+      if (isConnectionErr) {
+        await page.close().catch(() => {});
+        throw e;  // propagate — caller will restart browser
+      }
       if (attempt < 3) {
         console.log(`  ⚠  PDF navigation timeout (attempt ${attempt}/3), retrying…`);
         await new Promise(r => setTimeout(r, 10000));
@@ -448,7 +472,7 @@ async function fetchPdfBase64(browser, encryptedURL) {
       // timeout on final attempt is OK — may have already captured response
     }
   }
-  await page.close();
+  await page.close().catch(() => {});
 
   return base64;
 }
@@ -515,16 +539,7 @@ async function scrapePT() {
   const chromiumPath = findChromium();
   console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-    ],
-    ...(chromiumPath ? { executablePath: chromiumPath } : {}),
-  });
+  let browser = await launchBrowser(chromiumPath);
 
   try {
     // Step 1: Navigate and capture TRAN list
@@ -602,31 +617,54 @@ async function scrapePT() {
       return { saved: 0 };
     }
 
-    // Step 3: Download and parse each PDF
-    console.log(`  Downloading and parsing PDFs (${CONCURRENCY} concurrent)…`);
+    // Step 3: Download and parse each PDF — sequential with browser-restart on crash.
+    // Each PDF gets up to 2 attempts; on a browser connection crash the browser is
+    // relaunched and the PDF is retried once before being skipped.
+    console.log(`  Downloading and parsing PDFs (sequential, restart-on-crash)…`);
 
-    const parsed = await mapConcurrent(toProcess, async (item, idx) => {
+    const parsed = [];
+    for (let idx = 0; idx < toProcess.length; idx++) {
+      const item = toProcess[idx];
       const pdfNum = item.PDF_FACT.replace(/\D/g, '');
       console.log(`    [${idx+1}/${toProcess.length}] ${item.PDF_FACT} — ${(item.DSC_FACT || '').slice(0, 60)}`);
 
-      const base64 = await fetchPdfBase64(browser, item.EncryptedURL);
-      if (!base64) {
-        console.log(`      ⚠  Could not get PDF base64`);
-        return null;
+      let result = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const base64 = await fetchPdfBase64(browser, item.EncryptedURL);
+          if (!base64) {
+            console.log(`      ⚠  Could not get PDF base64`);
+            break;
+          }
+          let text;
+          try {
+            text = pdfBase64ToText(base64);
+          } catch(e) {
+            console.log(`      ⚠  pdftotext failed: ${e.message}`);
+            break;
+          }
+          const fields = parsePdfFields(text);
+          console.log(`      → ${fields.insiderName || '(no name)'} | ${fields.isin || '(no ISIN)'} | ${fields.transactionType} | ${fields.shares}@${fields.pricePerShare} | ${fields.transactionDate}`);
+          result = { item, fields, pdfNum };
+          break;
+        } catch(err) {
+          const isCrash = /connection closed|target closed|session closed|context.*destroyed/i.test(err.message);
+          if (isCrash) {
+            console.warn(`      ⚠  Browser crashed (${err.message.slice(0, 60)}), restarting…`);
+            await browser.close().catch(() => {});
+            browser = await launchBrowser(chromiumPath);
+            if (attempt >= 2) {
+              console.warn(`      ⚠  Skipping ${item.PDF_FACT} after 2 crash attempts`);
+            }
+            // loop continues to retry with fresh browser
+          } else {
+            console.warn(`      ⚠  Skipping ${item.PDF_FACT}: ${err.message.slice(0, 80)}`);
+            break;
+          }
+        }
       }
-
-      let text;
-      try {
-        text = pdfBase64ToText(base64);
-      } catch(e) {
-        console.log(`      ⚠  pdftotext failed: ${e.message}`);
-        return null;
-      }
-
-      const fields = parsePdfFields(text);
-      console.log(`      → ${fields.insiderName || '(no name)'} | ${fields.isin || '(no ISIN)'} | ${fields.transactionType} | ${fields.shares}@${fields.pricePerShare} | ${fields.transactionDate}`);
-      return { item, fields, pdfNum };
-    }, CONCURRENCY);
+      parsed.push(result);
+    }
 
     // Step 4: Build DB rows
     // filing_id = PT-{pdfNum} is unique per PDF, so Supabase upsert handles
