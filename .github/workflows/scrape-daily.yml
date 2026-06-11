@@ -59,7 +59,8 @@ jobs:
         run: npm ci
 
       - name: Install system tools
-        run: sudo apt-get install -y poppler-utils
+        continue-on-error: true   # poppler failure must not block scrapers that don't need it
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
 
       # ── Europe ─────────────────────────────────────────────────────────────
       - name: 🇳🇱 Netherlands (AFM)
