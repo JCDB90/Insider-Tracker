@@ -177,7 +177,7 @@ function parseDocumentContent(content, meta) {
   // Extract section 1: person name(s)
   // "1 Details of the person discharging managerial responsibilities ... a) Name <name> 2 Reason"
   const nameSecRaw = grabAfter(t,
-    /\ba\)\s*Name\s+([\s\S]+?)\s+2\s+Reason/i,
+    /\ba\)\s*Name\s+([\s\S]+?)\s+2\.?\s+Reasons?\b/i,  // handles "2. Reason" (with period) and "2. Reasons" (plural)
     /\ba\)\s*Name\s+([\s\S]+?)\s+b\)\s*(?:Reason|LEI|Position|Status)/i,
     /\ba\)\s*Name\s+([^\n]{2,80})/,
   );
@@ -318,16 +318,26 @@ function parseDocumentContent(content, meta) {
   const names = [];
   const positions = [];
 
+  // Strip leaked MAR form section text from a captured name string.
+  // Handles: "Toby Courtauld 2. Reason for the notification…" → "Toby Courtauld"
+  //          "June Aitken 2. Reasons for the notification…"   → "June Aitken"
+  //          "Mark Cubitt a) Position status…"                → "Mark Cubitt"
+  const stripFormSections = s => !s ? s : s
+    .replace(/\s*\d+\.?\s+Reasons?\s+for\b.*/si, '')
+    .replace(/\s*\d+\.?\s+(?:Position|Nature|Details|Notification)\b.*/si, '')
+    .replace(/\s+[a-d]\)\s+(?:Position|Reason|Nature|LEI)\b.*/si, '')
+    .trim();
+
   if (nameSec) {
     // Check for numbered list pattern "1. Name 2. Name"
     const numbered = nameSec.match(/\d+\.\s*([^\d\.]+)/g);
     if (numbered && numbered.length > 1) {
       for (const n of numbered) {
-        const nm = n.replace(/^\d+\.\s*/, '').trim();
+        const nm = stripFormSections(n.replace(/^\d+\.\s*/, '').trim());
         if (nm) names.push(nm);
       }
     } else {
-      names.push(nameSec.replace(/^\d+\.\s*/, '').trim());
+      names.push(stripFormSections(nameSec.replace(/^\d+\.\s*/, '').trim()));
     }
   }
 
