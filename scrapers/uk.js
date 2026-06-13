@@ -325,7 +325,7 @@ function parseDocumentContent(content, meta) {
   const stripFormSections = s => !s ? s : s
     .replace(/\s*\d+\.?\s+Reasons?\s+for\b.*/si, '')
     .replace(/\s*\d+\.?\s+(?:Position|Nature|Details|Notification)\b.*/si, '')
-    .replace(/\s+[a-d]\)\s+(?:Position|Reason|Nature|LEI)\b.*/si, '')
+    .replace(/\s+[a-d]\)\s+(?:Position|Reason|Nature|LEI|Legal\s+Entity)\b.*/si, '')
     .trim();
 
   if (nameSec) {
@@ -367,11 +367,21 @@ function parseDocumentContent(content, meta) {
 
   if (names.length === 0) return [];  // Cannot determine insider name
 
-  // For each name: if it looks like a corporate entity, try to extract the associated person
-  // from the position/status section ("Closely associated with PERSON PDMR").
+  // For each name: if it looks like a corporate entity, try to extract the associated person.
+  // Two patterns found in UK RNS filings:
+  //   1. "Entity closely associated with PERSON PDMR" — PERSON in the position/status section
+  //   2. "Entity is a PCA of PERSON, role" — PCA (Person Closely Associated) in the name itself
   const viaEntities = new Array(names.length).fill(null);
   for (let i = 0; i < names.length; i++) {
+    // Pattern 2: "Entity is a PCA of PersonName" embedded in the extracted name string
+    const pcaM = names[i]?.match(/^(.+?)\s+is\s+a\s+PCA\s+of\s+([A-Z][a-zA-Z\s\-\.]{2,60}?)(?:,\s.*)?$/i);
+    if (pcaM && looksLikeCorp(pcaM[1].trim())) {
+      viaEntities[i] = pcaM[1].trim();
+      names[i]       = pcaM[2].trim();
+      continue;
+    }
     if (looksLikeCorp(names[i])) {
+      // Pattern 1: person named in the position/status section
       const posText = positions[i] || positions[0] || posSec || '';
       const assocM = posText.match(/closely\s+associated\s+with\s+([A-Z][a-zA-Z\s\-\.]{2,50}?)(?:\s+PDMR|\s*$)/i);
       if (assocM) {
