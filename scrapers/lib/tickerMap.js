@@ -44,8 +44,9 @@ const SPECIFIC_OVERRIDES = {
   'MC|FR':     'MC.PA',
   'OR|FR':     'OR.PA',
   'JEN|BE':    'JEN.BR',
-  // LU-registered but traded on Euronext Brussels
-  'BREB|LU':   'BREB.BR',   // Brederode S.A.
+  // LU-registered but traded on Euronext Amsterdam or Brussels
+  'APAM|LU':   'APAM.AS',   // Aperam S.A. (Amsterdam)
+  'BREB|LU':   'BREB.BR',   // Brederode S.A. (Brussels)
   // GB-filed companies primarily listed on other exchanges
   'FLUT|GB':   'FLUT',      // Flutter Entertainment (NYSE, migrated from LSE)
 };
