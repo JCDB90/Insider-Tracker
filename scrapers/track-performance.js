@@ -36,6 +36,11 @@ function calcReturn(buyPrice, laterPrice) {
   return Math.round(((laterPrice - buyPrice) / buyPrice) * 10000) / 10000;
 }
 
+// Yahoo Finance returns LSE (.L) stocks in GBp (pence), not GBP (pounds).
+// Our stored price_per_share for GB filings is in GBP.
+// Dividing Yahoo prices by 100 converts GBp → GBP so returns are comparable.
+const PENCE_SUFFIX_RE = /\.L$/i;
+
 async function fetchRangeForTicker(ticker, countryCode, fromStr, toStr, cache) {
   // Check specific exchange override first (e.g. CPR|NL → CPR.MI)
   const overrideSymbol = SPECIFIC_OVERRIDES[`${ticker}|${countryCode}`];
@@ -44,9 +49,15 @@ async function fetchRangeForTicker(ticker, countryCode, fromStr, toStr, cache) {
     : getSuffixesForCountry(countryCode).map(sfx => ticker + sfx);
 
   for (const symbol of symbols) {
-    const data = await cache.fetchRange(ticker, symbol, fromStr, toStr,
+    const raw = await cache.fetchRange(ticker, symbol, fromStr, toStr,
       (sym, f, t) => fetchYahooRange(sym, f, t));
-    if (data.length > 0) return data;
+    if (raw.length > 0) {
+      // Convert GBp → GBP for .L (LSE) symbols
+      if (PENCE_SUFFIX_RE.test(symbol)) {
+        return raw.map(d => ({ ...d, price: Math.round(d.price * 10) / 1000 }));
+      }
+      return raw;
+    }
     await new Promise(r => setTimeout(r, 150));
   }
   return [];
@@ -111,10 +122,12 @@ async function main() {
   while (true) {
     const { data, error } = await supabase
       .from('insider_transactions')
-      .select('id, ticker, company, insider_name, country_code, transaction_date, price_per_share')
+      .select('id, ticker, company, insider_name, country_code, transaction_date, price_per_share, total_value')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('ticker', 'is', null)
       .gt('price_per_share', 0)
+      .gt('total_value', 500)           // skip tiny/nominal transactions (grants, token exercises)
+      .or('is_unusual_price.is.null,is_unusual_price.eq.false') // skip option exercises
       .lte('transaction_date', cutoffDate)
       .order('transaction_date', { ascending: false })
       .range(from, from + 999);
@@ -137,7 +150,7 @@ async function main() {
   if (toProcess.length === 0) { console.log('  Nothing to process.'); return; }
 
   let upserted = 0;
-  const skip = { ch: 0, noInsider: 0, isin: 0, yahooEmpty: 0, fetchError: 0, dbError: 0 };
+  const skip = { ch: 0, noInsider: 0, isin: 0, yahooEmpty: 0, fetchError: 0, dbError: 0, suspicious: 0 };
 
   const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);
 
@@ -174,6 +187,18 @@ async function main() {
       const r90  = calcReturn(txPrice, p90);
       const r180 = calcReturn(txPrice, p180);
       const r365 = calcReturn(txPrice, p365);
+
+      // Sanity guard: a >1000% return on any mature horizon means the price unit
+      // is wrong (e.g. GBp still slipping through, or a warrant at nominal value).
+      const maxReturn = Math.max(
+        Math.abs(r7 ?? 0), Math.abs(r30 ?? 0), Math.abs(r90 ?? 0),
+        Math.abs(r180 ?? 0), Math.abs(r365 ?? 0),
+      );
+      if (maxReturn > 10) {
+        console.warn(`  ⚠  Implausible return (${(maxReturn*100).toFixed(0)}%) for ${row.company} (${row.ticker}) @ ${txPrice} — skipping`);
+        skip.suspicious++;
+        continue;
+      }
 
       const perfRow = {
         insider_name:     row.insider_name || 'Not disclosed',
