@@ -44,6 +44,10 @@ const SPECIFIC_OVERRIDES = {
   'MC|FR':     'MC.PA',
   'OR|FR':     'OR.PA',
   'JEN|BE':    'JEN.BR',
+  // LU-registered but traded on Euronext Brussels
+  'BREB|LU':   'BREB.BR',   // Brederode S.A.
+  // GB-filed companies primarily listed on other exchanges
+  'FLUT|GB':   'FLUT',      // Flutter Entertainment (NYSE, migrated from LSE)
 };
 
 /**
