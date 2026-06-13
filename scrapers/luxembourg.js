@@ -208,6 +208,14 @@ function parsePdf(text) {
       break;
     }
   }
+  // Fallback: some LuxSE PDFs use "Identification code7   LU1068091351" instead of "ISIN:"
+  if (!isin) {
+    const idField = getField(/Identification code\d*/);
+    if (idField) {
+      const m2 = idField.match(/\b([A-Z]{2}[A-Z0-9]{10})\b/);
+      if (m2) isin = m2[1];
+    }
+  }
 
   function getField(labelRe, minSpaces) {
     const sp = minSpaces || 3;
@@ -320,8 +328,9 @@ function parsePdf(text) {
 
   const roleRaw = getField(/Position\/status\d/) || '';
   let role = null;
-  const rm = roleRaw.match(/\b(CEO|CFO|COO|CTO|Chairman|President|Director|Secretary|Manager|Partner|Member)\b/i);
-  if (rm) role = rm[1];
+  // Try compound roles like "Co-CEO" before simple keywords
+  const rm = roleRaw.match(/\b(Co[-\s]CEO|Co[-\s]CFO|Co[-\s]COO|CEO|CFO|COO|CTO|Chairman|President|Director|Secretary|Manager|Partner|Member)\b/i);
+  if (rm) role = rm[1].replace(/\s/g, '-'); // normalise "Co CEO" → "Co-CEO"
   else if (/closely associated/i.test(roleRaw)) role = 'Closely Associated';
 
   const natureTxt = getField(/Nature of the transaction\d/) || '';
@@ -340,8 +349,25 @@ function parsePdf(text) {
   const pm = priceTxt.match(/([\d,]+\.?\d*)/);
   if (pm) totalValue = parseFloat(pm[1].replace(/,/g, '')) || null;
 
+  // Price9 table lists per-share price explicitly: "Price(s) … Volume(s) / 102.6 EUR 78 (units)"
+  // More reliable than Price11 which some filers fill with per-share price, others with aggregate.
+  let priceFromTable = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (/Price\(s\) and volume\(s\)\d+/.test(lines[i])) {
+      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+        const m = lines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b/i);
+        if (m) { priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break; }
+      }
+      break;
+    }
+  }
+
   let pricePerShare = null;
-  if (totalValue && shares && shares > 0) {
+  if (priceFromTable && shares && shares > 0) {
+    // Use per-share price from the Price9 table; compute aggregate from it.
+    pricePerShare = parseFloat(priceFromTable.toFixed(6));
+    totalValue    = Math.round(priceFromTable * shares);
+  } else if (totalValue && shares && shares > 0) {
     const pps = totalValue / shares;
     // Sanity check: if pps is absurdly small (< MIN_PRICE_PER_SHARE) but totalValue itself
     // is a plausible per-share price, the PDF put the per-share price in Price11 rather than
