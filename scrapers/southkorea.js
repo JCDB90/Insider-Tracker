@@ -52,6 +52,13 @@ const API_HOST        = 'opendart.fss.or.kr';
 const KOSPI200_RAW  = require(path.join(__dirname, 'lib/kospi200.json'));
 const KOSPI200_MAP  = new Map(KOSPI200_RAW.map(c => [c.code, c.name]));
 
+// Romanized Korean corporate-entity patterns (holdingseu = 홀딩스, jugesikhoesa = 주식회사, etc.)
+const KOREAN_CORP_PATTERNS = [
+  /holdingseu$/i, /jugesikhoesa/i, /yuhanhoesa/i,
+  /paeuteuneoseu$/i, /inbeoseuteu/i, /kaepitael/i,
+  /paundeu$/i, /aeseteeu/i,
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isoDate(d) {
@@ -388,31 +395,50 @@ async function scrapeKR() {
 
     // Determine if filer is an institution (5+ Hangul chars = corporate entity)
     const hangulCount = name ? [...name].filter(c => /[가-힣]/.test(c)).length : 0;
-    const isCorporateFiler = hangulCount > 4;
     const romanizedName = romanizeKoreanName(name);
     // If romanization failed and the result still contains Hangul, treat as null
     // (these are department/role descriptions like "AI서비스디자인 성과리더", not person names)
     const hasResidualHangul = romanizedName ? /[가-힣]/.test(romanizedName) : false;
     const cleanName = hasResidualHangul ? null : romanizedName;
 
-    // One DB row per transaction (filings can contain multiple trade dates)
-    return result.txns.map((txn, idx) => ({
-      filing_id:        `KR-${rcptNo}-${txn.transDate || filingDate}-${idx}`,
-      country_code:     COUNTRY_CODE,
-      source:           SOURCE,
-      ticker:           sc || listing.corp_code || null,
-      company,
-      insider_name:     isCorporateFiler ? null : cleanName,
-      via_entity:       isCorporateFiler ? romanizedName : null,
-      insider_role:     translateRole(role),
-      transaction_type: txn.txType,
-      transaction_date: txn.transDate || filingDate,
-      shares:           txn.shares,
-      price_per_share:  txn.price,
-      total_value:      (txn.price && txn.shares) ? Math.round(txn.shares * txn.price) : null,
-      currency:         'KRW',
-      filing_url:       filingUrl,
-    }));
+    // Corporate detection: Hangul count > 4 OR romanized name matches Korean corp patterns.
+    // Secondary romanized check catches names that slip through (e.g. names provided
+    // pre-romanized in the listing API rather than as raw Hangul).
+    const isCorporateFiler = hangulCount > 4 ||
+      (romanizedName != null && KOREAN_CORP_PATTERNS.some(p => p.test(romanizedName)));
+
+    // One DB row per transaction (filings can contain multiple trade dates).
+    // Skip transactions dated more than 2 days in the future — DART sometimes
+    // stores a future settlement/transfer date in MDF_DM that is not the actual
+    // trade date; using it causes forward-dated rows that confuse the UI.
+    const MAX_TX_DATE = new Date(Date.now() + 2 * 86400000);
+    return result.txns
+      .filter((txn) => {
+        if (!txn.transDate) return true;
+        const d = new Date(txn.transDate);
+        if (d > MAX_TX_DATE) {
+          console.warn(`  ⚠  Skipping future-dated transaction: ${txn.transDate} for ${company} (${rcptNo})`);
+          return false;
+        }
+        return true;
+      })
+      .map((txn, idx) => ({
+        filing_id:        `KR-${rcptNo}-${txn.transDate || filingDate}-${idx}`,
+        country_code:     COUNTRY_CODE,
+        source:           SOURCE,
+        ticker:           sc || listing.corp_code || null,
+        company,
+        insider_name:     isCorporateFiler ? null : cleanName,
+        via_entity:       isCorporateFiler ? romanizedName : null,
+        insider_role:     translateRole(role),
+        transaction_type: txn.txType,
+        transaction_date: txn.transDate || filingDate,
+        shares:           txn.shares,
+        price_per_share:  txn.price,
+        total_value:      (txn.price && txn.shares) ? Math.round(txn.shares * txn.price) : null,
+        currency:         'KRW',
+        filing_url:       filingUrl,
+      }));
   };
 
   const rawRows  = await runBatch(kospiListings, CONCURRENCY, processListing);
