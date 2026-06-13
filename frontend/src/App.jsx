@@ -121,15 +121,26 @@ function useAccess(plan) {
   };
 }
 
-// ─── Disposable email block ───────────────────────────────────────────────────
+// ─── Disposable / bot email block ────────────────────────────────────────────
 
 const BLOCKED_DOMAINS = [
   'mailinator.com', 'maildrop.cc', 'guerrillamail.com', 'guerrillamailblock.com',
   'tempmail.com', 'yopmail.com', 'throwam.com', 'sharklasers.com',
 ];
-const isDisposableEmail = (email) => {
+
+// Pattern-based block: catches bot probes that use non-disposable domains
+// but follow recognisable automated naming conventions.
+const BLOCKED_PATTERNS = [
+  /security[.\-_]review/i,  // security.review@, security-review@, etc.
+  /security\d+/i,            // security123@, security99@, etc.
+  /test[.\-_]\d+/i,          // test_1234@, test.99@, etc.
+  /\d{10,}/,                 // 10+ consecutive digits anywhere in the address
+];
+
+const isBlockedEmail = (email) => {
   const domain = (email || '').split('@')[1]?.toLowerCase();
-  return !!domain && BLOCKED_DOMAINS.includes(domain);
+  return (!!domain && BLOCKED_DOMAINS.includes(domain)) ||
+         BLOCKED_PATTERNS.some(p => p.test(email));
 };
 
 // ─── LoginModal ───────────────────────────────────────────────────────────────
@@ -150,7 +161,7 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
       if (err) setError(err.message);
       else onClose();
     } else {
-      if (isDisposableEmail(email)) {
+      if (isBlockedEmail(email)) {
         setError('Please use a permanent email address to sign up.');
         setLoading(false);
         return;
