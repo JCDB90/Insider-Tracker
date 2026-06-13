@@ -61,7 +61,7 @@ async function loadAllBuys() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share')
+      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, is_unusual_price')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
       .not('insider_name', 'is', null)
@@ -94,14 +94,17 @@ function computeSignals(buys) {
     const companyKey = (t.company || t.ticker || '').toLowerCase();
     const peers      = byCompany[companyKey] || [];
 
-    // ── UNUSUAL PRICE: price is <80% of company's median transaction price ────
-    // Detects option exercises / grants where the transaction price is a fixed
-    // exercise price set years ago, far below current market price.
-    // Only compares against peers with transactions in the last 90 days.
-    let isUnusualPrice = false;
-    if (t.price_per_share > 1) {
+    // ── UNUSUAL PRICE ─────────────────────────────────────────────────────────
+    // Two-tier check:
+    //   1. DB flag: is_unusual_price=true set by the scraper or enrichment pipeline
+    //      (option exercises, SAYE grants, warrant vestings at below-market strike)
+    //   2. Median heuristic: price <80% of same-company median from last 90 days
+    //      (catches exercises that slipped through scraper-level detection)
+    // Either tier suppresses all conviction signals for this row.
+    let isUnusualPrice = t.is_unusual_price === true;
+    if (!isUnusualPrice && t.price_per_share > 1) {
       const recentPrices = peers
-        .filter(p => p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
         .map(p => p.price_per_share)
         .sort((a, b) => a - b);
       if (recentPrices.length >= 2) {
@@ -110,14 +113,16 @@ function computeSignals(buys) {
       }
     }
 
-    // If unusual price detected, suppress all conviction signals for this row
     if (isUnusualPrice) {
       results[t.id] = { is_cluster_buy: false, is_repetitive_buy: false, is_pre_blackout_buy: false, is_price_dip: false, is_unusual_price: true };
       continue;
     }
 
     // ── CLUSTER: different named insiders, same company, within 7 days ────────
+    // Exclude unusual-price peers — an option exercise must not trigger a cluster
+    // signal on a legitimate open-market purchase by another insider.
     const clusterPeers = peers.filter(p => {
+      if (p.is_unusual_price) return false;
       if (!p.insider_name || !t.insider_name) return false;
       if ((p.insider_name || '').toLowerCase() === (t.insider_name || '').toLowerCase()) return false;
       return daysBetween(p.transaction_date, t.transaction_date) <= CLUSTER_WINDOW;
@@ -128,7 +133,10 @@ function computeSignals(buys) {
     // Flag only when the CLOSEST other purchase is ≥ REP_MIN_GAP away.
     // Jan 1 + Jan 2 + Jan 7 → min gap = 1d → NOT flagged (tranche execution).
     // Jan 1 + Jan 8         → min gap = 7d → FLAGGED (genuine second decision).
+    // Exclude unusual-price peers — an option exercise must not anchor a repetitive
+    // buy signal on a genuine separate open-market decision.
     const samePeers = peers.filter(p => {
+      if (p.is_unusual_price) return false;
       if (!p.insider_name || !t.insider_name) return false;
       if ((p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase()) return false;
       const gap = daysBetween(p.transaction_date, t.transaction_date);
