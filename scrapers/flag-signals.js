@@ -95,13 +95,17 @@ function computeSignals(buys) {
     const peers      = byCompany[companyKey] || [];
 
     // ── UNUSUAL PRICE ─────────────────────────────────────────────────────────
-    // Two-tier check:
-    //   1. DB flag: is_unusual_price=true set by the scraper or enrichment pipeline
+    // Three-tier check (any tier sets isUnusualPrice = true):
+    //   1. DB flag: is_unusual_price=true set by scraper or enrichment pipeline
     //      (option exercises, SAYE grants, warrant vestings at below-market strike)
     //   2. Median heuristic: price <80% of same-company median from last 90 days
     //      (catches exercises that slipped through scraper-level detection)
-    // Either tier suppresses all conviction signals for this row.
+    //   3. Coordinated issuance: 2+ other insiders at the EXACT same price on the
+    //      same day — almost always a directed share subscription / rights issuance,
+    //      not independent open-market conviction.  Exact price equality is a very
+    //      strong signal since real market orders almost never match to the cent.
     let isUnusualPrice = t.is_unusual_price === true;
+
     if (!isUnusualPrice && t.price_per_share > 1) {
       const recentPrices = peers
         .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
@@ -111,6 +115,15 @@ function computeSignals(buys) {
         const median = recentPrices[Math.floor(recentPrices.length / 2)];
         isUnusualPrice = t.price_per_share < median * 0.80;
       }
+    }
+
+    if (!isUnusualPrice && t.price_per_share > 0) {
+      const sameDayPeers = peers.filter(p =>
+        p.id !== t.id &&
+        p.transaction_date === t.transaction_date &&
+        p.price_per_share === t.price_per_share
+      );
+      if (sameDayPeers.length >= 2) isUnusualPrice = true;
     }
 
     if (isUnusualPrice) {
