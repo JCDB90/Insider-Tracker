@@ -4897,6 +4897,19 @@ function UtmBuilder() {
   );
 }
 
+function relativeLogin(iso) {
+  if (!iso) return { label: 'Never', color: '#EF4444' };
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  const label = days === 0 ? 'Today'
+    : days === 1 ? 'Yesterday'
+    : days < 7  ? `${days}d ago`
+    : days < 30 ? `${Math.floor(days / 7)}w ago`
+    : days < 365 ? `${Math.floor(days / 30)}mo ago`
+    : `${Math.floor(days / 365)}y ago`;
+  const color = days <= 7 ? '#10B981' : days <= 30 ? '#F59E0B' : '#EF4444';
+  return { label, color };
+}
+
 function AdminPage({ session }) {
   const [activeTab, setActiveTab] = useState('users');
   const [users,   setUsers]   = useState([]);
@@ -5009,7 +5022,7 @@ function AdminPage({ session }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f9fafb' }}>
-                      {['Email', 'Plan', 'Signed up', 'Last notified', 'Change plan'].map(h => (
+                      {['Email', 'Plan', 'Signed up', 'Last notified', 'Last login', 'Change plan'].map(h => (
                         <th key={h} style={{
                           padding: '10px 16px', textAlign: 'left', fontSize: 11,
                           fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase',
@@ -5032,6 +5045,11 @@ function AdminPage({ session }) {
                         </td>
                         <td style={{ padding: '11px 16px', color: '#6B7280' }}>
                           {u.last_notified_at || '—'}
+                        </td>
+                        <td style={{ padding: '11px 16px' }}>
+                          {(() => { const { label, color } = relativeLogin(u.last_login); return (
+                            <span style={{ color, fontWeight: 500, fontSize: 12 }}>{label}</span>
+                          ); })()}
                         </td>
                         <td style={{ padding: '11px 16px' }}>
                           <select

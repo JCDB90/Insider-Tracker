@@ -48,16 +48,31 @@ export default async function handler(req, res) {
   }
 
   const adminSb = createClient(SUPABASE_URL, svcKey);
-  const { data, error } = await adminSb
-    .from('user_profiles')
-    .select('id, email, plan, created_at, last_notified_at, stripe_customer_id, subscription_status')
-    .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('[admin-users] query error:', error.message);
-    return res.status(500).json({ error: error.message });
+  const [profilesRes, authRes] = await Promise.all([
+    adminSb
+      .from('user_profiles')
+      .select('id, email, plan, created_at, last_notified_at, stripe_customer_id, subscription_status')
+      .order('created_at', { ascending: false }),
+    adminSb.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
+
+  if (profilesRes.error) {
+    console.error('[admin-users] query error:', profilesRes.error.message);
+    return res.status(500).json({ error: profilesRes.error.message });
   }
 
-  console.log('[admin-users] returning', data?.length, 'rows');
-  res.status(200).json(data);
+  // Build email → last_sign_in_at lookup from Auth
+  const loginMap = {};
+  for (const u of authRes.data?.users ?? []) {
+    if (u.email) loginMap[u.email.toLowerCase()] = u.last_sign_in_at ?? null;
+  }
+
+  const merged = (profilesRes.data ?? []).map(u => ({
+    ...u,
+    last_login: u.email ? (loginMap[u.email.toLowerCase()] ?? null) : null,
+  }));
+
+  console.log('[admin-users] returning', merged.length, 'rows');
+  res.status(200).json(merged);
 }
