@@ -628,6 +628,7 @@ async function scrapePL() {
 
   const seen = new Set();
   const dbRows = [];
+  const _stats = { total: 0, fullData: 0, nameOnly: 0, noName: 0, pdfAccessed: 0 };
   for (const r of insiderItems) {
     const fid = `PL-${r.geruId || (r.company + '-' + r.txIso).replace(/\s/g, '_')}`;
     if (seen.has(fid)) continue;
@@ -661,6 +662,7 @@ async function scrapePL() {
         if (pdfHrefM) {
           const pdfBuf = await fetchPdfBuffer(pdfHrefM[1]);
           if (pdfBuf) {
+            _stats.pdfAccessed++;
             const pdfText = await pdfBufToText(pdfBuf, r.geruId);
             const pdf = parsePlPdf(pdfText);
             console.log(`  📄 PDF parsed for ${company}: shares=${pdf.shares} price=${pdf.price} txType=${pdf.txType} name=${pdf.name}`);
@@ -676,6 +678,12 @@ async function scrapePL() {
         }
       }
     }
+
+    // Classify for stats
+    _stats.total++;
+    if (insiderName && shares && price) _stats.fullData++;
+    else if (insiderName)               _stats.nameOnly++;
+    else                                _stats.noName++;
 
     // txType comes only from document content (prose + PDF); title is not a reliable signal
     const txType = parsedTxType;
@@ -701,6 +709,9 @@ async function scrapePL() {
       source:           SOURCE,
     });
   }
+
+  console.log(`  STATS total=${_stats.total} fullData=${_stats.fullData} nameOnly=${_stats.nameOnly} noName=${_stats.noName} pdfAccessed=${_stats.pdfAccessed}`);
+  console.log(`  STATS pct_full=${(_stats.total ? (_stats.fullData/_stats.total*100).toFixed(1) : 0)}% pct_partial=${(_stats.total ? (_stats.nameOnly/_stats.total*100).toFixed(1) : 0)}% pct_empty=${(_stats.total ? (_stats.noName/_stats.total*100).toFixed(1) : 0)}%`);
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
