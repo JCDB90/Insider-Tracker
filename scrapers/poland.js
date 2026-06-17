@@ -77,6 +77,22 @@ const INSIDER_KEYWORDS = [
   'zawiadomien.*transakcj',   // Zawiadomienie o transakcjach (synonym of powiadomienie)
   'art. 19 (3)',              // English: "Notification under Art. 19 (3)" (foreign co. dual-listed on GPW)
   'art. 19(3)',
+  // Patterns identified from production OTHER misclassifications (all mean MAR Art.19 notification)
+  'informacja o transakcjach na',        // informacja o transakcjach na akcjach/instrumentach
+  'informacja o transakcjach osoby',
+  'informacja o transakcjach uzyskana',
+  'informacja o transakcji na',          // informacja o transakcji na akcjach
+  'informacja o transakcji otrzymana',
+  'informacja o transakcji uzyskana',
+  'otrzymanie zawiadomienia na podstawie art. 19',
+  'powiadomienie notyfikacyjne',
+  'powiadomienie o transakcji w trybie',
+  'zawiadomienia o transakcjach w trybie',
+  'zawiadomienie o transakcjach na papierach',
+  'zawiadomienie o transakcjach w trybie',
+  'zawiadomienie o zawarciu transakcji',
+  'zawiadomienie w trybie art.19',
+  'zawiadomienie o transakcji wykonanej',
 ];
 
 function isInsiderReport(title) {
@@ -661,9 +677,8 @@ async function scrapePL() {
       }
     }
 
-    // Prefer table/body txType, fall back to title keywords
-    const txType = parsedTxType || mapType(r.title);
-    if (txType === 'OTHER') console.log('⚠ Unknown PL type:', JSON.stringify(r.title));
+    // txType comes only from document content (prose + PDF); title is not a reliable signal
+    const txType = parsedTxType;
     // Table ISIN overrides listing ISIN (more authoritative source)
     const ticker = isinFromTable || r.isin || '';
     // Use actual trade date from PDF if available (more precise than filing date)
@@ -692,10 +707,10 @@ async function scrapePL() {
   const { error } = await saveInsiderTransactions(dbRows);
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
-  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
-  const other = dbRows.filter(r => r.transaction_type === 'OTHER').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL, ${other} OTHER)`);
+  const buys         = dbRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells        = dbRows.filter(r => r.transaction_type === 'SELL').length;
+  const unclassified = dbRows.filter(r => r.transaction_type !== 'BUY' && r.transaction_type !== 'SELL').length;
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} attempted (${buys} BUY, ${sells} SELL, ${unclassified} unclassified/dropped)`);
   return { saved: dbRows.length };
 }
 
