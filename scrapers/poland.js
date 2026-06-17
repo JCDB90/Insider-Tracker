@@ -15,16 +15,22 @@
  * The AJAX endpoint (ajaxindex.php) returns HTML <li> items sorted newest-first.
  * Pagination via offset. Date stops when all items are older than cutoff.
  *
- * Parsing strategy: 99% of MAR Art. 19 filings contain the full ESMA standard
- * HTML table on the GPW detail page. The table parser is the primary path; the
- * prose regex fallback handles older free-text filings.
+ * Parsing strategy:
+ *   1. HTML prose  — always attempted; yields name, txType, occasionally shares/price
+ *   2. PDF fallback — if shares/price still missing, download the PAP ESPI PDF
+ *      attachment from espiebi.pap.pl and parse it with pdftotext -layout.
+ *      The ESMA form PDF has consistent layout: label + ≥3 spaces + value per line.
+ *      PDFs are publicly accessible for ~8% of filings; rest silently skipped.
  *
  * ISIN: appears in parentheses after company name, e.g. PLGRPRC00015
- * Transaction date: approximate (filing date, not actual trade date)
  */
 'use strict';
 
-const https = require('https');
+const https        = require('https');
+const { execFile } = require('child_process');
+const fs           = require('fs');
+const os           = require('os');
+const path         = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 
@@ -433,6 +439,102 @@ function parseItems(html) {
   return items;
 }
 
+// ─── PDF parsing pipeline ────────────────────────────────────────────────────
+
+/** Download PDF from espiebi.pap.pl; returns Buffer or null if not accessible */
+function fetchPdfBuffer(attachmentHref) {
+  return new Promise((resolve) => {
+    const req = https.get({
+      hostname: 'espiebi.pap.pl',
+      path: '/espi/pl/reports/view/' + attachmentHref,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://www.gpw.pl/komunikaty',
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        // Validate PDF magic bytes — auth-gated responses are small HTML pages
+        const isPdf = buf.length > 200 && buf.slice(0, 4).toString() === '%PDF';
+        resolve(isPdf ? buf : null);
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(12000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+/** Convert PDF buffer → layout text via pdftotext; returns string or null */
+function pdfBufToText(buf, geruId) {
+  return new Promise((resolve) => {
+    const tmp = path.join(os.tmpdir(), `pl-${geruId}.pdf`);
+    try { fs.writeFileSync(tmp, buf); } catch { return resolve(null); }
+    execFile('pdftotext', ['-layout', tmp, '-'], { timeout: 10000 }, (err, stdout) => {
+      try { fs.unlinkSync(tmp); } catch {}
+      resolve(err ? null : stdout);
+    });
+  });
+}
+
+/**
+ * Parse pdftotext -layout output of the ESMA MAR Art.19 notification form.
+ * The PDF is a fixed-layout form where each row is:  label<≥3 spaces>value
+ * All financial data comes from section 4d (aggregate) not 4c (individual rows).
+ */
+function parsePlPdf(text) {
+  if (!text) return {};
+
+  // Extract value from a layout line matching labelRe (label<spaces>value on same line)
+  function lineValue(labelRe) {
+    for (const line of text.split('\n')) {
+      const stripped = line.replace(/^\s*[a-zA-Z0-9]\)\s+/, ''); // strip "a)" prefix
+      if (!labelRe.test(stripped)) continue;
+      const m = stripped.match(/[^\S\n]{3,}(.+?)\s*$/);
+      return m ? m[1].trim() : null;
+    }
+    return null;
+  }
+
+  // 1a: Insider name (nominative form — signer fills it in)
+  const name = lineValue(/Nazwa\/Nazwisko/i);
+
+  // 2a: Role
+  const role = lineValue(/Stanowisko\/status/i);
+
+  // 4b: Transaction type
+  const txTypeRaw = lineValue(/Rodzaj transakcji/i);
+  const txType = txTypeRaw
+    ? (/nabyci/i.test(txTypeRaw) ? 'BUY' : /zbyci|sprzedaż|sprzedaz/i.test(txTypeRaw) ? 'SELL' : null)
+    : null;
+
+  // 4a: ISIN — Polish ISINs start PL; regex covers both 11- and 12-char codes
+  const isinM = text.match(/\bPL[A-Z0-9]{9,10}\b/);
+  const isin = isinM ? isinM[0] : null;
+
+  // 4d: Aggregate shares + avg price — search within "Informacje zbiorcze" block
+  let shares = null, price = null;
+  const zbIdx = text.indexOf('Informacje zbiorcze');
+  if (zbIdx > -1) {
+    const block = text.slice(zbIdx, zbIdx + 600);
+    const volM = block.match(/Łączny wolumen[^\S\n]{3,}([\d\s]+)/i);
+    if (volM) {
+      const n = parseInt(volM[1].replace(/\s/g, ''), 10);
+      if (!isNaN(n) && n > 0) shares = n;
+    }
+    const priceM = block.match(/- Cena[^\S\n]{3,}([\d\s,\.]+(?:\s*(?:PLN|EUR|USD|GBP))?)/i);
+    if (priceM) price = parsePlNumber(priceM[1]);
+  }
+
+  // 4e: Actual transaction date (more precise than filing date)
+  const dateM = text.match(/Data transakcji[^\S\n]{3,}(\d{4}-\d{2}-\d{2})/);
+  const txDate = dateM ? dateM[1] : null;
+
+  return { name, role, txType, isin, shares, price, txDate };
+}
+
 function normalizePlCompany(name) {
   return name
     .replace(/SPÓŁKA AKCYJNA W RESTRUKTURYZACJI/gi, 'SA')
@@ -524,7 +626,7 @@ async function scrapePL() {
     const company = normalizePlCompany(r.company || '');
 
     let insiderName = null, role = null, shares = null, price = null, totalValue = null;
-    let parsedTxType = null, isinFromTable = null;
+    let parsedTxType = null, isinFromTable = null, txDateFromPdf = null;
     if (r.geruId) {
       const detailHtml = await fetchDetailHtml(r.geruId);
       const parsed = parseDetailPage(detailHtml, company);
@@ -536,12 +638,35 @@ async function scrapePL() {
       parsedTxType  = parsed.txType;
       isinFromTable = parsed.isinFromTable;
       await new Promise(res => setTimeout(res, DELAY_MS));
+
+      // PDF fallback: if shares or price still missing, try the ESMA form PDF
+      if ((!shares || !price) && detailHtml) {
+        const pdfHrefM = detailHtml.match(/href="(attachment\/[^"]+\.pdf[^"]*)"/i);
+        if (pdfHrefM) {
+          const pdfBuf = await fetchPdfBuffer(pdfHrefM[1]);
+          if (pdfBuf) {
+            const pdfText = await pdfBufToText(pdfBuf, r.geruId);
+            const pdf = parsePlPdf(pdfText);
+            console.log(`  📄 PDF parsed for ${company}: shares=${pdf.shares} price=${pdf.price} txType=${pdf.txType} name=${pdf.name}`);
+            if (!shares      && pdf.shares)  shares      = pdf.shares;
+            if (!price       && pdf.price)   price       = pdf.price;
+            if (!insiderName && pdf.name)    insiderName = pdf.name;
+            if (!role        && pdf.role)    role        = pdf.role;
+            if (!parsedTxType && pdf.txType) parsedTxType = pdf.txType;
+            if (!isinFromTable && pdf.isin)  isinFromTable = pdf.isin;
+            if (pdf.txDate) txDateFromPdf = pdf.txDate;
+          }
+          await new Promise(res => setTimeout(res, DELAY_MS));
+        }
+      }
     }
 
     // Prefer table/body txType, fall back to title keywords
     const txType = parsedTxType || mapType(r.title);
     // Table ISIN overrides listing ISIN (more authoritative source)
     const ticker = isinFromTable || r.isin || '';
+    // Use actual trade date from PDF if available (more precise than filing date)
+    const txDateFinal = txDateFromPdf || r.txIso;
 
     dbRows.push({
       filing_id:        fid,
@@ -551,7 +676,7 @@ async function scrapePL() {
       insider_name:     insiderName || null,
       insider_role:     translateRole(role),
       transaction_type: txType,
-      transaction_date: r.txIso,
+      transaction_date: txDateFinal,
       shares,
       price_per_share:  price,
       total_value:      totalValue || ((shares && price) ? Math.round(shares * price) : null),
