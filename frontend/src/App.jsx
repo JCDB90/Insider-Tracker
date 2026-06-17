@@ -126,6 +126,9 @@ function useAccess(plan) {
 const BLOCKED_DOMAINS = [
   'mailinator.com', 'maildrop.cc', 'guerrillamail.com', 'guerrillamailblock.com',
   'tempmail.com', 'yopmail.com', 'throwam.com', 'sharklasers.com',
+  // RFC-reserved / placeholder domains — no real user would have these
+  'example.com', 'example.org', 'example.net',
+  'test.com', 'fake.com', 'invalid.com',
 ];
 
 // Pattern-based block: catches bot probes that use non-disposable domains
