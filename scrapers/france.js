@@ -366,12 +366,14 @@ async function scrapeFR() {
     const parsed = parseFrPdf(text);
 
     if (parsed.txType === 'UNKNOWN') { nSkipped++; pdfDrops.unknown_type++; continue; }
-    if (!parsed.price)  pdfDrops.missing_price++;
-    if (!parsed.shares) pdfDrops.missing_shares++;
+    // Use ?? (not ||) so price=0 (confirmed free grant) is preserved as 0, not null.
+    // || would coerce 0 to null, losing the information that this is a nil-price RSU.
+    const price  = parsed.price  ?? null;
+    if (!price)          pdfDrops.missing_price++;
+    if (!parsed.shares)  pdfDrops.missing_shares++;
     nParsed++;
 
     const shares = parsed.shares ? Math.round(parsed.shares) : null;
-    const price  = parsed.price  || null;
 
     // Content-based ID: generated after PDF parse so type/shares/price are known
     const fid = contentId(COUNTRY_CODE, company, parsed.insiderName, parsed.txType, txIso, shares, price);
@@ -400,6 +402,9 @@ async function scrapeFR() {
       currency:         CURRENCY,
       filing_url:       filingUrl,
       source:           SOURCE,
+      // Free RSU grants (price === 0) are not open-market purchases; flag them so
+      // signals and performance tracking skip them automatically.
+      is_unusual_price: price === 0 ? true : null,
     });
   }
 
