@@ -63,7 +63,8 @@ const MARKETS = [
   { code: 'CH', name: 'Switzerland',    file: 'switzerland', mode: 'http' },
   { code: 'PT', name: 'Portugal',       file: 'portugal',    mode: 'http' },
   { code: 'LU', name: 'Luxembourg',     file: 'luxembourg',  mode: 'http' },
-  // AT, IE, PL, CZ removed — not on platform
+  { code: 'PL', name: 'Poland',         file: 'poland',      mode: 'http' },
+  // AT, IE, CZ removed — not on platform
 
   // ── Europe (Puppeteer) ───────────────────────────────────────────────────
   { code: 'NL', name: 'Netherlands',    file: 'netherlands', mode: 'http' },
