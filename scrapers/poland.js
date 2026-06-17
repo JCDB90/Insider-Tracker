@@ -704,7 +704,7 @@ async function scrapePL() {
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
-  const { error } = await saveInsiderTransactions(dbRows);
+  const { error } = await saveInsiderTransactions(dbRows, { allowPartial: true });
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
   const buys         = dbRows.filter(r => r.transaction_type === 'BUY').length;
