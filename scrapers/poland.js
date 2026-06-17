@@ -296,13 +296,27 @@ function parseDetailPage(html, company) {
   if (!insiderName) {
     // "Panem/Panią [Name] - [Role]" or "przez [Name] - [Role]"
     const panM = text.match(/(?:Pan(?:em|ią)|przez)\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u);
-    if (panM) { insiderName = panM[1].trim(); if (!role) role = panM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim(); }
+    if (panM) {
+      // Strip leading honorific ("Pana Kowalskiego" → "Kowalskiego")
+      insiderName = panM[1].replace(/^Pan(?:a|u|ią?|em)?\s+/i, '').trim();
+      if (!role) role = panM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim();
+    }
   }
 
   // Transaction type from prose (only if table didn't provide it)
+  // Covers Polish inflected forms: nabycia/nabycie/nabyciu, zbycia/zbycie/zbyciu
   if (!txType) {
-    if (/zbył|zbyła|zbyto|sprzedał|sprzedała|sprzeda[żz]|zbyci[ae]|zbyciem|\bsold\b|\bdisposal\b/i.test(text)) txType = 'SELL';
-    else if (/nabył|nabyła|nabyto|kupił|kupiła|nabyci[ae]|nabyciem|objął|subskrypcj|\bacquired\b|\bpurchased\b/i.test(text)) txType = 'BUY';
+    if (/zbył|zbyła|zbyto|sprzedał|sprzedała|sprzeda[żz]|zbyci[aeiu]|zbyciem|\bsold\b|\bdisposal\b/i.test(text)) txType = 'SELL';
+    else if (/nabył|nabyła|nabyto|kupił|kupiła|nabyci[aeiu]|nabyciem|objął|subskrypcj|\bacquired\b|\bpurchased\b/i.test(text)) txType = 'BUY';
+  }
+  // PDF attachment filename as last-resort txType signal (many filings embed "nabycie"/"zbycie" in the PDF filename)
+  if (!txType) {
+    const pdfFns = text.match(/[\w\-\.]+\.pdf/gi) || [];
+    for (const fn of pdfFns) {
+      const fl = fn.toLowerCase();
+      if (/zbyci|sprzedaz/.test(fl)) { txType = 'SELL'; break; }
+      if (/nabyci|kupn/.test(fl)) { txType = 'BUY'; break; }
+    }
   }
 
   // Shares from prose (fallback — less reliable)
