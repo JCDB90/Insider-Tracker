@@ -136,7 +136,7 @@ function mapPlTxType(s) {
   // SELL: zbycie, sprzedaż, disposal, sale
   if (/zbyci|sprzedaż|sprzedaz|dispos|sale\b/i.test(l)) return 'SELL';
   // Unknown — log for diagnostics so we can add patterns
-  console.log(`  ⚠  PL unknown txType value: "${s}"`);
+  console.log('⚠ Unknown PL type:', JSON.stringify(s));
   return null;
 }
 
@@ -663,6 +663,7 @@ async function scrapePL() {
 
     // Prefer table/body txType, fall back to title keywords
     const txType = parsedTxType || mapType(r.title);
+    if (txType === 'OTHER') console.log('⚠ Unknown PL type:', JSON.stringify(r.title));
     // Table ISIN overrides listing ISIN (more authoritative source)
     const ticker = isinFromTable || r.isin || '';
     // Use actual trade date from PDF if available (more precise than filing date)
