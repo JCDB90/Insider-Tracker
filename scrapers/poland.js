@@ -68,6 +68,9 @@ const INSIDER_KEYWORDS = [
   'nabycie.*prezes',          // acquisition by CEO
   'zbycie.*prezes',
   'nabycie.*członk',          // acquisition by board member
+  'zawiadomien.*transakcj',   // Zawiadomienie o transakcjach (synonym of powiadomienie)
+  'art. 19 (3)',              // English: "Notification under Art. 19 (3)" (foreign co. dual-listed on GPW)
+  'art. 19(3)',
 ];
 
 function isInsiderReport(title) {
