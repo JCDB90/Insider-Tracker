@@ -121,12 +121,16 @@ function parsePlNumber(s) {
   return (!isNaN(n) && n > 0) ? n : null;
 }
 
-/** Map Polish transaction type string → BUY / SELL / null */
+/** Map Polish (and English) transaction type string → BUY / SELL / null */
 function mapPlTxType(s) {
   if (!s) return null;
   const l = s.toLowerCase();
-  if (/nabyci|zakup|subskrypcj|objęci|otrzymani/i.test(l)) return 'BUY';
-  if (/zbyci|sprzedaż|sprzedaz/i.test(l)) return 'SELL';
+  // BUY: nabycie, zakup, subskrypcja, objęcie, otrzymanie, realizacja, wykonanie, acquisition, purchase
+  if (/nabyci|zakup|subskrypcj|objęci|otrzymani|realizacj|wykonani|acquisit|purchas/i.test(l)) return 'BUY';
+  // SELL: zbycie, sprzedaż, disposal, sale
+  if (/zbyci|sprzedaż|sprzedaz|dispos|sale\b/i.test(l)) return 'SELL';
+  // Unknown — log for diagnostics so we can add patterns
+  console.log(`  ⚠  PL unknown txType value: "${s}"`);
   return null;
 }
 
@@ -175,7 +179,7 @@ function extractTableMap(html) {
  *      ("Pan X nabył Y akcji za Z PLN").  Only used when table pass returns
  *      nothing for a given field.
  */
-function parseDetailPage(html) {
+function parseDetailPage(html, company) {
   if (!html) return {};
 
   // Narrow to the "Treść raportu" block to avoid picking up navigation HTML
@@ -219,10 +223,15 @@ function parseDetailPage(html) {
     tbl['wolumen łączny'] ||
     tbl['łączna ilość'] ||
     tbl['łączna liczba instrumentów'] ||
+    tbl['łączna liczba instrumentów finansowych'] ||
+    tbl['wolumen transakcji'] ||
     tbl['wolumen'] ||
+    tbl['liczba instrumentów finansowych'] ||
     tbl['liczba instrumentów'] ||
     tbl['liczba akcji'] ||
-    tbl['ilość instrumentów'] || null
+    tbl['ilość instrumentów finansowych'] ||
+    tbl['ilość instrumentów'] ||
+    tbl['ilość'] || null
   );
   const sharesFromTable = sharesRaw ? Math.round(parsePlNumber(sharesRaw) || 0) || null : null;
 
@@ -230,6 +239,9 @@ function parseDetailPage(html) {
   const priceRaw = (
     tbl['cena jednostkowa'] ||
     tbl['kurs'] ||
+    tbl['cena instrumentów finansowych'] ||
+    tbl['cena instrumentu'] ||
+    tbl['cena / kurs'] ||
     tbl['cena (pln)'] ||
     tbl['cena (waluta)'] ||
     tbl['cena'] || null
@@ -321,6 +333,10 @@ function parseDetailPage(html) {
   // Derive missing financial field
   if (!price && totalValue && shares && shares > 0) price = parseFloat((totalValue / shares).toFixed(4));
 
+  if (!shares || !price) {
+    console.log('PARSE FAIL:', company, JSON.stringify(tbl).substring(0, 300));
+  }
+
   return { insiderName, role, shares, price, totalValue, txType, isinFromTable };
 }
 
@@ -403,6 +419,18 @@ function parseItems(html) {
   return items;
 }
 
+function normalizePlCompany(name) {
+  return name
+    .replace(/SPÓŁKA AKCYJNA W RESTRUKTURYZACJI/gi, 'SA')
+    .replace(/SPÓŁKA AKCYJNA/gi, 'SA')
+    .replace(/SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ/gi, 'Sp. z o.o.')
+    .replace(/SPÓŁKA KOMANDYTOWA/gi, 'SK')
+    .split(' ')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+    .trim();
+}
+
 async function scrapePL() {
   console.log('🇵🇱  GPW Warsaw — ESPI insider transactions (MAR Art. 19)');
   const t0  = Date.now();
@@ -473,11 +501,19 @@ async function scrapePL() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
+    const txDate = new Date(r.txIso);
+    if (txDate > new Date(Date.now() + 2 * 86400000)) {
+      console.warn('Skipping future-dated:', r.txIso, r.company);
+      continue;
+    }
+
+    const company = normalizePlCompany(r.company || '');
+
     let insiderName = null, role = null, shares = null, price = null, totalValue = null;
     let parsedTxType = null, isinFromTable = null;
     if (r.geruId) {
       const detailHtml = await fetchDetailHtml(r.geruId);
-      const parsed = parseDetailPage(detailHtml);
+      const parsed = parseDetailPage(detailHtml, company);
       insiderName   = parsed.insiderName;
       role          = parsed.role;
       shares        = parsed.shares;
@@ -497,7 +533,7 @@ async function scrapePL() {
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
       ticker,
-      company:          r.company,
+      company,
       insider_name:     insiderName || null,
       insider_role:     translateRole(role),
       transaction_type: txType,
