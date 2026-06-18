@@ -1,727 +1,219 @@
 /**
  * PL — Insider Transactions Scraper
  *
- * Source: GPW Warsaw (Giełda Papierów Wartościowych) via ajaxindex.php
- * URL: https://www.gpw.pl/komunikaty
- * AJAX: POST https://www.gpw.pl/ajaxindex.php
+ * Source: Bankier.pl public API (aggregates PAP/ESPI data)
+ * Endpoint: https://api.bankier.pl/quotes/public/insiders-table/
  *
- * Polish MAR Article 19 notifications are filed via ESPI (Elektroniczny System
- * Przekazywania Informacji) as "Bieżący" (current) ESPI reports.
+ * Bankier.pl is Poland's largest financial portal (Ringier Axel Springer).
+ * It parses PAP/ESPI MAR Art.19 filings and exposes them as structured JSON,
+ * delivering all required fields: name, role, type, shares, price, value, date.
  *
- * The GPW does not expose a dedicated MAR/insider category filter — all ESPI
- * reports are mixed together. Insider transaction notifications are identified
- * by keyword patterns in the report title.
+ * Field mapping:
+ *   symbol            → ticker / company identifier
+ *   isin              → ISIN
+ *   name              → insider name (Polish ESPI format: Surname Firstname or Surname, Firstname)
+ *   insider_function  → role
+ *   extra_info        → via_entity (holding company name, when trade is via entity)
+ *   transaction_type  → kupno→BUY, sprzedaż→SELL, przejęcie→BUY, inna→drop
+ *   shares_number     → shares
+ *   avg_price         → price_per_share
+ *   value             → total_value
+ *   date_from         → transaction_date (actual trade date)
  *
- * The AJAX endpoint (ajaxindex.php) returns HTML <li> items sorted newest-first.
- * Pagination via offset. Date stops when all items are older than cutoff.
+ * Pagination: offset/limit, stop when results.length < limit.
+ * Date filter: date_min / date_max as Unix ms timestamps.
  *
- * Parsing strategy:
- *   1. HTML prose  — always attempted; yields name, txType, occasionally shares/price
- *   2. PDF fallback — if shares/price still missing, download the PAP ESPI PDF
- *      attachment from espiebi.pap.pl and parse it with pdftotext -layout.
- *      The ESMA form PDF has consistent layout: label + ≥3 spaces + value per line.
- *      PDFs are publicly accessible for ~8% of filings; rest silently skipped.
- *
- * ISIN: appears in parentheses after company name, e.g. PLGRPRC00015
+ * Coverage: GPW main market + NewConnect, ~5–8 transactions/day.
+ * All buy/sell/przejęcie rows have 99%+ price coverage.
+ * 'inna' rows (gifts, inheritance, family foundation transfers) are dropped
+ * as they have no market price and represent no commercial transaction.
  */
 'use strict';
 
-const https        = require('https');
-const { execFile } = require('child_process');
-const fs           = require('fs');
-const os           = require('os');
-const path         = require('path');
+const https = require('https');
+const zlib  = require('zlib');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 
 const COUNTRY_CODE   = 'PL';
-const SOURCE         = 'GPW Warsaw / ESPI (MAR Art. 19)';
-const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'PLN';
-const PAGE_SIZE      = 200;
-const MAX_PAGES      = 50;
-const DELAY_MS       = 300;
+const SOURCE         = 'Bankier.pl (PAP/ESPI MAR Art. 19)';
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '3');
+const LIMIT          = 100;
+const API_BASE       = 'https://api.bankier.pl/quotes/public/insiders-table/';
 
-function isoDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function cutoff() { const d = new Date(); d.setDate(d.getDate() - RETENTION_DAYS); return d; }
-function mapType(title) {
-  if (!title) return 'UNKNOWN';
-  const l = title.toLowerCase();
-  if (l.includes('nabyci') || l.includes('zakup') || l.includes('nabycie') ||
-      l.includes('kupno') || l.includes('opcj') || l.includes('subskrypcj')) return 'BUY';
-  if (l.includes('zbyci') || l.includes('sprzedaż') || l.includes('sprzedaz') ||
-      l.includes('zbycie') || l.includes('odpła')) return 'SELL';
-  return 'OTHER';
-}
+// ─── HTTP helper ─────────────────────────────────────────────────────────────
 
-// Keywords that identify MAR Article 19 insider transaction notifications
-const INSIDER_KEYWORDS = [
-  'zarządcz',          // zarządcze (managerial)
-  'art. 19 mar',       // art. 19 MAR
-  'art.19 mar',
-  'art. 19 ust',       // art. 19 ust. 1 MAR (paragraph variant)
-  'artykuł 19 mar',
-  'rozporządzenia mar',
-  'obowiązki zarząd',  // managerial responsibilities
-  'osoby blisko',      // closely associated person
-  'powiadomien.*transakcj',   // notification of transaction
-  'transakcj.*zarządcz',      // transaction by manager
-  'transakcj.*osoby',         // transaction by person
-  'nabycie akcji przez',      // share acquisition by
-  'zbycie akcji przez',       // share disposal by
-  'nabycie.*prezes',          // acquisition by CEO
-  'zbycie.*prezes',
-  'nabycie.*członk',          // acquisition by board member
-  'zawiadomien.*transakcj',   // Zawiadomienie o transakcjach (synonym of powiadomienie)
-  'art. 19 (3)',              // English: "Notification under Art. 19 (3)" (foreign co. dual-listed on GPW)
-  'art. 19(3)',
-  // Patterns identified from production OTHER misclassifications (all mean MAR Art.19 notification)
-  'informacja o transakcjach na',        // informacja o transakcjach na akcjach/instrumentach
-  'informacja o transakcjach osoby',
-  'informacja o transakcjach uzyskana',
-  'informacja o transakcji na',          // informacja o transakcji na akcjach
-  'informacja o transakcji otrzymana',
-  'informacja o transakcji uzyskana',
-  'otrzymanie zawiadomienia na podstawie art. 19',
-  'powiadomienie notyfikacyjne',
-  'powiadomienie o transakcji w trybie',
-  'zawiadomienia o transakcjach w trybie',
-  'zawiadomienie o transakcjach na papierach',
-  'zawiadomienie o transakcjach w trybie',
-  'zawiadomienie o zawarciu transakcji',
-  'zawiadomienie w trybie art.19',
-  'zawiadomienie o transakcji wykonanej',
-];
-
-function isInsiderReport(title) {
-  const l = title.toLowerCase();
-  for (const kw of INSIDER_KEYWORDS) {
-    if (new RegExp(kw, 'i').test(l)) return true;
-  }
-  return false;
-}
-
-// ─── Fetch GPW detail page for richer data ────────────────────────────────────
-
-function fetchDetailHtml(geruId) {
+function fetchJson(url) {
   return new Promise((resolve) => {
-    const req = https.get({
-      hostname: 'www.gpw.pl',
-      path: `/komunikat?geru_id=${geruId}`,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-        'Accept-Language': 'pl-PL,pl;q=0.9',
-        'Referer': 'https://www.gpw.pl/komunikaty',
-      },
-    }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        resolve(Buffer.concat(chunks).toString('utf8'));
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
-  });
-}
-
-// ─── ESMA table parser ────────────────────────────────────────────────────────
-
-/** Polish number format: "24 300,50 PLN" → 24300.50 */
-function parsePlNumber(s) {
-  if (!s) return null;
-  const clean = s
-    .replace(/PLN|zł|EUR|USD|GBP|SEK|NOK|DKK/gi, '')
-    .replace(/\s/g, '')
-    .replace(',', '.')
-    .trim();
-  const n = parseFloat(clean);
-  return (!isNaN(n) && n > 0) ? n : null;
-}
-
-/** Map Polish (and English) transaction type string → BUY / SELL / null */
-function mapPlTxType(s) {
-  if (!s) return null;
-  const l = s.toLowerCase();
-  // BUY: nabycie, zakup, subskrypcja, objęcie, otrzymanie, realizacja, wykonanie, acquisition, purchase
-  if (/nabyci|zakup|subskrypcj|objęci|otrzymani|realizacj|wykonani|acquisit|purchas/i.test(l)) return 'BUY';
-  // SELL: zbycie, sprzedaż, disposal, sale
-  if (/zbyci|sprzedaż|sprzedaz|dispos|sale\b/i.test(l)) return 'SELL';
-  // Unknown — log for diagnostics so we can add patterns
-  console.log('⚠ Unknown PL type:', JSON.stringify(s));
-  return null;
-}
-
-/**
- * Extract all <td> label→value pairs from HTML tables and return a
- * normalised lowercase map.  Handles both 2-column forms (label|value)
- * and ignores header-only rows (no recognisable label).
- */
-function extractTableMap(html) {
-  const map = {};
-  const rowRe  = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-  let rowM;
-  while ((rowM = rowRe.exec(html)) !== null) {
-    const cells = [];
-    cellRe.lastIndex = 0;
-    let cellM;
-    while ((cellM = cellRe.exec(rowM[1])) !== null) {
-      cells.push(
-        cellM[1]
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&oacute;/g, 'ó')
-          .replace(/\s+/g, ' ')
-          .trim()
-      );
-    }
-    if (cells.length < 2 || !cells[0]) continue;
-    const label = cells[0].toLowerCase().replace(/[:\s]+$/, '').trim();
-    if (label.length > 80) continue;  // skip rows where "label" is actually body text
-    map[label] = cells[1];
-    // Also store with abbreviated key for multi-word labels containing a slash
-    const slash = label.indexOf('/');
-    if (slash > 0) map[label.slice(0, slash).trim()] = cells[1];
-  }
-  return map;
-}
-
-/**
- * Parse the GPW ESPI detail page HTML.
- *
- * Strategy — two passes:
- *   1. ESMA table (primary): extract structured label→value pairs from HTML
- *      tables.  This is the standard format for >99% of Polish MAR Art. 19
- *      filings since ~2020 (identical ESMA form used across all EU markets).
- *   2. Polish prose (fallback): legacy filings that embed data in free text
- *      ("Pan X nabył Y akcji za Z PLN").  Only used when table pass returns
- *      nothing for a given field.
- */
-function parseDetailPage(html, company) {
-  if (!html) return {};
-
-  // Narrow to the "Treść raportu" block to avoid picking up navigation HTML
-  const reportStart = html.indexOf('Treść raportu');
-  const section = reportStart > -1 ? html.slice(reportStart, reportStart + 15000) : html;
-
-  // ── Pass 1: ESMA table ────────────────────────────────────────────────────
-  const tbl = extractTableMap(section);
-
-  // Name — multiple label variants used by different issuers
-  const insiderNameRaw = (
-    tbl['imię i nazwisko'] ||
-    tbl['imie i nazwisko'] ||
-    tbl['nazwa osoby'] ||
-    tbl['osoba fizyczna / prawna'] ||
-    tbl['imię i nazwisko / firma'] ||
-    tbl['osoba'] || null
-  );
-
-  // Role / position
-  const roleRaw = (
-    tbl['stanowisko'] ||
-    tbl['funkcja'] ||
-    tbl['pełniona funkcja'] ||
-    tbl['stanowisko/status'] ||
-    tbl['pełnione obowiązki'] ||
-    tbl['stanowisko / status'] || null
-  );
-
-  // Transaction type
-  const txTypeRaw = (
-    tbl['rodzaj transakcji'] ||
-    tbl['charakter transakcji'] ||
-    tbl['rodzaj'] ||
-    tbl['typ transakcji'] || null
-  );
-  const txTypeFromTable = mapPlTxType(txTypeRaw);
-
-  // Shares (aggregated volume preferred over per-row)
-  const sharesRaw = (
-    tbl['wolumen łączny'] ||
-    tbl['łączna ilość'] ||
-    tbl['łączna liczba instrumentów'] ||
-    tbl['łączna liczba instrumentów finansowych'] ||
-    tbl['wolumen transakcji'] ||
-    tbl['wolumen'] ||
-    tbl['liczba instrumentów finansowych'] ||
-    tbl['liczba instrumentów'] ||
-    tbl['liczba akcji'] ||
-    tbl['ilość instrumentów finansowych'] ||
-    tbl['ilość instrumentów'] ||
-    tbl['ilość'] || null
-  );
-  const sharesFromTable = sharesRaw ? Math.round(parsePlNumber(sharesRaw) || 0) || null : null;
-
-  // Price per share
-  const priceRaw = (
-    tbl['cena jednostkowa'] ||
-    tbl['kurs'] ||
-    tbl['cena instrumentów finansowych'] ||
-    tbl['cena instrumentu'] ||
-    tbl['cena / kurs'] ||
-    tbl['cena (pln)'] ||
-    tbl['cena (waluta)'] ||
-    tbl['cena'] || null
-  );
-  const priceFromTable = parsePlNumber(priceRaw);
-
-  // Total value (aggregated)
-  const totalRaw = (
-    tbl['łączna wartość transakcji'] ||
-    tbl['wartość łączna'] ||
-    tbl['wartość transakcji'] ||
-    tbl['łączna wartość'] ||
-    tbl['łączna suma'] ||
-    tbl['wartość'] || null
-  );
-  const totalFromTable = totalRaw ? Math.round(parsePlNumber(totalRaw) || 0) || null : null;
-
-  // ISIN from table (overrides listing ISIN)
-  const isinFromTable = (
-    tbl['isin'] ||
-    tbl['kod isin'] ||
-    tbl['kod identyfikujący instrument'] || null
-  );
-
-  let insiderName = insiderNameRaw || null;
-  let role        = roleRaw || null;
-  let shares      = sharesFromTable;
-  let price       = priceFromTable;
-  let totalValue  = totalFromTable;
-  let txType      = txTypeFromTable;
-
-  // ── Pass 2: Polish prose fallback (name + txType only) ───────────────────
-  const text = section.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-
-  if (!insiderName) {
-    // English: "from Mr./Ms. [Name] - [Role]"
-    const enM = text.match(
-      /from\s+(?:Mr\.|Ms\.|Mrs\.)?\s*([A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘA-Z][a-zA-ZÀ-ž\-]+){1,4})\s*[-–]\s*((?:Member|President|Chairman|Chief|Director|Vice|Head|Officer)[^,\.\n]{2,60})/i
-    );
-    if (enM) { insiderName = enM[1].trim(); if (!role) role = enM[2].trim(); }
-  }
-  if (!insiderName) {
-    // "Pan/Pani Firstname Lastname nabył/nabyła..."
-    const verbM = text.match(/Pan[ia]?\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+)\s+(?:nabył|nabyła|zbył|zbyła|sprzedał|sprzedała)/u);
-    if (verbM) insiderName = verbM[1].trim();
-  }
-  if (!insiderName) {
-    // "od Pana/Pani [Name] - [Role]"
-    const odM = text.match(/od\s+Pan\w*\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u);
-    if (odM) { insiderName = odM[1].trim(); if (!role) role = odM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim(); }
-  }
-  if (!insiderName) {
-    // "Panem/Panią [Name] - [Role]" or "przez [Name] - [Role]"
-    const panM = text.match(/(?:Pan(?:em|ią)|przez)\s+([A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+(?:\s+[A-ZŁŚĆŹŻÓĄĘ][a-złśćźżóąę\-]+){1,3})\s*[-–]\s*([^,\.\n]{3,80})/u);
-    if (panM) {
-      // Strip leading honorific ("Pana Kowalskiego" → "Kowalskiego")
-      insiderName = panM[1].replace(/^Pan(?:a|u|ią?|em)?\s+/i, '').trim();
-      if (!role) role = panM[2].replace(/\s+(?:Spółki|Emitenta|S\.A\.|SA)\b.*$/, '').trim();
-    }
-  }
-
-  // Transaction type from prose (only if table didn't provide it)
-  // Covers Polish inflected forms: nabycia/nabycie/nabyciu, zbycia/zbycie/zbyciu
-  if (!txType) {
-    if (/zbył|zbyła|zbyto|sprzedał|sprzedała|sprzeda[żz]|zbyci[aeiu]|zbyciem|\bsold\b|\bdisposal\b/i.test(text)) txType = 'SELL';
-    else if (/nabył|nabyła|nabyto|kupił|kupiła|nabyci[aeiu]|nabyciem|objął|subskrypcj|\bacquired\b|\bpurchased\b/i.test(text)) txType = 'BUY';
-  }
-  // PDF attachment filename as last-resort txType signal (many filings embed "nabycie"/"zbycie" in the PDF filename)
-  if (!txType) {
-    const pdfFns = text.match(/[\w\-\.]+\.pdf/gi) || [];
-    for (const fn of pdfFns) {
-      const fl = fn.toLowerCase();
-      if (/zbyci|sprzedaz/.test(fl)) { txType = 'SELL'; break; }
-      if (/nabyci|kupn/.test(fl)) { txType = 'BUY'; break; }
-    }
-  }
-
-  // Shares from prose (fallback — less reliable)
-  if (!shares) {
-    const plDeltaM = text.match(/posiada[łl]a?\s+([\d\s]+)\s+akcji.*?posiada\s+([\d\s]+)\s+akcji/i);
-    if (plDeltaM) {
-      const b = parseInt(plDeltaM[1].replace(/\s/g,''),10), a = parseInt(plDeltaM[2].replace(/\s/g,''),10);
-      if (!isNaN(b) && !isNaN(a) && b !== a) shares = Math.abs(b-a);
-    }
-  }
-  if (!shares) {
-    const txM = text.match(/(?:nabył|nabyła|zbył|zbyła|sprzedał|sprzedała)\s+([\d][\d\s]{0,10})\s+akcji/iu);
-    if (txM) { const n = parseInt(txM[1].replace(/\s/g,''),10); if (!isNaN(n)&&n>0) shares=n; }
-  }
-
-  // Price from prose (fallback)
-  if (!price) {
-    const priceM = text.match(/(?:Średnia\s+cena\s+za\s+1\s+akcję|cena\s+jednostkowa|kurs\s+(?:nabycia|zbycia)|po\s+cenie)[^\d]*([\d\s,]+)\s*(?:PLN|zł)/i);
-    if (priceM) { const n = parseFloat(priceM[1].replace(/\s/g,'').replace(',','.')); if (!isNaN(n)&&n>0) price=n; }
-  }
-
-  // Total from prose (fallback)
-  if (!totalValue) {
-    const totM = text.match(/(?:za\s+łączną\s+kwotę|łączna\s+(?:wartość|kwota|cena))[^\d]*([\d\s,]+)\s*(?:PLN|zł)/i);
-    if (totM) { const n = parseFloat(totM[1].replace(/\s/g,'').replace(',','.')); if (!isNaN(n)&&n>0) totalValue=Math.round(n); }
-  }
-
-  // Derive missing financial field
-  if (!price && totalValue && shares && shares > 0) price = parseFloat((totalValue / shares).toFixed(4));
-
-  if (!shares || !price) {
-    console.log('PARSE FAIL:', company, JSON.stringify(tbl).substring(0, 300));
-  }
-
-  return { insiderName, role, shares, price, totalValue, txType, isinFromTable };
-}
-
-function fetchPage(offset) {
-  return new Promise((resolve) => {
-    const body = Buffer.from(
-      `action=GPWEspiReportUnion&start=ajaxSearch&page=komunikaty&format=html&lang=PL&letter=&offset=${offset}&limit=${PAGE_SIZE}&categoryRaports[]=ESPI&typeRaports[]=RB`
-    );
-
-    const req = https.request({
-      hostname: 'www.gpw.pl',
-      path: '/ajaxindex.php',
-      method: 'POST',
+    https.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Referer': 'https://www.gpw.pl/komunikaty',
-        'Origin': 'https://www.gpw.pl',
-        'Content-Length': body.length,
-      },
-    }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        resolve(Buffer.concat(chunks).toString('utf8'));
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
-    req.write(body);
-    req.end();
-  });
-}
-
-function parseItems(html) {
-  // Parse <li> items from the ajaxindex response
-  const items = [];
-  const liRe = /<li[^>]*style[^>]*>([\s\S]*?)<\/li>/g;
-  let m;
-  while ((m = liRe.exec(html)) !== null) {
-    const li = m[1];
-
-    // Date: "10-04-2026 11:18:21 | Bieżący | ESPI | 18/2026"
-    const dateM = li.match(/(\d{2}-\d{2}-\d{4})\s+\d{2}:\d{2}:\d{2}/);
-    if (!dateM) continue;
-    const dateParts = dateM[1].split('-');  // DD-MM-YYYY
-    const txIso = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
-
-    // Company name + ISIN: "SPÓŁKA (PLXXXXXXXXXX)"
-    const nameM = li.match(/href="komunikat\?[^"]+">([^<]+)<\/a>/);
-    const companyRaw = nameM ? nameM[1].trim() : null;
-    let company = companyRaw;
-    let isin = '';
-    if (companyRaw) {
-      const isinM = companyRaw.match(/\(([A-Z]{2}[A-Z0-9]{10})\)/);
-      if (isinM) {
-        isin = isinM[1];
-        company = companyRaw.replace(/\s*\([^)]+\)\s*$/, '').trim();
-      }
-    }
-
-    // Title from <p>
-    const titleM = li.match(/<p>\s*([\s\S]*?)\s*<\/p>/);
-    const title = titleM ? titleM[1].replace(/<[^>]+>/g, '').trim() : '';
-
-    // Filing URL
-    const urlM = li.match(/href="(komunikat\?geru_id=\d+[^"]*)"/);
-    const filingUrl = urlM ? `https://www.gpw.pl/${urlM[1]}` : 'https://www.gpw.pl/komunikaty';
-
-    // Report ID
-    const geruM = li.match(/geru_id=(\d+)/);
-    const geruId = geruM ? geruM[1] : null;
-
-    items.push({ txIso, company, isin, title, filingUrl, geruId });
-  }
-  return items;
-}
-
-// ─── PDF parsing pipeline ────────────────────────────────────────────────────
-
-/** Download PDF from espiebi.pap.pl; returns Buffer or null if not accessible */
-function fetchPdfBuffer(attachmentHref) {
-  return new Promise((resolve) => {
-    const req = https.get({
-      hostname: 'espiebi.pap.pl',
-      path: '/espi/pl/reports/view/' + attachmentHref,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Referer': 'https://www.gpw.pl/komunikaty',
+        'Accept': 'application/json',
+        'Referer': 'https://www.bankier.pl/gielda/transakcje-insiderow',
       },
     }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
         const buf = Buffer.concat(chunks);
-        // Validate PDF magic bytes — auth-gated responses are small HTML pages
-        const isPdf = buf.length > 200 && buf.slice(0, 4).toString() === '%PDF';
-        resolve(isPdf ? buf : null);
+        const enc = res.headers['content-encoding'];
+        const parse = (b) => {
+          try { resolve(JSON.parse(b.toString('utf8'))); }
+          catch { resolve(null); }
+        };
+        if (enc === 'gzip') zlib.gunzip(buf, (e, d) => parse(e ? buf : d));
+        else parse(buf);
       });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(12000, () => { req.destroy(); resolve(null); });
+    })
+    .on('error', () => resolve(null))
+    .setTimeout(20000, function() { this.destroy(); resolve(null); });
   });
 }
 
-/** Convert PDF buffer → layout text via pdftotext; returns string or null */
-function pdfBufToText(buf, geruId) {
-  return new Promise((resolve) => {
-    const tmp = path.join(os.tmpdir(), `pl-${geruId}.pdf`);
-    try { fs.writeFileSync(tmp, buf); } catch { return resolve(null); }
-    execFile('pdftotext', ['-layout', tmp, '-'], { timeout: 10000 }, (err, stdout) => {
-      try { fs.unlinkSync(tmp); } catch {}
-      resolve(err ? null : stdout);
-    });
-  });
+// ─── Field transformers ───────────────────────────────────────────────────────
+
+/**
+ * Bankier returns names in Polish ESPI convention — surname first.
+ * Two formats observed:
+ *   "Kowalski Maciej"            (no comma, 2 words)
+ *   "Książek, Mariusz Wojciech"  (comma separator)
+ * Convert to "Firstname Surname" Western order.
+ */
+function formatName(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+  if (s.includes(',')) {
+    // "Surname, Firstname [Middlename]" → "Firstname [Middlename] Surname"
+    const [surname, given] = s.split(',').map(p => p.trim());
+    return given ? `${given} ${surname}` : surname;
+  }
+  const words = s.split(/\s+/);
+  if (words.length === 2) {
+    // "Surname Firstname" → "Firstname Surname"
+    return `${words[1]} ${words[0]}`;
+  }
+  // 3+ words without comma: can't reliably determine surname boundary — keep as-is
+  return s;
 }
 
 /**
- * Parse pdftotext -layout output of the ESMA MAR Art.19 notification form.
- * The PDF is a fixed-layout form where each row is:  label<≥3 spaces>value
- * All financial data comes from section 4d (aggregate) not 4c (individual rows).
+ * Map Bankier transaction type to BUY / SELL / null.
+ * 'inna' = other (gifts, inheritance, foundation transfers) — no market price, drop.
  */
-function parsePlPdf(text) {
-  if (!text) return {};
-
-  // Extract value from a layout line matching labelRe (label<spaces>value on same line)
-  function lineValue(labelRe) {
-    for (const line of text.split('\n')) {
-      const stripped = line.replace(/^\s*[a-zA-Z0-9]\)\s+/, ''); // strip "a)" prefix
-      if (!labelRe.test(stripped)) continue;
-      const m = stripped.match(/[^\S\n]{3,}(.+?)\s*$/);
-      return m ? m[1].trim() : null;
-    }
-    return null;
-  }
-
-  // 1a: Insider name (nominative form — signer fills it in)
-  const name = lineValue(/Nazwa\/Nazwisko/i);
-
-  // 2a: Role
-  const role = lineValue(/Stanowisko\/status/i);
-
-  // 4b: Transaction type
-  const txTypeRaw = lineValue(/Rodzaj transakcji/i);
-  const txType = txTypeRaw
-    ? (/nabyci/i.test(txTypeRaw) ? 'BUY' : /zbyci|sprzedaż|sprzedaz/i.test(txTypeRaw) ? 'SELL' : null)
-    : null;
-
-  // 4a: ISIN — Polish ISINs start PL; regex covers both 11- and 12-char codes
-  const isinM = text.match(/\bPL[A-Z0-9]{9,10}\b/);
-  const isin = isinM ? isinM[0] : null;
-
-  // 4d: Aggregate shares + avg price — search within "Informacje zbiorcze" block
-  let shares = null, price = null;
-  const zbIdx = text.indexOf('Informacje zbiorcze');
-  if (zbIdx > -1) {
-    const block = text.slice(zbIdx, zbIdx + 600);
-    const volM = block.match(/Łączny wolumen[^\S\n]{3,}([\d\s]+)/i);
-    if (volM) {
-      const n = parseInt(volM[1].replace(/\s/g, ''), 10);
-      if (!isNaN(n) && n > 0) shares = n;
-    }
-    const priceM = block.match(/- Cena[^\S\n]{3,}([\d\s,\.]+(?:\s*(?:PLN|EUR|USD|GBP))?)/i);
-    if (priceM) price = parsePlNumber(priceM[1]);
-  }
-
-  // 4e: Actual transaction date (more precise than filing date)
-  const dateM = text.match(/Data transakcji[^\S\n]{3,}(\d{4}-\d{2}-\d{2})/);
-  const txDate = dateM ? dateM[1] : null;
-
-  return { name, role, txType, isin, shares, price, txDate };
+function mapType(raw) {
+  if (!raw) return null;
+  const t = raw.toLowerCase();
+  if (t === 'kupno' || t === 'nabycie' || t === 'przejęcie') return 'BUY';
+  if (t === 'sprzedaż' || t === 'sprzedaz' || t === 'zbycie') return 'SELL';
+  return null; // 'inna' and any future unknown types
 }
 
-function normalizePlCompany(name) {
-  return name
-    .replace(/SPÓŁKA AKCYJNA W RESTRUKTURYZACJI/gi, 'SA')
-    .replace(/SPÓŁKA AKCYJNA/gi, 'SA')
-    .replace(/SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ/gi, 'Sp. z o.o.')
-    .replace(/SPÓŁKA KOMANDYTOWA/gi, 'SK')
-    .split(' ')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ')
-    .trim();
+/**
+ * Build a stable filing_id from available fields.
+ * There is no native filing ID in the API; this combination is effectively unique.
+ */
+function filingId(item) {
+  const name = (item.name || '').replace(/[^a-zA-Z]/g, '').substring(0, 12).toUpperCase();
+  const type = (item.transaction_type || '').substring(0, 4).toUpperCase();
+  return `PL-BNK-${item.isin || 'X'}-${name}-${item.date_from || 'X'}-${type}`;
 }
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapePL() {
-  console.log('🇵🇱  GPW Warsaw — ESPI insider transactions (MAR Art. 19)');
+  console.log('🇵🇱  Bankier.pl — insider transactions (MAR Art. 19)');
   const t0  = Date.now();
-  const co  = cutoff();
-  const from = isoDate(co);
-  const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to} (ESPI bieżące, filtering for MAR Art. 19)…`);
+  const now = t0;
+  const from = now - RETENTION_DAYS * 86400000;
+
+  console.log(`  Window: last ${RETENTION_DAYS} days (${new Date(from).toISOString().slice(0,10)} → ${new Date(now).toISOString().slice(0,10)})`);
 
   const allItems = [];
-  const seenIds  = new Set();
   let offset = 0;
+  let page = 0;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    if (page > 0) await new Promise(r => setTimeout(r, DELAY_MS));
+  while (true) {
+    const url = `${API_BASE}?offset=${offset}&limit=${LIMIT}&date_min=${from}&date_max=${now}`;
+    const data = await fetchJson(url);
 
-    const html = await fetchPage(offset);
-    if (!html) {
+    if (!data) {
       if (page === 0) {
-        console.log('  ⚠  GPW ajaxindex.php not accessible.');
-        console.log('  ℹ  0 rows saved.');
+        console.log('  ⚠  Bankier API not accessible.');
         return { saved: 0 };
       }
       break;
     }
 
-    const items = parseItems(html);
-    if (!items.length) break;
+    const items = data.results || [];
+    console.log(`  Page ${page + 1}: ${items.length} rows (total available: ${data.count})`);
+    allItems.push(...items);
 
-    let allBefore = true;
-    for (const item of items) {
-      if (item.txIso >= from) {
-        allBefore = false;
-        const id = item.geruId || `${item.company}-${item.txIso}`;
-        if (!seenIds.has(id)) {
-          seenIds.add(id);
-          allItems.push(item);
-        }
-      }
-    }
+    if (items.length < LIMIT) break;
+    offset += LIMIT;
+    page++;
 
-    console.log(`  Offset ${offset}: ${items.length} items, ${allItems.length} in window`);
-    if (allBefore) { console.log('  All items before cutoff, stopping.'); break; }
-    if (items.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
+    await new Promise(r => setTimeout(r, 150));
   }
 
   if (!allItems.length) {
-    console.log('  No ESPI reports in window.');
+    console.log('  No transactions in window.');
     return { saved: 0 };
   }
-
-  // Filter for insider transaction reports
-  const insiderItems = allItems.filter(item => isInsiderReport(item.title));
-  console.log(`  ${allItems.length} total reports → ${insiderItems.length} MAR Art. 19 insider reports`);
-
-  if (!insiderItems.length) {
-    console.log('  No insider transaction reports found.');
-    return { saved: 0 };
-  }
-
-  // Fetch each detail page to get insider name, shares, price
-  console.log(`  Fetching detail pages for ${insiderItems.length} insider reports…`);
 
   const seen = new Set();
   const dbRows = [];
-  const _stats = { total: 0, fullData: 0, nameOnly: 0, noName: 0, pdfAccessed: 0 };
-  for (const r of insiderItems) {
-    const fid = `PL-${r.geruId || (r.company + '-' + r.txIso).replace(/\s/g, '_')}`;
-    if (seen.has(fid)) continue;
+  let dropped = { inna: 0, noPrice: 0, noShares: 0, dup: 0 };
+
+  for (const item of allItems) {
+    const txType = mapType(item.transaction_type);
+    if (!txType) { dropped.inna++; continue; }
+
+    const shares = item.shares_number;
+    const price  = item.avg_price;
+    const total  = item.value;
+
+    if (!shares || shares <= 0) { dropped.noShares++; continue; }
+    if (!price  || price  <= 0) { dropped.noPrice++;  continue; }
+
+    const fid = filingId(item);
+    if (seen.has(fid)) { dropped.dup++; continue; }
     seen.add(fid);
 
-    const txDate = new Date(r.txIso);
-    if (txDate > new Date(Date.now() + 2 * 86400000)) {
-      console.warn('Skipping future-dated:', r.txIso, r.company);
-      continue;
-    }
-
-    const company = normalizePlCompany(r.company || '');
-
-    let insiderName = null, role = null, shares = null, price = null, totalValue = null;
-    let parsedTxType = null, isinFromTable = null, txDateFromPdf = null;
-    if (r.geruId) {
-      const detailHtml = await fetchDetailHtml(r.geruId);
-      const parsed = parseDetailPage(detailHtml, company);
-      insiderName   = parsed.insiderName;
-      role          = parsed.role;
-      shares        = parsed.shares;
-      price         = parsed.price;
-      totalValue    = parsed.totalValue;
-      parsedTxType  = parsed.txType;
-      isinFromTable = parsed.isinFromTable;
-      await new Promise(res => setTimeout(res, DELAY_MS));
-
-      // PDF fallback: if shares or price still missing, try the ESMA form PDF
-      if ((!shares || !price) && detailHtml) {
-        const pdfHrefM = detailHtml.match(/href="(attachment\/[^"]+\.pdf[^"]*)"/i);
-        if (pdfHrefM) {
-          const pdfBuf = await fetchPdfBuffer(pdfHrefM[1]);
-          if (pdfBuf) {
-            _stats.pdfAccessed++;
-            const pdfText = await pdfBufToText(pdfBuf, r.geruId);
-            const pdf = parsePlPdf(pdfText);
-            console.log(`  📄 PDF parsed for ${company}: shares=${pdf.shares} price=${pdf.price} txType=${pdf.txType} name=${pdf.name}`);
-            if (!shares      && pdf.shares)  shares      = pdf.shares;
-            if (!price       && pdf.price)   price       = pdf.price;
-            if (!insiderName && pdf.name)    insiderName = pdf.name;
-            if (!role        && pdf.role)    role        = pdf.role;
-            if (!parsedTxType && pdf.txType) parsedTxType = pdf.txType;
-            if (!isinFromTable && pdf.isin)  isinFromTable = pdf.isin;
-            if (pdf.txDate) txDateFromPdf = pdf.txDate;
-          }
-          await new Promise(res => setTimeout(res, DELAY_MS));
-        }
-      }
-    }
-
-    // Classify for stats
-    _stats.total++;
-    if (insiderName && shares && price) _stats.fullData++;
-    else if (insiderName)               _stats.nameOnly++;
-    else                                _stats.noName++;
-
-    // txType comes only from document content (prose + PDF); title is not a reliable signal
-    const txType = parsedTxType;
-    // Table ISIN overrides listing ISIN (more authoritative source)
-    const ticker = isinFromTable || r.isin || '';
-    // Use actual trade date from PDF if available (more precise than filing date)
-    const txDateFinal = txDateFromPdf || r.txIso;
+    // When name is null, Bankier puts the person name in extra_info (entity slot swapped)
+    const insiderName = formatName(item.name) || formatName(item.extra_info) || null;
+    const role        = item.insider_function || null;
+    const viaEntity   = item.name ? (item.extra_info || null) : null;
 
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker,
-      company,
-      insider_name:     insiderName || null,
+      ticker:           item.symbol || '',
+      company:          item.symbol || '',  // Bankier provides ticker only; full name resolved from ISIN at display layer
+      insider_name:     insiderName,
       insider_role:     translateRole(role),
+      via_entity:       viaEntity,
       transaction_type: txType,
-      transaction_date: txDateFinal,
+      transaction_date: item.date_from,
       shares,
       price_per_share:  price,
-      total_value:      totalValue || ((shares && price) ? Math.round(shares * price) : null),
+      total_value:      total ? Math.round(total) : Math.round(shares * price),
       currency:         CURRENCY,
-      filing_url:       r.filingUrl,
+      filing_url:       `https://www.bankier.pl/gielda/transakcje-insiderow`,
       source:           SOURCE,
     });
   }
 
-  console.log(`  STATS total=${_stats.total} fullData=${_stats.fullData} nameOnly=${_stats.nameOnly} noName=${_stats.noName} pdfAccessed=${_stats.pdfAccessed}`);
-  console.log(`  STATS pct_full=${(_stats.total ? (_stats.fullData/_stats.total*100).toFixed(1) : 0)}% pct_partial=${(_stats.total ? (_stats.nameOnly/_stats.total*100).toFixed(1) : 0)}% pct_empty=${(_stats.total ? (_stats.noName/_stats.total*100).toFixed(1) : 0)}%`);
+  console.log(`  Fetched ${allItems.length} rows → ${dbRows.length} usable (dropped: ${dropped.inna} inna, ${dropped.noPrice} no-price, ${dropped.noShares} no-shares, ${dropped.dup} dup)`);
 
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
-  const { error } = await saveInsiderTransactions(dbRows, { allowPartial: true });
+  const { error, drops } = await saveInsiderTransactions(dbRows, { allowPartial: false });
   if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
 
-  const buys         = dbRows.filter(r => r.transaction_type === 'BUY').length;
-  const sells        = dbRows.filter(r => r.transaction_type === 'SELL').length;
-  const unclassified = dbRows.filter(r => r.transaction_type !== 'BUY' && r.transaction_type !== 'SELL').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} attempted (${buys} BUY, ${sells} SELL, ${unclassified} unclassified/dropped)`);
+  const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
+  const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
+  console.log(`  ✅ ${((Date.now() - t0) / 1000).toFixed(1)}s — ${dbRows.length} rows passed to DB (${buys} BUY, ${sells} SELL)`);
   return { saved: dbRows.length };
 }
 
