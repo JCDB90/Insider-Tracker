@@ -5,6 +5,7 @@
 require('dotenv').config();
 const https    = require('https');
 const { createClient } = require('@supabase/supabase-js');
+const { SPECIFIC_OVERRIDES } = require('./lib/tickerMap');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
@@ -14,7 +15,7 @@ const supabase = createClient(
 const SUFFIX = {
   SE: '.ST', GB: '.L', CH: '.SW', FR: '.PA', KR: '',  BE: '.BR',
   NO: '.OL', DE: '.DE', ES: '.MC', IT: '.MI', DK: '.CO', NL: '.AS',
-  FI: '.HE', PT: '.LS', LU: '.LU',
+  FI: '.HE', PT: '.LS', LU: '.LU', PL: '.WA',
 };
 
 function yahooSearch(yahooSymbol) {
@@ -95,8 +96,9 @@ async function run() {
 
   for (let i = 0; i < toEnrich.length; i++) {
     const { ticker, country_code } = toEnrich[i];
+    const override    = SPECIFIC_OVERRIDES[`${ticker}|${country_code}`];
     const suffix      = SUFFIX[country_code] || '';
-    const yahooSymbol = ticker + suffix;
+    const yahooSymbol = override || (ticker + suffix);
 
     const { sector, industry } = await yahooSearch(yahooSymbol);
 

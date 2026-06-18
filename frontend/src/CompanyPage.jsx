@@ -15,13 +15,22 @@ const COUNTRY_FLAGS = {
   BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',
   ES:'🇪🇸',FI:'🇫🇮',FR:'🇫🇷',GB:'🇬🇧',
   IT:'🇮🇹',KR:'🇰🇷',NL:'🇳🇱',NO:'🇳🇴',
-  SE:'🇸🇪',
+  PL:'🇵🇱',SE:'🇸🇪',
 };
 
 const COUNTRY_YAHOO_SUFFIX = {
   SE:'.ST', DK:'.CO', FI:'.HE', NO:'.OL', DE:'.DE', FR:'.PA',
   NL:'.AS', BE:'.BR', IT:'.MI', ES:'.MC',
-  CH:'.SW', GB:'.L',
+  CH:'.SW', GB:'.L',  PL:'.WA',
+};
+
+// PL tickers where GPW symbol differs from Yahoo Finance symbol
+const PL_TICKER_OVERRIDES = {
+  'BNPPPL':    'BNP.WA',
+  'HANDLOWY':  'BHW.WA',
+  'MILLENNIUM':'MIL.WA',
+  'AGORA':     'AGO.WA',
+  'HUUUGE':    'HUG.WA',
 };
 
 // LU-registered companies trade on multiple EU exchanges — explicit Yahoo Finance symbol overrides.
@@ -205,6 +214,12 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
       bare + '.BR',
       bare,
     );
+  }
+
+  // Polish stocks where GPW ticker differs from Yahoo Finance symbol
+  if (countryCode === 'PL') {
+    const override = PL_TICKER_OVERRIDES[base] || PL_TICKER_OVERRIDES[bare];
+    if (override) return [override];
   }
 
   // Luxembourg-registered companies trade on Amsterdam, Paris, Brussels, or other EU exchanges.

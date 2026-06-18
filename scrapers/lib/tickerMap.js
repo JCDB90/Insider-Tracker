@@ -49,6 +49,12 @@ const SPECIFIC_OVERRIDES = {
   'BREB|LU':   'BREB.BR',   // Brederode S.A. (Brussels)
   // GB-filed companies primarily listed on other exchanges
   'FLUT|GB':   'FLUT',      // Flutter Entertainment (NYSE, migrated from LSE)
+  // PL tickers where GPW symbol differs from Yahoo Finance symbol
+  'BNPPPL|PL':    'BNP.WA',
+  'HANDLOWY|PL':  'BHW.WA',
+  'MILLENNIUM|PL':'MIL.WA',
+  'AGORA|PL':     'AGO.WA',
+  'HUUUGE|PL':    'HUG.WA',
 };
 
 /**
