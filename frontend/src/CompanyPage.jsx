@@ -8,7 +8,7 @@ const ACCENT = '#0f1117';
 
 const CURRENCY_SYMBOLS = {
   EUR: '€', USD: '$', GBP: '£', KRW: '₩',
-  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ',
+  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ', PLN: 'PLN ',
 };
 
 const COUNTRY_FLAGS = {

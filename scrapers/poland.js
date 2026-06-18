@@ -34,6 +34,7 @@ const https = require('https');
 const zlib  = require('zlib');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
+const { getPlCompanyName }        = require('./lib/tickerMap');
 
 const COUNTRY_CODE   = 'PL';
 const CURRENCY       = 'PLN';
@@ -119,6 +120,43 @@ function filingId(item) {
   return `PL-BNK-${item.isin || 'X'}-${name}-${item.date_from || 'X'}-${type}`;
 }
 
+// ─── Company name resolution ──────────────────────────────────────────────────
+
+const nameCache = new Map(); // ticker → company name, per-run cache
+
+/**
+ * Resolve full company name for a GPW ticker.
+ * Checks static map first; falls back to fetching the Bankier company page.
+ */
+async function resolveCompanyName(ticker) {
+  const staticName = getPlCompanyName(ticker);
+  if (staticName) return staticName;
+  if (nameCache.has(ticker)) return nameCache.get(ticker);
+
+  // Dynamic lookup via Bankier page title
+  try {
+    const name = await new Promise(resolve => {
+      https.get(`https://www.bankier.pl/inwestowanie/profile/quote.html?symbol=${encodeURIComponent(ticker)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      }, res => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          const html = Buffer.concat(chunks).toString('utf8');
+          const m = html.match(/<title>([^<]+)<\/title>/);
+          if (m) {
+            const nameMatch = m[1].match(/^(.+?)\s*\(/);
+            if (nameMatch) return resolve(nameMatch[1].trim());
+          }
+          resolve(null);
+        });
+      }).on('error', () => resolve(null)).setTimeout(10000, function() { this.destroy(); resolve(null); });
+    });
+    nameCache.set(ticker, name);
+    return name;
+  } catch { return null; }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function scrapePL() {
@@ -161,6 +199,13 @@ async function scrapePL() {
     return { saved: 0 };
   }
 
+  // Pre-resolve company names for all unique tickers (static map first, Bankier page fallback)
+  const uniqueTickers = [...new Set(allItems.map(i => i.symbol).filter(Boolean))];
+  const companyNames  = {};
+  for (const sym of uniqueTickers) {
+    companyNames[sym] = await resolveCompanyName(sym);
+  }
+
   const seen = new Set();
   const dbRows = [];
   let dropped = { inna: 0, noPrice: 0, noShares: 0, dup: 0 };
@@ -185,11 +230,14 @@ async function scrapePL() {
     const role        = item.insider_function || null;
     const viaEntity   = item.name ? (item.extra_info || null) : null;
 
+    const ticker  = item.symbol || '';
+    const company = companyNames[ticker] || ticker; // full name, falling back to ticker
+
     dbRows.push({
       filing_id:        fid,
       country_code:     COUNTRY_CODE,
-      ticker:           item.symbol || '',
-      company:          item.symbol || '',  // Bankier provides ticker only; full name resolved from ISIN at display layer
+      ticker,
+      company,
       insider_name:     insiderName,
       insider_role:     translateRole(role),
       via_entity:       viaEntity,

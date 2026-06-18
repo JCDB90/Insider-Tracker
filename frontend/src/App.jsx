@@ -398,7 +398,7 @@ function applyFilters(rows, searchKeys, selectedCountries, search) {
 
 const CURRENCY_SYMBOLS = {
   EUR: '€', USD: '$', GBP: '£', KRW: '₩',
-  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ',
+  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ', PLN: 'PLN ',
 };
 
 function currencySymbol(currency) {

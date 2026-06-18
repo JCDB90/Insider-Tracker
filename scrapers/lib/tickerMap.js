@@ -89,4 +89,99 @@ function getSuffixesForCountry(countryCode) {
   return extras[countryCode] || [primary];
 }
 
-module.exports = { toYahooTicker, getSuffixesForCountry, COUNTRY_SUFFIX, SPECIFIC_OVERRIDES };
+/**
+ * GPW (Warsaw Stock Exchange) ticker → full company name.
+ * Bankier API returns only symbol; these names are looked up from Bankier company pages.
+ * Used by poland.js scraper and backfill scripts.
+ */
+const PL_COMPANY_NAMES = {
+  'ADATEX':    'Adatex SA',
+  'AGORA':     'Agora SA',
+  'AMICA':     'Amica SA',
+  'ANSWEAR':   'Answear.com SA',
+  'APATOR':    'Apator SA',
+  'ASSECOSEE': 'Asseco SEE SA',
+  'ASTARTA':   'Astarta Holding PLC',
+  'ATCCARGO':  'ATC-Cargo SA',
+  'BNPPPL':    'BNP Paribas Bank Polska SA',
+  'BUDIMEX':   'Budimex SA',
+  'CAVATINA':  'Cavatina Holding SA',
+  'CIGAMES':   'CI Games SE',
+  'CORMAY':    'PZ Cormay SA',
+  'DADELO':    'Dadelo SA',
+  'DATAWALK':  'DataWalk SA',
+  'DEVELIA':   'Develia SA',
+  'DIGITREE':  'Digitree Group SA',
+  'EKOPOL':    'Ekopol SA',
+  'ELEKTROTI': 'Elektrotim SA',
+  'ENAP':      'Energoaparatura SA',
+  'ENERGY':    'Energy SA',
+  'EQUNICO':   'Equnico SE',
+  'EUROHOLD':  'Eurohold Bulgaria AD',
+  'EXCELLENC': 'Excellence SA',
+  'FARM51':    'The Farm 51 Group SA',
+  'GAMIVO':    'Gamivo SA',
+  'GDEVS':     'G-Devs SA',
+  'GPW':       'GPW SA',
+  'GRUPRACUJ': 'Grupa Pracuj SA',
+  'HANDLOWY':  'Bank Handlowy w Warszawie SA',
+  'HUUUGE':    'Huuuge, Inc.',
+  'IMMGAMES':  'TrustBTC SA',
+  'KBJ':       'KBJ SA',
+  'KOMPAP':    'Kompap SA',
+  'KRUK':      'Kruk SA',
+  'LOKUM':     'Lokum Deweloper SA',
+  'LPP':       'LPP SA',
+  'MBANK':     'mBank SA',
+  'MEDICALG':  'Medicalgorithmics SA',
+  'MILLENNIUM':'Bank Millennium SA',
+  'MILTON':    'Milton Essex SA',
+  'MOLIERA2':  'Moliera2 SA',
+  'MOONLIT':   'Moonlit SA',
+  'MOSTALZAB': 'Mostostal Zabrze SA',
+  'MURAPOL':   'Murapol SA',
+  'NANOGROUP': 'NanoGroup SA',
+  'NEUCA':     'Neuca SA',
+  'ONEMORE':   'One More Level SA',
+  'OPONEO.PL': 'Oponeo.pl SA',
+  'ORZLOPONY': 'Orzeł SA',
+  'PCCEXOL':   'PCC Exol SA',
+  'PEKABEX':   'Pekabex SA',
+  'PGE':       'PGE SA',
+  'PGNIG':     'Polskie Górnictwo Naftowe i Gazownictwo SA',
+  'PKN':       'Orlen SA',
+  'PKO':       'PKO BP SA',
+  'PKPCARGO':  'PKP Cargo SA',
+  'PLAY':      'Play Communications SA',
+  'PTWP':      'PTWP SA',
+  'PZU':       'PZU SA',
+  'QUART':     'Quart Development SA',
+  'QUERCUS':   'Quercus TFI SA',
+  'RAFAKO':    'Rafako SA',
+  'SANTANDER': 'Santander Bank Polska SA',
+  'SCANWAY':   'Scanway SA',
+  'SDSOPTIC':  'SDS Optic SA',
+  'SECOGROUP': 'Seco/Warwick SA',
+  'SNTVERSE':  'Synthaverse SA',
+  'SOPHARMA':  'Sopharma AD',
+  'SWMANSION': 'Software Mansion SA',
+  'SYNEKTIK':  'Synektik SA',
+  'TAURONPE':  'Tauron PE SA',
+  'TELEMEDPL': 'Telemedycyna Polska SA',
+  'TELESTR':   'Telestrada SA',
+  'TRANSPOL':  'Trans Polonia SA',
+  'VARSAV':    'Varsav Game Studios SA',
+  'VERCOM':    'Vercom SA',
+  'VOTUM':     'Votum SA',
+  'VRFABRIC':  'VRFabric SA',
+  'XTPL':      'XTPL SA',
+};
+
+/**
+ * Return full company name for a GPW ticker, or null if unknown.
+ */
+function getPlCompanyName(ticker) {
+  return PL_COMPANY_NAMES[ticker] || null;
+}
+
+module.exports = { toYahooTicker, getSuffixesForCountry, COUNTRY_SUFFIX, SPECIFIC_OVERRIDES, PL_COMPANY_NAMES, getPlCompanyName };
