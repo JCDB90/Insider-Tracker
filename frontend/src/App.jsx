@@ -129,6 +129,8 @@ const BLOCKED_DOMAINS = [
   // RFC-reserved / placeholder domains — no real user would have these
   'example.com', 'example.org', 'example.net',
   'test.com', 'fake.com', 'invalid.com',
+  // AppSec scanner infrastructure
+  'web-library.net', 'cursor.dev',
 ];
 
 // Pattern-based block: catches bot probes that use non-disposable domains
@@ -138,6 +140,9 @@ const BLOCKED_PATTERNS = [
   /security\d+/i,            // security123@, security99@, etc.
   /test[.\-_]\d+/i,          // test_1234@, test.99@, etc.
   /\d{10,}/,                 // 10+ consecutive digits anywhere in the address
+  /^appsec/i,                // appsec@, appsec-review@, etc.
+  /appsec[-.]review/i,       // *appsec-review*, *appsec.review*
+  /appsec\d+/i,              // appsec1@, appsec99@, etc.
 ];
 
 const isBlockedEmail = (email) => {
