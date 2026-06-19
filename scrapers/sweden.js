@@ -226,10 +226,20 @@ async function fetchPage(from, to, page) {
   const html = await res.text();
   const $    = cheerio.load(html);
 
+  // Corporate suffix pattern: any legitimate company name has at least one of these
+  const CORP_RE = /\b(AB|A\/S|ASA|Oy|Oyj|GmbH|SA|PLC|Ltd|Inc|Group|Holding|Capital|Bank|Invest|Bolag|aktiebolag|publ|Corp|Fund|Trust)\b/i;
+
   const rows = [];
   $('tbody tr').each((_, tr) => {
     const c = $(tr).find('td').map((_, td) => $(td).text().trim()).get();
     if (c.length < 13) return;
+    // Guard: company name should not equal the insider name with no corporate suffix.
+    // When c[1] === c[2] and neither looks like a company, FI has a data quality issue
+    // on that specific row (e.g. issuer cell left blank, insider name populated in both cols).
+    if (c[1] && c[1] === c[2] && !CORP_RE.test(c[1])) {
+      console.warn(`  ⚠  Skipping row: company="${c[1]}" equals insider name — FI source data issue`);
+      return;
+    }
     rows.push({
       company: c[1], insider: c[2], position: c[3], closely: c[4] || null,
       nature:  c[5], isin:    c[8], txDateStr: c[9],
