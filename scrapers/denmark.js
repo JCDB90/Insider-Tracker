@@ -104,6 +104,8 @@ function parseNotificationText(text) {
     /\ba\)\s+Name(?!\s+of\s+the\s+Board):?\s{2,}([^\n]{2,80})/im,
     // Danish ESMA form: "a)   Navn\n                      Christian Herskind Jørgensen"
     /\ba\)\s+Navn:?\s*\n\s+([A-ZÆØÅ][^\n]{1,80})/im,
+    // Danish ESMA form same-line: "a)   Navn                   A/S Motortramp"
+    /\ba\)\s+Navn:?\s{2,}([^\n]{2,80})/im,
     /\bName\s*[:|]\s*([A-Z][^\n|:]{2,60}?)(?:\s*[|:]|\s{2,}|\s*Position)/i,
     /1\s*\.?\s*1\s+Name\s+([^\n|]{2,60})/i,
     /\bName\s*[:|]\s*([A-Z][a-zA-ZæøåäöüÆØÅÄÖÜ\-\s]{2,50})/i,
@@ -202,6 +204,8 @@ function parseNotificationText(text) {
     /Date\s+of\s+the\b[^\n]*(\d{4}-\d{2}-\d{2})/im,
     // Two-column: "e) Date of the transaction\n  28-04-2026" (value on next line)
     /\be\)\s+Date\s+of\s+the\s+transaction\b[^\n]*\n[ \t]*(\d{2}[.\/-]\d{2}[.\/-]\d{4})/im,
+    // Danish same-line: "e)   Dato for               2026-06-29" (pdftotext -layout puts date on same line)
+    /\be\)\s+Dato\s+for[^\n]*(\d{4}-\d{2}-\d{2})/im,
     // Danish: "e)   Dato for transaktionen\n                      2026-04-16"
     /\be\)\s+Dato\s+for\s+transaktionen\s*\n\s*(\d{4}-\d{2}-\d{2})/im,
     /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,
@@ -364,11 +368,14 @@ function parseNotificationText(text) {
   if (insiderName && looksLikeCorp(insiderName)) {
     // English: "closely associated with [person]"
     // Danish: "[Corp]s CEO og bestyrelsesmedlem, Johanne C F Riegels, også er bestyrelsesmedlem"
+    // NOTE: (?!pronouns) prevents matching the ESMA template title "closely associated with them"
     const assocM =
-      text.match(/closely\s+associated\s+(?:with|to)\s+(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member|Vice)|\s*$)/im) ||
+      text.match(/closely\s+associated\s+(?:with|to)\s+(?!(?:them|their|him|her|his|it|its|us|the)\b)(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member|Vice)|\s*$)/im) ||
       text.match(/\brelated\s+party\s+to\s+(?:[A-Z][a-z]+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:\s+in\b|\s+at\b|$)/im) ||
       text.match(/\bbestyrelsesmedlem[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50?}?)(?:,\s+ogs)/i) ||
-      text.match(/\b(?:CEO|CFO|direktør|bestyrelsesmedlem)\s+(?:og\s+\w+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:,\s+ogs|$)/im);
+      text.match(/\b(?:CEO|CFO|direktør|bestyrelsesmedlem)\s+(?:og\s+\w+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:,\s+ogs|$)/im) ||
+      // English: "board member, Johanne C F Riegels, is also a board member of [Issuer]"
+      text.match(/board\s+member[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{3,50}?)(?:,|\s+(?:is\b|has\b|also\b))/im);
     if (assocM) {
       viaEntity   = insiderName;
       insiderName = assocM[1].trim();
