@@ -372,7 +372,7 @@ function parseNotificationText(text) {
     const assocM =
       text.match(/closely\s+associated\s+(?:with|to)\s+(?!(?:them|their|him|her|his|it|its|us|the)\b)(?:person:\s*)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{2,50}?)(?:,|\s+(?:CEO|CFO|Chair|Director|Board|President|Member|Vice)|\s*$)/im) ||
       text.match(/\brelated\s+party\s+to\s+(?:[A-Z][a-z]+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:\s+in\b|\s+at\b|$)/im) ||
-      text.match(/\bbestyrelsesmedlem[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50?}?)(?:,\s+ogs)/i) ||
+      text.match(/\bbestyrelsesmedlem[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:,\s+ogs)/i) ||
       text.match(/\b(?:CEO|CFO|direktør|bestyrelsesmedlem)\s+(?:og\s+\w+\s+)?([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{4,50}?)(?:,\s+ogs|$)/im) ||
       // English: "board member, Johanne C F Riegels, is also a board member of [Issuer]"
       text.match(/board\s+member[,\s]+([A-ZÆØÅ][a-zA-ZæøåÆØÅ\s\-\.]{3,50}?)(?:,|\s+(?:is\b|has\b|also\b))/im);
@@ -553,6 +553,7 @@ async function fetchNotificationDetails(messageUrl) {
       inline.transactionType = fromPdf.transactionType;
     if (!inline.insiderName && fromPdf.insiderName) inline.insiderName = fromPdf.insiderName;
     if (!inline.insiderRole && fromPdf.insiderRole) inline.insiderRole = fromPdf.insiderRole;
+    if (!inline.viaEntity   && fromPdf.viaEntity)   inline.viaEntity   = fromPdf.viaEntity;
 
     return [inline];
   } catch {
