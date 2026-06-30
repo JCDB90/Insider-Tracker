@@ -5,16 +5,29 @@
  * API:    https://graphqlaz.luxse.com/v1/graphql  (Apollo GraphQL)
  * PDF:    https://dl.luxse.com/dl?v=<encodeURIComponent(documentUrl)>
  *
- * Primary source: OAM oamSubmissionsSearch (comprehensive — ~116 filings / 90 days)
- * Not used: FNS latestFNSDocuments — only returns a subset (~2 / 2 weeks)
+ * Primary source: OAM (comprehensive — ~26 filings / 2 weeks)
+ *   oamSubmissionsSearch → oamSubmissionDetail → document URL
+ *   NOTE: oamSubmissionDetail has been returning null for all IDs since ~2026-06-12.
+ *         When this happens the scraper falls through to the FNS fallback.
  *
- * Flow:
+ * Fallback source: FNS latestFNSDocuments (partial — ~8% coverage)
+ *   Only covers Luxembourg-domiciled companies that file directly through LuxSE FNS.
+ *   Foreign companies listed on LuxSE (Eurofins, ArcelorMittal, etc.) are not included.
+ *   filing_id: LU-OAM-{submissionId} if matched to OAM, else LU-FNS-{fnsId}
+ *
+ * Flow (primary):
  *   1. oamSubmissionsSearch(publicationStartDate, publicationEndDate, countryCodeIso='LU')
  *   2. Filter for "Managers' transactions" (submissionTypeLabel, U+2019 apostrophe)
  *   3. oamSubmissionDetail(submissionId) → encrypted document URL
  *   4. Download PDF from dl.luxse.com/dl?v=<encodeURIComponent(url)>
  *   5. pdftotext -layout → parse ESMA HOS-2 form fields
  *   6. Save to Supabase (filing_id: LU-OAM-{submissionId})
+ *
+ * Flow (FNS fallback, when primary fails):
+ *   1. latestFNSDocuments pages → filter documentPublicTypeCode === 'MATS'
+ *   2. Filter by publishDate >= fromDate
+ *   3. Download PDF → parse → match to OAM submission by company name
+ *   4. Save (filing_id: LU-OAM-{submissionId} or LU-FNS-{fnsId})
  *
  * GitHub Actions: requires poppler-utils (pdftotext) — already installed in workflow.
  */
@@ -105,6 +118,16 @@ const OAM_DETAIL_QUERY = `
   }
 `;
 
+const FNS_QUERY = `
+  query GetLatestFnsDocs($page: Int!) {
+    latestFNSDocuments(pageNumber: $page, pageSize: 100) {
+      resultList {
+        id name downloadUrl documentPublicTypeCode complement publishDate
+      }
+    }
+  }
+`;
+
 async function fetchOamSubmissions(fromDate, toDate) {
   const all = [];
   let page = 1;
@@ -137,6 +160,47 @@ async function fetchOamDocumentUrl(submissionId) {
   // Take the first non-obsolete PDF document
   const doc = docs.find(d => !d.obsolete) || docs[0];
   return doc?.url || null;
+}
+
+// Fetch all MATS (Managers' Transactions) docs from FNS published >= fromDate.
+async function fetchFnsMatsDocuments(fromDate) {
+  const mats = [];
+  for (let page = 1; page <= 30; page++) {
+    const r = await gql({ query: FNS_QUERY, variables: { page } });
+    const docs = r?.data?.latestFNSDocuments?.resultList || [];
+    if (!docs.length) break;
+    for (const d of docs) {
+      if (d.documentPublicTypeCode === 'MATS' && d.downloadUrl) {
+        const pub = (d.publishDate || '').slice(0, 10);
+        if (pub >= fromDate) mats.push(d);
+      }
+    }
+    const oldest = (docs[docs.length - 1]?.publishDate || '').slice(0, 10);
+    if (oldest && oldest < fromDate) break;
+  }
+  return mats;
+}
+
+// Normalize company name for fuzzy matching (strip legal suffixes, punctuation, case).
+function normName(s) {
+  return (s || '').toLowerCase()
+    .replace(/\s+(s\.a\.|sa|nv|se|plc|ltd|gmbh|inc\.?|s\.e\.)\s*$/, '')
+    .replace(/[.,]/g, '').trim();
+}
+
+// Try to match an FNS document to an OAM submission by company name.
+// complement format: "LUXEMPART S.A. - LU2605908552 Luxempart"
+function matchOamSubmission(fnsDoc, submissions) {
+  const raw = ((fnsDoc.complement || '').split(' - ')[0].trim()) || fnsDoc.name || '';
+  const fnsNorm = normName(raw);
+  if (!fnsNorm || fnsNorm.length < 3) return null;
+  const fns1 = fnsNorm.split(/\s/)[0];
+  return submissions.find(s => {
+    const oamNorm = normName(s.issuerName || '');
+    if (oamNorm === fnsNorm) return true;
+    const oam1 = oamNorm.split(/\s/)[0];
+    return fns1 && fns1.length >= 4 && fns1 === oam1;
+  }) || null;
 }
 
 // ─── PDF download ─────────────────────────────────────────────────────────────
@@ -323,40 +387,51 @@ function parsePdf(text) {
   // Fallback to 1-space gap for narrow-column PDFs (e.g. Grand City Properties).
   // Also try bare "Name" label (no digit) for filers like Reinet that omit the field number.
   const insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1)
-                   || getField(/^\s*Name\s*$/) || null;
-  const issuerName  = getField(/\bName4\b/) || getField(/\bName4\b/, 1);
+                   || getField(/^\s*Name\s*$/)
+                   || getField(/\bNom1\b/) || getField(/\bNom1\b/, 1) || null;
+  const issuerName  = getField(/\bName4\b/) || getField(/\bName4\b/, 1)
+                   || getField(/\bNom4\b/)  || getField(/\bNom4\b/, 1);
 
-  const roleRaw = getField(/Position\/status\d/) || '';
+  const roleRaw = getField(/Position\/status\d/) || getField(/Fonction\b[^0-9]*\d/) || '';
   let role = null;
   // Try compound roles like "Co-CEO" before simple keywords
   const rm = roleRaw.match(/\b(Co[-\s]CEO|Co[-\s]CFO|Co[-\s]COO|CEO|CFO|COO|CTO|Chairman|President|Director|Secretary|Manager|Partner|Member)\b/i);
   if (rm) role = rm[1].replace(/\s/g, '-'); // normalise "Co CEO" → "Co-CEO"
   else if (/closely associated/i.test(roleRaw)) role = 'Closely Associated';
 
-  const natureTxt = getField(/Nature of the transaction\d/) || '';
+  const natureTxt = getField(/Nature of the transaction\d/)
+                 || getField(/Nature de la transaction\s*\d/) || '';
   let txType = 'UNKNOWN';
   const natLow = natureTxt.toLowerCase();
-  if (/dispos|sale\b|sell/.test(natLow))               txType = 'SELL';
-  else if (/acqui|purchas|subscri|exercise/.test(natLow)) txType = 'BUY';
+  if (/dispos|sale\b|sell|cession|vente/.test(natLow))               txType = 'SELL';
+  else if (/acqui|purchas|subscri|exercise|exercice|achat/.test(natLow)) txType = 'BUY';
 
-  const volTxt = getField(/Aggregated volume\d+/) || '';
+  const volTxt = getField(/Aggregated volume\d+/)
+              || getField(/Volumes? agr[eé]g[eé]s?\d*/i) || '';
   let shares = null;
   const vm = volTxt.match(/([\d,]+)/);
   if (vm) shares = parseFloat(vm[1].replace(/,/g, '')) || null;
 
-  const priceTxt = getField(/\bPrice1[0-9]\b/) || '';
+  const priceTxt = getField(/\bPrice1[0-9]\b/)
+                || getField(/\bPrix1[0-9]\b/) || '';
   let totalValue = null;
   const pm = priceTxt.match(/([\d,]+\.?\d*)/);
   if (pm) totalValue = parseFloat(pm[1].replace(/,/g, '')) || null;
 
-  // Price9 table lists per-share price explicitly: "Price(s) … Volume(s) / 102.6 EUR 78 (units)"
-  // More reliable than Price11 which some filers fill with per-share price, others with aggregate.
+  // Price9 table (EN: "Price(s) and volume(s)9"; FR: "Prix et volume(s)9")
+  // Lists per-share price: more reliable than Price11/Prix11 for some filers.
   let priceFromTable = null;
   for (let i = 0; i < lines.length; i++) {
-    if (/Price\(s\) and volume\(s\)\d+/.test(lines[i])) {
+    if (/Price\(s\) and volume\(s\)\d+|Prix et volume\(s\)\d*/i.test(lines[i])) {
       for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
         const m = lines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b/i);
-        if (m) { priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break; }
+        if (m) {
+          priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break;
+        } else {
+          // French format: price and volume on same line, comma decimal, e.g. "56,50  5000"
+          const mFr = lines[j].match(/^\s*([\d,]+\.?\d*)\s{3,}[\d,]+\s*$/);
+          if (mFr) { priceFromTable = parseFloat(mFr[1].replace(',', '.')) || null; break; }
+        }
       }
       break;
     }
@@ -381,7 +456,8 @@ function parsePdf(text) {
     }
   }
 
-  const dateTxt = getField(/Date of the transaction\d+/) || '';
+  const dateTxt = getField(/Date of the transaction\d+/)
+              || getField(/Date de la transaction\d+/) || '';
   let txDate = null;
   const dm = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
   if (dm) txDate = dm[1];
@@ -494,10 +570,73 @@ async function scrapeLU() {
   }, CONCURRENCY);
 
   if (noUrlCount > 0 && noUrlCount === seen.size) {
-    console.error(`  ❌ oamSubmissionDetail API broken — returned null for ALL ${noUrlCount} submissions.`);
-    console.error(`     LU transactions unavailable until LuxSE fixes their GraphQL resolver.`);
-    process.exit(1);
+    console.warn(`  ⚠  oamSubmissionDetail broken for ALL ${noUrlCount} submissions — falling back to FNS MATS documents`);
+    console.warn(`     (LuxSE gated OAM document access behind auth ~2026-06-12; FNS covers ~8% of LU filings)`);
+
+    // FNS fallback: covers Luxembourg-domiciled companies that file directly via LuxSE FNS.
+    const fnsDocs = await fetchFnsMatsDocuments(from);
+    console.log(`  FNS returned ${fnsDocs.length} MATS document(s) since ${from}`);
+
+    if (!fnsDocs.length) {
+      console.error(`  ❌ FNS also returned no MATS documents — LU coverage unavailable.`);
+      process.exit(1);
+    }
+
+    for (const fnsDoc of fnsDocs) {
+      const matched = matchOamSubmission(fnsDoc, submissions);
+      const fid = matched ? `LU-OAM-${matched.submissionId}` : `LU-FNS-${fnsDoc.id}`;
+      const pubDate = (fnsDoc.publishDate || '').slice(0, 10);
+
+      const buf = await downloadPdf(fnsDoc.downloadUrl);
+      if (!buf) {
+        console.log(`  ⚠  FNS ${fnsDoc.id} (${fnsDoc.name?.slice(0, 30)}) — PDF download failed`);
+        continue;
+      }
+
+      const txt = pdfBufToText(buf);
+      const f   = parsePdf(txt);
+      const stripLabel = s => s ? s.replace(/^Name\d*[\s\t]{3,}/i, '').trim() || null : null;
+
+      // Company: prefer PDF issuer, then FNS complement, then matched OAM issuer
+      const companyFromComplement = (fnsDoc.complement || '').split(' - ')[0].trim() || null;
+      const company = stripLabel(f.issuerName) || companyFromComplement
+                   || (matched && stripLabel(matched.issuerName)) || null;
+
+      const rawInsider = stripLabel(f.insiderName);
+      const isEntity   = rawInsider && (looksLikeCorp(rawInsider) || looksLikeAddress(rawInsider));
+      const insiderName = isEntity ? null : rawInsider;
+      const viaEntity   = isEntity ? rawInsider : null;
+
+      const isin    = f.isin || '';
+      const txDate  = f.txDate || pubDate || from;
+      const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
+      const total   = f.totalValue ? Math.round(f.totalValue) : null;
+      const pdfUrl  = DL_BASE + encodeURIComponent(fnsDoc.downloadUrl);
+
+      process.stdout.write(`  → FNS/${fnsDoc.id} ${(company || '?').slice(0, 28).padEnd(28)} ${txType.padEnd(4)} ${f.shares || '?'} @ ${f.pricePerShare || '?'} EUR  ${txDate}\n`);
+
+      const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || isin) : '';
+
+      dbRows.push({
+        filing_id:        fid,
+        country_code:     COUNTRY_CODE,
+        ticker,
+        company,
+        insider_name:     insiderName || null,
+        via_entity:       viaEntity,
+        insider_role:     f.role,
+        transaction_type: txType,
+        transaction_date: txDate,
+        shares:           f.shares,
+        price_per_share:  f.pricePerShare,
+        total_value:      total,
+        currency:         CURRENCY,
+        filing_url:       pdfUrl,
+        source:           SOURCE + ' (FNS)',
+      });
+    }
   }
+
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
   const { inserted, error } = await saveInsiderTransactions(dbRows);
