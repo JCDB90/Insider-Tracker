@@ -101,20 +101,23 @@ function computeSignals(buys) {
     //   2. Median heuristic: price <80% of same-company median from last 90 days
     //      (catches exercises that slipped through scraper-level detection)
     //   3. Coordinated issuance: 2+ other insiders at the EXACT same price on the
-    //      same day — almost always a directed share subscription / rights issuance,
-    //      not independent open-market conviction.  Exact price equality is a very
-    //      strong signal since real market orders almost never match to the cent.
+    //      same day AND price is <80% of recent median — annual director share plans
+    //      at near-market price share the same-price pattern but must not be flagged.
     let isUnusualPrice = t.is_unusual_price === true;
 
-    if (!isUnusualPrice && t.price_per_share > 1) {
-      const recentPrices = peers
-        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
-        .map(p => p.price_per_share)
-        .sort((a, b) => a - b);
-      if (recentPrices.length >= 2) {
-        const median = recentPrices[Math.floor(recentPrices.length / 2)];
-        isUnusualPrice = t.price_per_share < median * 0.80;
-      }
+    // Compute recent-peer median once (shared by tiers 2 and 3)
+    const recentPrices = !isUnusualPrice && t.price_per_share > 1
+      ? peers
+          .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+          .map(p => p.price_per_share)
+          .sort((a, b) => a - b)
+      : [];
+    const recentMedian = recentPrices.length >= 2
+      ? recentPrices[Math.floor(recentPrices.length / 2)]
+      : null;
+
+    if (!isUnusualPrice && recentMedian !== null) {
+      isUnusualPrice = t.price_per_share < recentMedian * 0.80;
     }
 
     if (!isUnusualPrice && t.price_per_share > 0) {
@@ -123,7 +126,17 @@ function computeSignals(buys) {
         p.transaction_date === t.transaction_date &&
         p.price_per_share === t.price_per_share
       );
-      if (sameDayPeers.length >= 2) isUnusualPrice = true;
+      if (sameDayPeers.length >= 2) {
+        // Cross-check against market level: only flag if price is also <80% of recent
+        // median. Annual director share-purchase plans execute at near-market price
+        // and must not be flagged despite matching the same-day same-price pattern.
+        if (recentMedian !== null) {
+          isUnusualPrice = t.price_per_share < recentMedian * 0.80;
+        } else {
+          // No median context → flag conservatively (coordinated but unknown market level)
+          isUnusualPrice = true;
+        }
+      }
     }
 
     if (isUnusualPrice) {
