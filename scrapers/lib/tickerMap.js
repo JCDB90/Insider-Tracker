@@ -43,6 +43,7 @@ const SPECIFIC_OVERRIDES = {
   'THEP|FR':   'THEP.PA',
   'MC|FR':     'MC.PA',
   'OR|FR':     'OR.PA',
+  'TTE|FR':    'TTE.PA',    // TotalEnergies SE (Euronext Paris)
   'JEN|BE':    'JEN.BR',
   // LU-registered but traded on Euronext Amsterdam or Brussels
   'APAM|LU':   'APAM.AS',   // Aperam S.A. (Amsterdam)
