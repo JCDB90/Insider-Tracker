@@ -418,8 +418,9 @@ async function scrapeLU() {
   console.log(`  OAM returned ${submissions.length} managers' transaction submissions`);
   if (!submissions.length) { console.log('  Nothing to process.'); return { saved: 0 }; }
 
-  const dbRows = [];
-  const seen   = new Set();
+  const dbRows  = [];
+  const seen    = new Set();
+  let noUrlCount = 0;
 
   await pool(submissions, async (sub) => {
     const fid = `LU-OAM-${sub.submissionId}`;
@@ -432,6 +433,7 @@ async function scrapeLU() {
     // Get document URL from detail query
     const docUrl = await fetchOamDocumentUrl(sub.submissionId);
     if (!docUrl) {
+      noUrlCount++;
       console.log(`  ⚠  ${sub.submissionId} (${sub.issuerName}) — no document URL`);
       return;
     }
@@ -491,6 +493,11 @@ async function scrapeLU() {
     });
   }, CONCURRENCY);
 
+  if (noUrlCount > 0 && noUrlCount === seen.size) {
+    console.error(`  ❌ oamSubmissionDetail API broken — returned null for ALL ${noUrlCount} submissions.`);
+    console.error(`     LU transactions unavailable until LuxSE fixes their GraphQL resolver.`);
+    process.exit(1);
+  }
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
 
   const { inserted, error } = await saveInsiderTransactions(dbRows);
