@@ -9,6 +9,8 @@
  *   oamSubmissionsSearch → oamSubmissionDetail → document URL
  *   NOTE: oamSubmissionDetail has been returning null for all IDs since ~2026-06-12.
  *         When this happens the scraper falls through to the FNS fallback.
+ *         After LuxSE fixes the API, set LU_OAM_RECOVERY_FROM=2026-06-12 in the GitHub
+ *         Actions environment to trigger a one-time backfill of missed submissions.
  *
  * Fallback source: FNS latestFNSDocuments (partial — ~8% coverage)
  *   Only covers Luxembourg-domiciled companies that file directly through LuxSE FNS.
@@ -486,9 +488,13 @@ async function scrapeLU() {
   console.log('🇱🇺  LuxSE — OAM Managers\' Transactions');
   const t0   = Date.now();
   const co   = cutoff();
-  const from = isoDate(co);
+  // LU_OAM_RECOVERY_FROM: set to YYYY-MM-DD to backfill after an oamSubmissionDetail outage.
+  // When set to a date earlier than the normal cutoff, the OAM search window is extended.
+  const recoveryFrom = process.env.LU_OAM_RECOVERY_FROM || null;
+  const from = recoveryFrom && recoveryFrom < isoDate(co) ? recoveryFrom : isoDate(co);
   const to   = isoDate(new Date());
-  console.log(`  Fetching ${from} → ${to}…`);
+  if (recoveryFrom) console.log(`  ⚡ Recovery mode: fetching ${from} → ${to} (LU_OAM_RECOVERY_FROM=${recoveryFrom})`);
+  else console.log(`  Fetching ${from} → ${to}…`);
 
   const submissions = await fetchOamSubmissions(from, to);
   console.log(`  OAM returned ${submissions.length} managers' transaction submissions`);
@@ -571,7 +577,11 @@ async function scrapeLU() {
 
   if (noUrlCount > 0 && noUrlCount === seen.size) {
     console.warn(`  ⚠  oamSubmissionDetail broken for ALL ${noUrlCount} submissions — falling back to FNS MATS documents`);
-    console.warn(`     (LuxSE gated OAM document access behind auth ~2026-06-12; FNS covers ~8% of LU filings)`);
+    console.warn(`     (LuxSE API outage since ~2026-06-12; coverage ~8% via FNS fallback)`);
+    console.warn(`     Missed OAM submissions (set LU_OAM_RECOVERY_FROM=2026-06-12 after API recovery to backfill):`);
+    for (const sub of submissions) {
+      console.warn(`       ${sub.submissionId}  ${sub.publicationDate?.slice(0,10)}  ${sub.issuerName}`);
+    }
 
     // FNS fallback: covers Luxembourg-domiciled companies that file directly via LuxSE FNS.
     const fnsDocs = await fetchFnsMatsDocuments(from);
