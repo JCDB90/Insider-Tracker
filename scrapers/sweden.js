@@ -396,9 +396,15 @@ async function scrapeSE() {
     if (seen.has(fid)) continue;
     seen.add(fid);
 
-    // Log closely-associated or corporate entity filings for visibility
-    // (looksLikeCorp rows will be dropped by saveInsiderTransactions — log here first)
-    if (r.insider && looksLikeCorp(r.insider)) {
+    // FI's "Meldingsplichtige" field is sometimes a holding company acting on behalf of
+    // the actual PDMR (e.g. a CEO trading through their private investment vehicle) rather
+    // than a named individual, with no separate field disclosing the real person. Route
+    // these through via_entity instead of insider_name — otherwise saveInsiderTransactions
+    // drops them outright as unattributed corporate entities, silently losing real insider
+    // activity (this is what made Transferator AB's insider buys disappear: every filing in
+    // the window was reported via "Skywall AB", the CEO's holding company).
+    const isCorp = r.insider && looksLikeCorp(r.insider);
+    if (isCorp) {
       console.log(`  ⚠  Corp entity insider: "${r.insider}" @ ${r.company} on ${txIso} (type: ${r.nature}, closely: ${r.closely || 'n/a'})`);
       corpFilings++;
     }
@@ -407,7 +413,9 @@ async function scrapeSE() {
       filing_id: fid, country_code: COUNTRY_CODE,
       ticker: getTicker(r.company), _isin: r.isin || null,
       company: r.company || null,
-      insider_name: r.insider || null, insider_role: translateRole(r.position) || null,
+      insider_name: isCorp ? null : (r.insider || null),
+      via_entity:    isCorp ? r.insider : null,
+      insider_role: translateRole(r.position) || null,
       transaction_type: txType, transaction_date: txIso,
       shares: shares !== null ? Math.round(shares) : null,
       price_per_share: price, total_value: total, currency: r.currency,
@@ -415,7 +423,7 @@ async function scrapeSE() {
       source: SOURCE,
     });
   }
-  if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (will be dropped by db filter)`);
+  if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (kept via via_entity)`);
 
   console.log(`  ${dbRows.length} unique rows`);
   if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
