@@ -90,8 +90,8 @@ const TICKER_MAP = {
   'pharma mar':           'PHM',
   'talgo':                'TLGO',
   'enagas':               'ENG',
-  'redeia':               'REE',
-  'red electrica':        'REE',
+  'redeia':               'RED',  // RED.MC (was REE — delisted since the 2023 Red Eléctrica → Redeia rename)
+  'red electrica':        'RED',
   'sacyr':                'SCYR',
   'tecnicas reunidas':    'TRE',
   'vidrala':              'VID',

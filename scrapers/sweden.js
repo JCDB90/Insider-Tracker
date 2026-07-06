@@ -111,7 +111,16 @@ const TICKERS = {
   'lifco': 'LIFCO-B',
   'saab': 'SAAB-B',
   'castellum': 'CAST',
-  'fastighets': 'FASTU-B',
+  // NOTE: no generic 'fastighets' key here on purpose — the word appears in five
+  // unrelated real-estate companies' names (Emilshus, John Mattson, Tingsvalvet,
+  // Trianon, Balder). A single broad substring match previously collapsed all
+  // five onto one nonexistent ticker (FASTU-B, not a real Yahoo symbol). Each
+  // needs its own specific key below.
+  'fastighetsbolaget emilshus':    'EMIL-B',
+  'john mattson':                  'JOMA',
+  'tingsvalvet':                   'TINGS-PREF',
+  'aktiebolaget trianon':          'TRIAN-B',
+  'fastighets ab balder':          'BALD-B',
   'fingerprint': 'FING-B',
   'midsona': 'MIDS-B',
   'nyfosa': 'NYF',
@@ -136,7 +145,8 @@ const TICKERS = {
   'medicover': 'MCOV-B',
   'avanza bank': 'AZA',
   'avanza': 'AZA',
-  'scandic hotels': 'SCST', // SCST.ST (was wrongly SCAND)
+  'scandic hotels': 'SHOT',  // SHOT.ST (was wrongly SCST — that's Scandi Standard, a different company)
+  'scandi standard': 'SCST', // SCST.ST — poultry producer, distinct from "Scandic Hotels" above
   'diös fastigheter': 'DIOS',
   'dios fastigheter': 'DIOS',
   'cellavision': 'CEVI',
@@ -189,6 +199,7 @@ const TICKERS = {
   'logistea': 'LOGIST-B',   // LOGIST-B.ST (was LOGIST)
   'knowit': 'KNOW',         // KNOW.ST    (was KNOWIT)
   'bergman & beving': 'BERG-B', // BERG-B.ST
+  'lagercrantz': 'LAGR-B',      // LAGR-B.ST (was LAGERC — no Yahoo listing)
   // ── Companies whose first word is ambiguous / misleading ──────────────────
   'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
 };

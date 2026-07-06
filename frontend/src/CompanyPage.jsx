@@ -31,6 +31,17 @@ const PL_TICKER_OVERRIDES = {
   'MILLENNIUM':'MIL.WA',
   'AGORA':     'AGO.WA',
   'HUUUGE':    'HUG.WA',
+  'MBANK':     'MBK.WA',
+  'ARCTIC':    'ATC.WA',
+  'ASBIS':     'ASB.WA',
+  'SYNEKTIK':  'SNT.WA',
+  'ALTUS':     'ALI.WA',
+  'LARQ':      'LRQ.WA',
+  'QUERCUS':   'QRS.WA',
+  'DEVELIA':   'DVL.WA',
+  'DADELO':    'DAD.WA',
+  'NEUCA':     'NEU.WA',
+  'INGBSK':    'ING.WA',
 };
 
 // LU-registered companies trade on multiple EU exchanges — explicit Yahoo Finance symbol overrides.

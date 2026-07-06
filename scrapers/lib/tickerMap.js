@@ -56,6 +56,17 @@ const SPECIFIC_OVERRIDES = {
   'MILLENNIUM|PL':'MIL.WA',
   'AGORA|PL':     'AGO.WA',
   'HUUUGE|PL':    'HUG.WA',
+  'MBANK|PL':     'MBK.WA',
+  'ARCTIC|PL':    'ATC.WA',
+  'ASBIS|PL':     'ASB.WA',
+  'SYNEKTIK|PL':  'SNT.WA',
+  'ALTUS|PL':     'ALI.WA',
+  'LARQ|PL':      'LRQ.WA',
+  'QUERCUS|PL':   'QRS.WA',
+  'DEVELIA|PL':   'DVL.WA',
+  'DADELO|PL':    'DAD.WA',
+  'NEUCA|PL':     'NEU.WA',
+  'INGBSK|PL':    'ING.WA',
 };
 
 /**
