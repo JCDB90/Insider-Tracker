@@ -95,47 +95,31 @@ function computeSignals(buys) {
     const peers      = byCompany[companyKey] || [];
 
     // ── UNUSUAL PRICE ─────────────────────────────────────────────────────────
-    // Three-tier check (any tier sets isUnusualPrice = true):
-    //   1. DB flag: is_unusual_price=true set by scraper or enrichment pipeline
-    //      (option exercises, SAYE grants, warrant vestings at below-market strike)
-    //   2. Median heuristic: price <80% of same-company median from last 90 days
-    //      (catches exercises that slipped through scraper-level detection)
-    //   3. Coordinated issuance: 2+ other insiders at the EXACT same price on the
-    //      same day AND price is <80% of recent median — annual director share plans
-    //      at near-market price share the same-price pattern but must not be flagged.
-    let isUnusualPrice = t.is_unusual_price === true;
-
-    // Compute recent-peer median once (shared by tiers 2 and 3)
-    const recentPrices = !isUnusualPrice && t.price_per_share > 1
-      ? peers
-          .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
-          .map(p => p.price_per_share)
-          .sort((a, b) => a - b)
-      : [];
-    const recentMedian = recentPrices.length >= 2
-      ? recentPrices[Math.floor(recentPrices.length / 2)]
-      : null;
-
-    if (!isUnusualPrice && recentMedian !== null) {
-      isUnusualPrice = t.price_per_share < recentMedian * 0.80;
-    }
+    // Recomputed from scratch every run — the previous is_unusual_price value is
+    // NEVER trusted as an input, because doing so made false positives permanent
+    // (a wrong flag would exclude itself from the peer pool forever, so the median
+    // could never recover and the flag could never clear).
+    //
+    //   1. price = 0 → free grant (RSU / LTIP vesting), always unusual.
+    //   2. price <60% of same-company median from the last 90 days of KNOWN
+    //      market-price peers → option exercise / deep-discount plan.
+    // Coordinated same-day/same-price purchases (e.g. annual director share
+    // plans) are NOT flagged on that pattern alone — only if the price itself
+    // clears the 60% discount bar above. Without a peer median to compare
+    // against, we do not flag: an unverifiable guess must not become permanent.
+    let isUnusualPrice = t.price_per_share === 0;
 
     if (!isUnusualPrice && t.price_per_share > 0) {
-      const sameDayPeers = peers.filter(p =>
-        p.id !== t.id &&
-        p.transaction_date === t.transaction_date &&
-        p.price_per_share === t.price_per_share
-      );
-      if (sameDayPeers.length >= 2) {
-        // Cross-check against market level: only flag if price is also <80% of recent
-        // median. Annual director share-purchase plans execute at near-market price
-        // and must not be flagged despite matching the same-day same-price pattern.
-        if (recentMedian !== null) {
-          isUnusualPrice = t.price_per_share < recentMedian * 0.80;
-        } else {
-          // No median context → flag conservatively (coordinated but unknown market level)
-          isUnusualPrice = true;
-        }
+      const recentPrices = peers
+        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+        .map(p => p.price_per_share)
+        .sort((a, b) => a - b);
+      const recentMedian = recentPrices.length >= 2
+        ? recentPrices[Math.floor(recentPrices.length / 2)]
+        : null;
+
+      if (recentMedian !== null) {
+        isUnusualPrice = t.price_per_share < recentMedian * 0.60;
       }
     }
 
