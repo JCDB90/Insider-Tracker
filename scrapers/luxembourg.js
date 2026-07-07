@@ -283,15 +283,22 @@ function parsePdf(text) {
     }
   }
 
-  function getField(labelRe, minSpaces) {
+  function getField(labelRe, minSpaces, srcLines) {
+    const src = srcLines || lines;
     const sp = minSpaces || 3;
-    const gapRe = new RegExp(`\\s{${sp},}(.+)$`);
-    for (let i = 0; i < lines.length; i++) {
-      if (!labelRe.test(lines[i])) continue;
-      const m = lines[i].match(gapRe);
+    const gapRe = new RegExp(`^\\s{${sp},}(.+)$`);
+    for (let i = 0; i < src.length; i++) {
+      const labelMatch = src[i].match(labelRe);
+      if (!labelMatch) continue;
+      // Search for the value gap only in the text AFTER the label match — searching the
+      // whole line lets the label's own leading indentation (when >= minSpaces) satisfy
+      // the gap regex first, capturing the label text itself instead of the value
+      // (e.g. "    Aggregated volume10        29 (units)" → wrongly grabbed "volume10 ... 29").
+      const afterLabel = src[i].slice(labelMatch.index + labelMatch[0].length);
+      const m = afterLabel.match(gapRe);
       let val = m ? m[1].trim() : '';
-      for (let j = i + 1; j < lines.length; j++) {
-        const nl = lines[j];
+      for (let j = i + 1; j < src.length; j++) {
+        const nl = src[j];
         if (!nl.trim()) continue;
         if (/^\s{30,}/.test(nl)) val += ' ' + nl.trim();
         else break;
@@ -382,7 +389,8 @@ function parsePdf(text) {
       if (dmDmy) txDate = `${dmDmy[3]}-${dmDmy[2].padStart(2,'0')}-${dmDmy[1].padStart(2,'0')}`;
     }
 
-    return { insiderName, issuerName, isin, role: null, txType, shares, totalValue, pricePerShare, txDate };
+    return { insiderName, issuerName, isin, role: null,
+      transactions: [{ txType, shares, totalValue, pricePerShare, txDate }] };
   }
 
   // Standard HOS-2 form
@@ -401,70 +409,91 @@ function parsePdf(text) {
   if (rm) role = rm[1].replace(/\s/g, '-'); // normalise "Co CEO" → "Co-CEO"
   else if (/closely associated/i.test(roleRaw)) role = 'Closely Associated';
 
-  const natureTxt = getField(/Nature of the transaction\d/)
-                 || getField(/Nature de la transaction\s*\d/) || '';
-  let txType = 'UNKNOWN';
-  const natLow = natureTxt.toLowerCase();
-  if (/dispos|sale\b|sell|cession|vente/.test(natLow))               txType = 'SELL';
-  else if (/acqui|purchas|subscri|exercise|exercice|achat/.test(natLow)) txType = 'BUY';
+  // Section 4 ("Details of the transaction(s)") is explicitly repeatable per the form's
+  // own instructions — "section to be repeated for 1 each type of instrument; 2 each type
+  // of transaction; 3 each date; and 4 each place". A single filing can bundle several
+  // distinct transactions (e.g. a late-notified older trade alongside a recent one, each
+  // with its own nature/volume/price/date). Parsing only the first occurrence of each field
+  // silently dropped every transaction after the first — split into blocks and parse each.
+  // \f? tolerates a leading form-feed (page-break marker pdftotext emits when a
+  // repeated block starts on a new PDF page, e.g. Brederode filing ref 14632).
+  const blockHeaderRe = /^\f?4\.\s*(?:Details of the transaction|D[eé]tails? de la transaction)/i;
+  const blockStarts = [];
+  for (let i = 0; i < lines.length; i++) if (blockHeaderRe.test(lines[i])) blockStarts.push(i);
+  const blocks = blockStarts.length
+    ? blockStarts.map((start, idx) => lines.slice(start, blockStarts[idx + 1] ?? lines.length))
+    : [lines]; // no repeated header found — treat the whole document as one block (unchanged behaviour)
 
-  const volTxt = getField(/Aggregated volume\d+/)
-              || getField(/Volumes? agr[eé]g[eé]s?\d*/i) || '';
-  let shares = null;
-  const vm = volTxt.match(/([\d,]+)/);
-  if (vm) shares = parseFloat(vm[1].replace(/,/g, '')) || null;
+  function parseBlock(blockLines) {
+    const natureTxt = getField(/Nature of the transaction\d/, undefined, blockLines)
+                   || getField(/Nature de la transaction\s*\d/, undefined, blockLines) || '';
+    let txType = 'UNKNOWN';
+    const natLow = natureTxt.toLowerCase();
+    if (/dispos|sale\b|sell|cession|vente/.test(natLow))               txType = 'SELL';
+    else if (/acqui|purchas|subscri|exercise|exercice|achat/.test(natLow)) txType = 'BUY';
 
-  const priceTxt = getField(/\bPrice1[0-9]\b/)
-                || getField(/\bPrix1[0-9]\b/) || '';
-  let totalValue = null;
-  const pm = priceTxt.match(/([\d,]+\.?\d*)/);
-  if (pm) totalValue = parseFloat(pm[1].replace(/,/g, '')) || null;
+    const volTxt = getField(/Aggregated volume\d+/, undefined, blockLines)
+                || getField(/Volumes? agr[eé]g[eé]s?\d*/i, undefined, blockLines) || '';
+    let shares = null;
+    const vm = volTxt.match(/([\d,]+)/);
+    if (vm) shares = parseFloat(vm[1].replace(/,/g, '')) || null;
 
-  // Price9 table (EN: "Price(s) and volume(s)9"; FR: "Prix et volume(s)9")
-  // Lists per-share price: more reliable than Price11/Prix11 for some filers.
-  let priceFromTable = null;
-  for (let i = 0; i < lines.length; i++) {
-    if (/Price\(s\) and volume\(s\)\d+|Prix et volume\(s\)\d*/i.test(lines[i])) {
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const m = lines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b/i);
-        if (m) {
-          priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break;
-        } else {
-          // French format: price and volume on same line, comma decimal, e.g. "56,50  5000"
-          const mFr = lines[j].match(/^\s*([\d,]+\.?\d*)\s{3,}[\d,]+\s*$/);
-          if (mFr) { priceFromTable = parseFloat(mFr[1].replace(',', '.')) || null; break; }
+    const priceTxt = getField(/\bPrice1[0-9]\b/, undefined, blockLines)
+                  || getField(/\bPrix1[0-9]\b/, undefined, blockLines) || '';
+    let totalValue = null;
+    const pm = priceTxt.match(/([\d,]+\.?\d*)/);
+    if (pm) totalValue = parseFloat(pm[1].replace(/,/g, '')) || null;
+
+    // Price9 table (EN: "Price(s) and volume(s)9"; FR: "Prix et volume(s)9")
+    // Lists per-share price: more reliable than Price11/Prix11 for some filers.
+    let priceFromTable = null;
+    for (let i = 0; i < blockLines.length; i++) {
+      if (/Price\(s\) and volume\(s\)\d+|Prix et volume\(s\)\d*/i.test(blockLines[i])) {
+        for (let j = i + 1; j < Math.min(i + 6, blockLines.length); j++) {
+          const m = blockLines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b/i);
+          if (m) {
+            priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break;
+          } else {
+            // French format: price and volume on same line, comma decimal, e.g. "56,50  5000"
+            const mFr = blockLines[j].match(/^\s*([\d,]+\.?\d*)\s{3,}[\d,]+\s*$/);
+            if (mFr) { priceFromTable = parseFloat(mFr[1].replace(',', '.')) || null; break; }
+          }
         }
+        break;
       }
-      break;
     }
+
+    let pricePerShare = null;
+    if (priceFromTable && shares && shares > 0) {
+      // Use per-share price from the Price9 table; compute aggregate from it.
+      pricePerShare = parseFloat(priceFromTable.toFixed(6));
+      totalValue    = Math.round(priceFromTable * shares);
+    } else if (totalValue && shares && shares > 0) {
+      const pps = totalValue / shares;
+      // Sanity check: if pps is absurdly small (< MIN_PRICE_PER_SHARE) but totalValue itself
+      // is a plausible per-share price, the PDF put the per-share price in Price11 rather than
+      // the aggregate total (common in newer HOS-2 PDFs from LuxSE filers).
+      // In that case: treat totalValue as the per-share price and recalculate the aggregate.
+      if (pps < MIN_PRICE_PER_SHARE && totalValue >= MIN_PRICE_PER_SHARE) {
+        pricePerShare = parseFloat(totalValue.toFixed(6));
+        totalValue    = Math.round(pricePerShare * shares);
+      } else if (pps >= MIN_PRICE_PER_SHARE) {
+        pricePerShare = parseFloat(pps.toFixed(6));
+      }
+    }
+
+    const dateTxt = getField(/Date of the transaction\d+/, undefined, blockLines)
+                || getField(/Date de la transaction\d+/, undefined, blockLines) || '';
+    let txDate = null;
+    const dm = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dm) txDate = dm[1];
+
+    return { txType, shares, totalValue, pricePerShare, txDate };
   }
 
-  let pricePerShare = null;
-  if (priceFromTable && shares && shares > 0) {
-    // Use per-share price from the Price9 table; compute aggregate from it.
-    pricePerShare = parseFloat(priceFromTable.toFixed(6));
-    totalValue    = Math.round(priceFromTable * shares);
-  } else if (totalValue && shares && shares > 0) {
-    const pps = totalValue / shares;
-    // Sanity check: if pps is absurdly small (< MIN_PRICE_PER_SHARE) but totalValue itself
-    // is a plausible per-share price, the PDF put the per-share price in Price11 rather than
-    // the aggregate total (common in newer HOS-2 PDFs from LuxSE filers).
-    // In that case: treat totalValue as the per-share price and recalculate the aggregate.
-    if (pps < MIN_PRICE_PER_SHARE && totalValue >= MIN_PRICE_PER_SHARE) {
-      pricePerShare = parseFloat(totalValue.toFixed(6));
-      totalValue    = Math.round(pricePerShare * shares);
-    } else if (pps >= MIN_PRICE_PER_SHARE) {
-      pricePerShare = parseFloat(pps.toFixed(6));
-    }
-  }
+  const transactions = blocks.map(parseBlock);
 
-  const dateTxt = getField(/Date of the transaction\d+/)
-              || getField(/Date de la transaction\d+/) || '';
-  let txDate = null;
-  const dm = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
-  if (dm) txDate = dm[1];
-
-  return { insiderName, issuerName, isin, role, txType, shares, totalValue, pricePerShare, txDate };
+  return { insiderName, issuerName, isin, role, transactions };
 }
 
 // ─── Concurrency helper ───────────────────────────────────────────────────────
@@ -546,32 +575,38 @@ async function scrapeLU() {
     if (!insiderName && !viaEntity) {
       console.log(`  ⚠  ${sub.submissionId} (${company || '?'}) — insider name not found in PDF; row will be dropped`);
     }
-    const isin    = f.isin || '';
-    const txDate  = f.txDate || refIso || publishIso || from;
-    const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
-    const total   = f.totalValue ? Math.round(f.totalValue) : null;
-    const pdfUrl  = DL_BASE + encodeURIComponent(docUrl);
-
-    process.stdout.write(`  → ${sub.submissionId} ${(company || '?').slice(0, 28).padEnd(28)} ${txType.padEnd(4)} ${f.shares || '?'} @ ${f.pricePerShare || '?'} EUR  ${txDate}\n`);
-
+    const isin   = f.isin || '';
+    const pdfUrl = DL_BASE + encodeURIComponent(docUrl);
     const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || isin) : '';
+    const txns   = f.transactions && f.transactions.length ? f.transactions : [{}];
 
-    dbRows.push({
-      filing_id:        fid,
-      country_code:     COUNTRY_CODE,
-      ticker,
-      company,
-      insider_name:     insiderName || null,
-      via_entity:       viaEntity,
-      insider_role:     f.role,
-      transaction_type: txType,
-      transaction_date: txDate,
-      shares:           f.shares,
-      price_per_share:  f.pricePerShare,
-      total_value:      total,
-      currency:         CURRENCY,
-      filing_url:       pdfUrl,
-      source:           SOURCE,
+    // A single filing can bundle multiple distinct transactions (see parsePdf) — one row
+    // per transaction block, sharing the same insider/issuer/filing_url. Suffix filing_id
+    // with the block index (beyond the first) so each gets its own DB row on upsert.
+    txns.forEach((tx, i) => {
+      const txDate  = tx.txDate || refIso || publishIso || from;
+      const txType  = tx.txType || 'UNKNOWN';
+      const total   = tx.totalValue ? Math.round(tx.totalValue) : null;
+
+      process.stdout.write(`  → ${sub.submissionId}${i > 0 ? `.${i + 1}` : ''} ${(company || '?').slice(0, 28).padEnd(28)} ${txType.padEnd(4)} ${tx.shares || '?'} @ ${tx.pricePerShare || '?'} EUR  ${txDate}\n`);
+
+      dbRows.push({
+        filing_id:        i === 0 ? fid : `${fid}-${i + 1}`,
+        country_code:     COUNTRY_CODE,
+        ticker,
+        company,
+        insider_name:     insiderName || null,
+        via_entity:       viaEntity,
+        insider_role:     f.role,
+        transaction_type: txType,
+        transaction_date: txDate,
+        shares:           tx.shares,
+        price_per_share:  tx.pricePerShare,
+        total_value:      total,
+        currency:         CURRENCY,
+        filing_url:       pdfUrl,
+        source:           SOURCE,
+      });
     });
   }, CONCURRENCY);
 
@@ -617,32 +652,35 @@ async function scrapeLU() {
       const insiderName = isEntity ? null : rawInsider;
       const viaEntity   = isEntity ? rawInsider : null;
 
-      const isin    = f.isin || '';
-      const txDate  = f.txDate || pubDate || from;
-      const txType  = f.txType !== 'UNKNOWN' ? f.txType : 'UNKNOWN';
-      const total   = f.totalValue ? Math.round(f.totalValue) : null;
-      const pdfUrl  = DL_BASE + encodeURIComponent(fnsDoc.downloadUrl);
-
-      process.stdout.write(`  → FNS/${fnsDoc.id} ${(company || '?').slice(0, 28).padEnd(28)} ${txType.padEnd(4)} ${f.shares || '?'} @ ${f.pricePerShare || '?'} EUR  ${txDate}\n`);
-
+      const isin   = f.isin || '';
+      const pdfUrl = DL_BASE + encodeURIComponent(fnsDoc.downloadUrl);
       const ticker = isin ? (await isinToTicker(isin, COUNTRY_CODE) || isin) : '';
+      const txns   = f.transactions && f.transactions.length ? f.transactions : [{}];
 
-      dbRows.push({
-        filing_id:        fid,
-        country_code:     COUNTRY_CODE,
-        ticker,
-        company,
-        insider_name:     insiderName || null,
-        via_entity:       viaEntity,
-        insider_role:     f.role,
-        transaction_type: txType,
-        transaction_date: txDate,
-        shares:           f.shares,
-        price_per_share:  f.pricePerShare,
-        total_value:      total,
-        currency:         CURRENCY,
-        filing_url:       pdfUrl,
-        source:           SOURCE + ' (FNS)',
+      txns.forEach((tx, i) => {
+        const txDate = tx.txDate || pubDate || from;
+        const txType = tx.txType || 'UNKNOWN';
+        const total  = tx.totalValue ? Math.round(tx.totalValue) : null;
+
+        process.stdout.write(`  → FNS/${fnsDoc.id}${i > 0 ? `.${i + 1}` : ''} ${(company || '?').slice(0, 28).padEnd(28)} ${txType.padEnd(4)} ${tx.shares || '?'} @ ${tx.pricePerShare || '?'} EUR  ${txDate}\n`);
+
+        dbRows.push({
+          filing_id:        i === 0 ? fid : `${fid}-${i + 1}`,
+          country_code:     COUNTRY_CODE,
+          ticker,
+          company,
+          insider_name:     insiderName || null,
+          via_entity:       viaEntity,
+          insider_role:     f.role,
+          transaction_type: txType,
+          transaction_date: txDate,
+          shares:           tx.shares,
+          price_per_share:  tx.pricePerShare,
+          total_value:      total,
+          currency:         CURRENCY,
+          filing_url:       pdfUrl,
+          source:           SOURCE + ' (FNS)',
+        });
       });
     }
   }
