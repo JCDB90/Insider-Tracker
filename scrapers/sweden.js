@@ -203,6 +203,31 @@ const TICKERS = {
   // ── Companies whose first word is ambiguous / misleading ──────────────────
   'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
 };
+// FI returns the issuer's registered legal name, which varies in how it spells out
+// "Aktiebolag" (the Swedish word for "limited company", normally abbreviated "AB").
+// Same company, same ticker, different spelling → fragments as separate "companies"
+// throughout the app (search, grouping, company pages). Normalize to the standard
+// abbreviated form so all filings for one issuer land under one name.
+function normalizeSECompany(name) {
+  if (!name) return name;
+  let n = name.trim();
+
+  // FI occasionally returns a comma-reordered legal form, e.g. "Latour, Investmentab."
+  // instead of "Investmentaktiebolaget Latour" — reorder to the standard prefix form.
+  const commaForm = n.match(/^(.+?),\s*Investmentab\.?\s*$/i);
+  if (commaForm) return `Investment AB ${commaForm[1].trim()}`;
+
+  // Compound one-word form "<Root>aktiebolaget" (no space before the suffix) → "<Root> AB"
+  // e.g. "Rederiaktiebolaget Gotland" → "Rederi AB Gotland", "Investmentaktiebolaget Latour" → "Investment AB Latour".
+  n = n.replace(/\b(\w+)aktiebolaget\b/gi, (_, root) => `${root} AB`);
+
+  // Standalone "Aktiebolag"/"Aktiebolaget" as its own word → "AB"
+  // (word-bounded so it does NOT touch the compound form above, already handled).
+  n = n.replace(/\bAktiebolag(?:et)?\b/gi, 'AB');
+
+  return n.replace(/\s{2,}/g, ' ').trim();
+}
+
 function getTicker(n) {
   if (!n) return null;
   const l = n.toLowerCase();
@@ -412,7 +437,7 @@ async function scrapeSE() {
     dbRows.push({
       filing_id: fid, country_code: COUNTRY_CODE,
       ticker: getTicker(r.company), _isin: r.isin || null,
-      company: r.company || null,
+      company: normalizeSECompany(r.company) || null,
       insider_name: isCorp ? null : (r.insider || null),
       via_entity:    isCorp ? r.insider : null,
       insider_role: translateRole(r.position) || null,
