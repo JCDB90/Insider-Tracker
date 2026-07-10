@@ -49,6 +49,9 @@ const TICKER_MAP = {
   'siemens energy':           'ENR',
   'volkswagen':               'VOW3',
   'bmw':                      'BMW',
+  'bayerische motoren werke': 'BMW', // BMW's full legal name — "bayerische" starts with
+                                     // "bayer", so without this it wrongly matched the
+                                     // Bayer AG key below and merged the two companies.
   'mercedes-benz':            'MBG',
   'daimler':                  'MBG',
   'allianz':                  'ALV',
@@ -100,10 +103,14 @@ const TICKER_MAP = {
   'leifheit':                 'LEI',
 };
 
+// Longest fragment first: a more specific key must win over a shorter one it happens to
+// contain (e.g. "bayerische motoren werke" over "bayer"), regardless of insertion order.
+const TICKER_MAP_BY_SPECIFICITY = Object.entries(TICKER_MAP).sort((a, b) => b[0].length - a[0].length);
+
 function getTicker(companyName) {
   if (!companyName) return null;
   const lower = companyName.toLowerCase();
-  for (const [fragment, ticker] of Object.entries(TICKER_MAP)) {
+  for (const [fragment, ticker] of TICKER_MAP_BY_SPECIFICITY) {
     if (lower.includes(fragment)) return ticker;
   }
   // Fallback: use ISIN if available (set later), or first word

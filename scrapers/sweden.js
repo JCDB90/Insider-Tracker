@@ -202,6 +202,108 @@ const TICKERS = {
   'lagercrantz': 'LAGR-B',      // LAGR-B.ST (was LAGERC — no Yahoo listing)
   // ── Companies whose first word is ambiguous / misleading ──────────────────
   'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
+  // ── Distinct companies auto-deriving to the SAME 6-char ticker ────────────
+  // getTicker's fallback truncates to the first word's first 6 characters, so two
+  // unrelated companies sharing a first word (or one being a prefix of the other)
+  // collide onto one ticker — silently merging their transactions in every ticker-keyed
+  // view (chart, watchlist, per-company aggregation). Each needs an explicit, distinct key.
+  'nordic level group':            'LEVEL',    // was colliding with NordLEI below on "NORDIC"
+  'nordic legal entity identifier': 'NORDLEI', // Nordic LEI issuer — no public exchange ticker found
+  'transfer group':                'TRNSF',    // NGM: TRNSF — was colliding with Transferator on "TRANSF"
+  'transferator':                  'TRAN-B',   // NGM: TRAN-B
+  'swedish orphan biovitrum':      'SOBI',     // was colliding with Swedish Logistic Property on "SWEDIS"
+  'swedish logistic property':     'SLP-B',
+  'scandinavian chemotech':        'CMOTEC-B', // was colliding with Scandinavian Astor Group on "SCANDI"
+  'scandinavian astor':            'ASTOR',
+  'lundin mining':                 'LUMI',     // was colliding with Lundin Gold on "LUNDIN"
+  'lundin gold':                   'LUG',
+  'electrolux professional':      'EPRO-B',   // spun off from Electrolux in 2020 — distinct company/ticker,
+                                               // was colliding with the generic 'electrolux' key on "ELUX-B"
+};
+
+// Canonical display name per ticker — covers every spelling/casing/typo/"(publ)"
+// variant FI has returned for that same company (all auto-derive or map to the same
+// ticker above, so this single lookup normalizes every one of them going forward).
+const CANONICAL_SE_COMPANY = {
+  'DISTRI':   'District Metals Corp',
+  'KOMO':     'Komo Holding AB',
+  'GENTOO':   'Gentoo Media Inc.',
+  'NYAB':     'NYAB AB',
+  'NODEBI':   'Nodebis Applications AB (publ)',
+  'SOUND':    'Sound Dimension AB (publ)',
+  'ATRIUM':   'Atrium Ljungberg AB',
+  'SWEDEN':   'Sweden BuyersClub AB',
+  'FREEME':   'Freemelt Holding AB (publ)',
+  'AVIDA':    'Avida Finans AB (publ)',
+  'BIMOBJ':   'BIMobject AB',
+  'TÅNGEN':   'Tången Industrikapital AB (publ)',
+  'NIVIKA':   'Nivika Fastigheter AB (publ)',
+  'LOGIST-B': 'Logistea AB (publ)',
+  'STONEB':   'StoneBeach Group AB',
+  'BEAMMW':   'BeammWave AB',
+  'VERVE':    'Verve Group SE',
+  'SMOLTE':   'Smoltek Nanotech Holding AB (publ)',
+  'VIMIAN':   'Vimian Group AB (publ)',
+  'LIAB':     'Lindab International AB (publ)',
+  'SAVELE':   'SaveLend Group AB',
+  'CHEFFE':   'Cheffelo AB (publ)',
+  'STUDSV':   'Studsvik AB (publ)',
+  'WS':       'WS WeSports Group AB (publ)',
+  'SWED-B':   'Swedencare AB (publ)',
+  'INTRUM':   'Intrum AB',
+  'DICOT':    'Dicot Pharma AB',
+  'SPAGO':    'Spago Nanomedical AB (publ)',
+  'VETERA':   'Veteranpoolen AB (publ)',
+  'Q-LINE':   'Q-linea AB (publ)',
+  'SECU-B':   'Securitas AB',
+  'FRONT':    'Front Ventures AB (publ)',
+  'NOSA':     'Nosa Plugs AB (publ)',
+  'VACCIN':   'Vaccinium Holding ApS',
+  'METACO':   'Metacon AB (publ)',
+  'STOCKH':   'Stockholm Nordtech Group AB (publ)',
+  'HANZA':    'HANZA AB',
+  'STORY-B':  'Storytel AB (publ)',
+  'WALL':     'Wall to Wall Group AB',
+  'WYLD':     'Wyld Networks AB',
+  'KINV-B':   'Kinnevik AB (publ)',
+  'STENHU':   'Stenhus Fastigheter i Norden AB (publ)',
+  'SHT':      'SHT Smart High-Tech AB',
+  'EOLUS':    'Eolus AB (publ)',
+  'CANTAR':   'Cantargia AB',
+  'INSTAL':   'Instalco AB',
+  'STOCKW':   'Stockwik Förvaltning AB',
+  'EVO':      'Evolution AB (publ)',
+  'ASKER':    'Asker Healthcare Group AB (publ)',
+  'KDVENT':   'KDventures AB',
+  'CIBUS':    'Cibus Nordic Real Estate AB (publ)',
+  'PHYSIT':   'Physitrack Plc',
+  'FASADG':   'Fasadgruppen Group AB (publ)',
+  'LANE':     'Lane Capital Group AB',
+  'SILJAN':   'Siljansvik AB (publ)',
+  'GREENM':   'GreenMerc AB (publ)',
+  'BYHMGA':   'Byhmgard AB',
+  'RUGVIS':   'RugVista Group AB (publ)',
+  'SVEAFA':   'Sveafastigheter AB (publ)',
+  'XER':      'Xer Tech Holding AB',
+  'NOLA-B':   'Nolato AB',
+  'ENITY':    'Enity Holding AB (publ)',
+  'BYGGMA':   'Byggmax Group AB',
+  'VO2':      'Vo2 Cap Holding AB (publ)',
+  'VIT-B':    'Vitec Software Group AB (publ)',
+  'NEXAM':    'Nexam Chemical Holding AB',
+  'MEDS':     'Meds Apotek AB',
+  // Newly-disambiguated collisions (see TICKERS overrides above)
+  'LEVEL':    'Nordic LEVEL Group AB (publ.)',
+  'NORDLEI':  'Nordic Legal Entity Identifier AB (NordLEI)',
+  'TRNSF':    'Transfer Group AB (publ)',
+  'TRAN-B':   'Transferator AB (publ)',
+  'SOBI':     'Swedish Orphan Biovitrum AB (publ)',
+  'SLP-B':    'Swedish Logistic Property AB',
+  'CMOTEC-B': 'Scandinavian ChemoTech AB (publ)',
+  'ASTOR':    'Scandinavian Astor Group AB (publ)',
+  'LUMI':     'Lundin Mining Corporation',
+  'LUG':      'Lundin Gold Inc.',
+  'EPRO-B':   'Electrolux Professional AB (publ)',
 };
 // FI returns the issuer's registered legal name, which varies in how it spells out
 // "Aktiebolag" (the Swedish word for "limited company", normally abbreviated "AB").
@@ -228,10 +330,16 @@ function normalizeSECompany(name) {
   return n.replace(/\s{2,}/g, ' ').trim();
 }
 
+// Longest key first: a more specific key (e.g. "electrolux professional") must win
+// over a broader one it contains (e.g. "electrolux") regardless of which was inserted
+// first in TICKERS — otherwise the spun-off "Electrolux Professional AB (publ)" would
+// wrongly match the parent company's generic "electrolux" key and get its ticker.
+const TICKERS_BY_SPECIFICITY = Object.entries(TICKERS).sort((a, b) => b[0].length - a[0].length);
+
 function getTicker(n) {
   if (!n) return null;
   const l = n.toLowerCase();
-  for (const [k, v] of Object.entries(TICKERS)) if (l.includes(k)) return v;
+  for (const [k, v] of TICKERS_BY_SPECIFICITY) if (l.includes(k)) return v;
   // Strip leading "AB " (Aktiebolag = Swedish "Inc.") and trailing " AB (publ)"
   // to prevent "AB Electrolux" → "AB" which Yahoo Finance maps to AllianceBernstein (US)
   const clean = n
@@ -434,10 +542,11 @@ async function scrapeSE() {
       corpFilings++;
     }
 
+    const seTicker = getTicker(r.company);
     dbRows.push({
       filing_id: fid, country_code: COUNTRY_CODE,
-      ticker: getTicker(r.company), _isin: r.isin || null,
-      company: normalizeSECompany(r.company) || null,
+      ticker: seTicker, _isin: r.isin || null,
+      company: (seTicker && CANONICAL_SE_COMPANY[seTicker]) || normalizeSECompany(r.company) || null,
       insider_name: isCorp ? null : (r.insider || null),
       via_entity:    isCorp ? r.insider : null,
       insider_role: translateRole(r.position) || null,
@@ -482,4 +591,8 @@ async function scrapeSE() {
   return { saved: saveRows.length };
 }
 
-scrapeSE().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+module.exports = { getTicker, normalizeSECompany, CANONICAL_SE_COMPANY };
+
+if (require.main === module) {
+  scrapeSE().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+}

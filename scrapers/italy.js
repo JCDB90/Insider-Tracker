@@ -62,6 +62,8 @@ const TICKER_MAP = {
   'mediobanca':         'MB',
   'generali':           'G',
   'assicurazioni generali': 'G',
+  'banca generali':     'BGN', // distinct listed company — was wrongly matching the
+                                // broader 'generali' key above and merging into Assicurazioni Generali
   'ferrari':            'RACE',
   'leonardo':           'LDO',
   'prysmian':           'PRY',
@@ -129,10 +131,14 @@ const TICKER_MAP = {
 };
 
 
+// Longest fragment first: a more specific key must win over a shorter one it happens to
+// contain (e.g. "banca generali" over "generali"), regardless of insertion order.
+const TICKER_MAP_BY_SPECIFICITY = Object.entries(TICKER_MAP).sort((a, b) => b[0].length - a[0].length);
+
 function getTicker(company) {
   if (!company) return null;
   const lower = company.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  for (const [frag, ticker] of Object.entries(TICKER_MAP)) {
+  for (const [frag, ticker] of TICKER_MAP_BY_SPECIFICITY) {
     const normFrag = frag.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (lower.includes(normFrag)) return ticker;
   }
