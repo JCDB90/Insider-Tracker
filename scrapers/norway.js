@@ -402,6 +402,10 @@ function parseBody(raw) {
     // Strip plain date: "April 20, 2026 " or "April 20 2026: "
     prose = prose.replace(/^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}[:\s–-]{0,5}/i, '');
     prose = prose.replace(/^\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}[:\s]*/i, '');
+    // Strip "On DD Month YYYY, " prefix (e.g. "On 13 July 2026, Jan Erik Hoff, bought...") —
+    // "On" is too short for the location-header stripper below to match, so it was
+    // previously left in place, breaking every downstream name pattern anchored to ^.
+    prose = prose.replace(/^On\s+\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4},?\s*/i, '');
     // Strip location header: "Frøya, Norway, 20 April 2026: " or "Singapore, 14 April 2026 "
     prose = prose.replace(/^[A-Z][a-zæøåÆØÅ]{2,20}(?:,\s*[A-Z][a-z]{2,20})?,?\s*\d{1,2}\s+[A-Z][a-z]+\s+\d{4}[:\s–-]*/i, '');
     // Strip "Company – " prefix before the person's name (e.g., "Endúr ASA – Jeppe Raaholt...")
@@ -420,11 +424,23 @@ function parseBody(raw) {
     const personRoleM = prose.match(
       new RegExp(`(${WORD}(?:\\s+${WORD}){0,4}),\\s*(${roleKW})`)
     );
+    // ①b Broader fallback: "Name, <any short role phrase> of/in/at Company" — the roleKW
+    // gate above requires the role clause to START with a recognized keyword, so it misses
+    // modifier-prefixed roles like "acting CFO", "employee-elected board member", or
+    // "deputy employee representative" (none of "acting"/"employee-elected"/"deputy" are
+    // in roleKW). This only requires the surrounding shape — comma, then a short phrase,
+    // then a preposition before the company name — not an exact keyword.
+    const personRoleBroadM = !personRoleM && prose.match(
+      new RegExp(`(${WORD}(?:\\s+${WORD}){0,4}),\\s*([a-zA-ZÆØÅæøå][a-zA-ZÆØÅæøå\\-\\s]{2,60}?)\\s+(?:of|in|at|i|av)\\s+`, 'i')
+    );
     if (personRoleM) {
       insiderName = personRoleM[1].trim();
       const afterName = prose.slice(prose.indexOf(personRoleM[0]) + personRoleM[1].length + 1).trim();
       const rolePart = afterName.match(/^([^,]{3,60}?)\s+(?:of|in|i|av)\s+/i);
       role = rolePart ? rolePart[1].trim() : personRoleM[2].trim();
+    } else if (personRoleBroadM) {
+      insiderName = personRoleBroadM[1].trim();
+      role = personRoleBroadM[2].trim();
     } else {
       // ② "close associate of [Mr./Mrs./Ms.] Name" OR "closely associated with Name"
       //    the entity filing on their behalf may appear at the start of the prose.
