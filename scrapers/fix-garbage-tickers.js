@@ -20,6 +20,7 @@
 
 const https   = require('https');
 const { createClient } = require('@supabase/supabase-js');
+const { SPECIFIC_OVERRIDES } = require('./lib/tickerMap');
 
 const DRY_RUN = !process.argv.includes('--write');
 const supabase = createClient(
@@ -127,6 +128,17 @@ async function main() {
 
   for (const [key, ids] of groups) {
     const [ticker, cc] = key.split('|');
+
+    // A ticker with a known SPECIFIC_OVERRIDES entry (e.g. MBANK|PL -> MBK.WA)
+    // resolves correctly via track-performance.js's real lookup path even
+    // though it looks like a garbage fragment and fails the naive
+    // ticker+suffix guess below. Never clear those.
+    const override = SPECIFIC_OVERRIDES[`${ticker}|${cc}`];
+    if (override) {
+      console.log(`  ✓ ${ticker}|${cc} (${ids.length} rows) → keeping (has SPECIFIC_OVERRIDES: ${override})`);
+      continue;
+    }
+
     const suffix = COUNTRY_SUFFIX[cc] || '';
     const symbol = ticker + suffix;
 
