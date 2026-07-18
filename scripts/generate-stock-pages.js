@@ -385,7 +385,7 @@ function generateHTML(co, txns) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${esc(co.company)} Insider Transactions ${YEAR} | InsidersAlpha</title>
+  <title>${esc(co.company)} Insider Transactions ${YEAR} - Directors Dealings | InsidersAlpha</title>
   <meta name="description" content="${esc(metaDesc)}">
   <meta property="og:title" content="${esc(co.company)} (${esc(co.ticker)}) Insider Transactions | InsidersAlpha">
   <meta property="og:description" content="${esc(metaDesc)}">
