@@ -93,6 +93,13 @@ echo ""
 echo "── Lifecycle Emails ───────────────────────────────────"
 "$NODE_BIN" scrapers/emails/welcome-flow.js  || true  # non-fatal
 
+echo ""
+echo "── Social (optional) ──────────────────────────────────"
+# Also runs on its own schedule at 17:30 UTC Mon-Fri (see scrapers/social/generate-tweet.js
+# header). Running it here too is harmless — it just regenerates the draft from
+# whatever data exists at cron time.
+"$NODE_BIN" scrapers/social/generate-tweet.js || true  # non-fatal
+
 # ── Post-run ─────────────────────────────────────────────────────────────────
 
 echo ""
