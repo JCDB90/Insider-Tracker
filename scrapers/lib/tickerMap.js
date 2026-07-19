@@ -48,6 +48,7 @@ const SPECIFIC_OVERRIDES = {
   // LU-registered but traded on Euronext Amsterdam or Brussels
   'APAM|LU':   'APAM.AS',   // Aperam S.A. (Amsterdam)
   'BREB|LU':   'BREB.BR',   // Brederode S.A. (Brussels)
+  'ALWN|LU':   'ALWN.AT',   // Allwyn AG (Euronext Athens)
   // GB-filed companies primarily listed on other exchanges
   'FLUT|GB':   'FLUT',      // Flutter Entertainment (NYSE, migrated from LSE)
   // PL tickers where GPW symbol differs from Yahoo Finance symbol

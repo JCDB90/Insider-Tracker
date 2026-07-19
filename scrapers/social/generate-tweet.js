@@ -74,20 +74,18 @@ const CURRENCY_SYMBOLS = {
   DKK: 'DKK ', PLN: 'PLN ', KRW: '₩', CHF: 'CHF ',
 };
 
-const MAJOR_TICKERS = new Set([
-  'ASML','PHIA','HEIA','UNA','REN',
-  'SAP','SIE','ALV','BMW','MBG','RHM','BAYN','ADS','VOW',
-  'MC','OR','TTE','BNP','AIR','SAN',
-  'SHEL','AZN','HSBA','BP','GSK','RR','ULVR',
-  'VOLV','ASSA','LATO','INVE','ERIC','HM',
-  'NESN','ROG','NOVN','ABB','ZURN',
-  'EQNR','DNB','MOWI','YAR',
-  'NOVO','MAERSK','DSV',
-  'CDPROJEKT','LPP','MBANK',
-  'IBE','REP','BBVA','ITX',
-]);
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Strips a Yahoo-style exchange suffix if one is ever present on a ticker
+// (insider_transactions.ticker is normally stored bare, e.g. "RHM" not
+// "RHM.DE" — this is a defensive normalize, not the common case).
+const EXCHANGE_SUFFIX_RE = /\.(ST|OL|CO|HE|AS|BR|PA|DE|L|MI|MC|WA|KS|KQ|SW|LU|AT|F)$/i;
+
+function getCashtag(ticker) {
+  if (!ticker) return '';
+  const clean = ticker.replace(EXCHANGE_SUFFIX_RE, '').toUpperCase();
+  return clean ? `$${clean}` : '';
+}
 
 function currencyOf(row) {
   return row.currency || CURRENCY_BY_COUNTRY[row.country_code] || 'EUR';
@@ -240,8 +238,8 @@ function buildFormatB(row, level) {
   const role = roleFor(simplifyRole(row.insider_role), level);
   const company = companyFor(row, level);
   const currency = currencyOf(row);
-  const ticker = (row.ticker || '').toUpperCase();
-  const cashtag = level >= 2 || !MAJOR_TICKERS.has(ticker) ? '' : ` $${ticker}`;
+  const cashtagText = getCashtag(row.ticker);
+  const cashtag = level >= 2 || !cashtagText ? '' : ` ${cashtagText}`;
   const slug = COUNTRY_SLUGS[row.country_code];
   const link = slug ? `insidersalpha.com/market/${slug}-insider-transactions` : 'insidersalpha.com';
   return `${flag} ${role} buy — ${countryName}\n\n${company}${cashtag}\n${row.insider_name} (${role}) bought ${formatValue(row.total_value, currency)}\n@ ${formatPrice(row.price_per_share, currency)}/share\n\n${link}`;
@@ -388,5 +386,5 @@ if (require.main === module) {
 module.exports = {
   pickCluster, pickCsuite, pickPriceDip, pickCountryRoundup, pickHighestValue,
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
-  eurValue, simplifyRole, formatValue, formatPrice,
+  eurValue, simplifyRole, formatValue, formatPrice, getCashtag,
 };
