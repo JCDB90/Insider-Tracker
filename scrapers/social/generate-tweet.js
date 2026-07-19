@@ -3,14 +3,14 @@
  * Daily Tweet Draft Generator
  *
  * Picks the single most interesting insider buy (or a cluster/roundup) from
- * filings discovered in the last 24 hours and drafts a ready-to-copy tweet.
- * Does NOT post — this is a draft generator only, emailed + written to disk
- * for manual review/posting.
+ * TODAY's filings only (transaction_date = today, no fallback to prior days)
+ * and drafts a ready-to-copy tweet. Does NOT post — this is a draft
+ * generator only, emailed + written to disk for manual review/posting.
  *
- * Freshness is judged by created_at (scrape time), not transaction_date (the
- * actual trade date) — MAR Article 19 allows T+3 disclosure, so filtering on
- * "transaction_date = today" finds almost nothing on almost every run. See
- * fetchRecentBuys() below.
+ * MAR Article 19 allows T+3 disclosure, so most days there simply is no
+ * same-day filing — that's expected, not a bug. When nothing qualifies, an
+ * explicit "no significant transactions today, check back tomorrow" email
+ * goes out instead of drafting from a stale prior-day filing.
  *
  * Runs ONLY on its own dedicated cron — do not also call this from
  * run-daily.sh's 06:00/14:00 UTC runs, which would draft off stale data and
@@ -144,34 +144,24 @@ function shortCompanyName(name) {
 
 // ── DB query ──────────────────────────────────────────────────────────────────
 
-// Freshness is judged by created_at (when the filing was scraped/discovered),
-// not transaction_date (the actual trade date). MAR Article 19 allows T+3
-// disclosure, so transaction_date only matches its scrape day ~0.6% of the
-// time (measured across 500 recent rows) — filtering on "transaction_date =
-// today" would leave this near-empty on almost every run. Filtering on
-// "discovered in the last 24h" reliably finds newly-surfaced filings
-// regardless of how old the underlying trade is.
-async function fetchRecentBuys() {
-  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+// Strictly today's transaction_date, no fallback to prior days. Note: MAR
+// Article 19 allows T+3 disclosure, so most days this returns few or zero
+// rows (measured: only ~0.6% of rows have transaction_date matching their
+// scrape day). That's accepted here — an explicit "check back tomorrow"
+// empty state is preferred over drafting a tweet from a stale filing.
+async function fetchTodaysBuys(todayStr) {
   const { data, error } = await sb
     .from('insider_transactions')
     .select('id,company,ticker,country_code,transaction_date,insider_name,insider_role,price_per_share,total_value,currency,is_price_dip,price_drawdown')
-    .gte('created_at', since)
+    .eq('transaction_date', todayStr)
     .eq('transaction_type', 'BUY')
     .eq('is_unusual_price', false)
     .gt('price_per_share', 0)
     .not('insider_name', 'is', null)
-    .neq('country_code', 'CH');
+    .neq('country_code', 'CH')
+    .order('total_value', { ascending: false });
   if (error) throw new Error(`Supabase query failed: ${error.message}`);
   return data || [];
-}
-
-// "today" is only accurate in the tweet copy when every picked row's actual
-// transaction_date is today — otherwise say "recently" rather than assert a
-// same-day claim the underlying filing doesn't support.
-function dayPhraseFor(rows, todayStr) {
-  const list = Array.isArray(rows) ? rows : [rows];
-  return list.every(r => r.transaction_date === todayStr) ? 'today' : 'recently';
 }
 
 // ── Tier selection ───────────────────────────────────────────────────────────
@@ -305,19 +295,11 @@ function fitToLimit(builder, maxLevel = 4) {
 
 // ── Email ─────────────────────────────────────────────────────────────────────
 
-async function sendEmail(subject, tweetText, charCount, dateStr) {
+async function sendResendEmail(subject, html) {
   if (!RESEND_API_KEY) {
     console.warn('  ⚠  RESEND_API_KEY not set — skipping email');
     return;
   }
-  const html = `
-<!DOCTYPE html><html><body style="font-family:'Inter',Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111318">
-  <h2 style="font-size:17px;font-weight:700;margin:0 0 4px">📊 InsidersAlpha Daily Tweet</h2>
-  <p style="color:#6B7280;font-size:13px;margin:0 0 20px">${dateStr} · ${charCount}/${MAX_CHARS} characters · ready to post at 18:00 UTC</p>
-  <pre style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.6;background:#f8f8f8;border:1px solid #f0f0f0;border-radius:8px;padding:16px;color:#111318">${escapeHtml(tweetText)}</pre>
-  <p style="font-size:11px;color:#9CA3AF;margin-top:20px">Auto-generated · InsidersAlpha</p>
-</body></html>`.trim();
-
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -331,6 +313,25 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function buildTweetEmailHtml(tweetText, charCount, dateStr) {
+  return `
+<!DOCTYPE html><html><body style="font-family:'Inter',Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111318">
+  <h2 style="font-size:17px;font-weight:700;margin:0 0 4px">📊 InsidersAlpha Daily Tweet</h2>
+  <p style="color:#6B7280;font-size:13px;margin:0 0 20px">${dateStr} · ${charCount}/${MAX_CHARS} characters · ready to post at 18:00 UTC</p>
+  <pre style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.6;background:#f8f8f8;border:1px solid #f0f0f0;border-radius:8px;padding:16px;color:#111318">${escapeHtml(tweetText)}</pre>
+  <p style="font-size:11px;color:#9CA3AF;margin-top:20px">Auto-generated · InsidersAlpha</p>
+</body></html>`.trim();
+}
+
+function buildEmptyEmailHtml(dateStr) {
+  return `
+<!DOCTYPE html><html><body style="font-family:'Inter',Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111318">
+  <h2 style="font-size:17px;font-weight:700;margin:0 0 4px">📊 InsidersAlpha Daily Tweet</h2>
+  <p style="color:#6B7280;font-size:13px;margin:0 0 20px">${dateStr}</p>
+  <p style="font-size:14px;color:#374151">No insider transactions above €25,000 found for today. Check back tomorrow.</p>
+</body></html>`.trim();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -339,60 +340,64 @@ async function main() {
   console.log(`\n── Daily Tweet Generator ─────────────────────────────`);
   console.log(`  Date: ${today}`);
 
-  const rows = await fetchRecentBuys();
+  const rows = await fetchTodaysBuys(today);
   const candidates = rows.filter(r => eurValue(r) >= MIN_VALUE_EUR);
-  console.log(`  Rows fetched (discovered in last 24h): ${rows.length}, qualifying (>=€${MIN_VALUE_EUR.toLocaleString('en')}): ${candidates.length}`);
+  console.log(`  Rows fetched (transaction_date = today): ${rows.length}, qualifying (>=€${MIN_VALUE_EUR.toLocaleString('en')}): ${candidates.length}`);
 
   const dateStr = today;
-  let tweet;
 
   if (!candidates.length) {
-    console.log('  ⚠️  No qualifying insider buys — nothing to post today');
-    tweet = null;
+    console.log('No significant insider transactions today.');
+
+    fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
+    fs.writeFileSync(OUT_FILE, 'No significant insider transactions today.', 'utf8');
+
+    await sendResendEmail('📊 InsidersAlpha - No significant transactions today', buildEmptyEmailHtml(dateStr));
+    return;
+  }
+
+  let tweet;
+  const cluster = pickCluster(candidates);
+  if (cluster) {
+    console.log(`  → Format A (cluster): ${cluster.length} insiders at ${cluster[0].company}`);
+    tweet = fitToLimit(level => buildFormatA(cluster, cluster[0].country_code, 'today', level));
   } else {
-    const cluster = pickCluster(candidates);
-    if (cluster) {
-      console.log(`  → Format A (cluster): ${cluster.length} insiders at ${cluster[0].company}`);
-      tweet = fitToLimit(level => buildFormatA(cluster, cluster[0].country_code, dayPhraseFor(cluster, today), level));
+    const csuite = pickCsuite(candidates);
+    if (csuite) {
+      console.log(`  → Format B (C-suite): ${csuite.insider_name} @ ${csuite.company}`);
+      tweet = fitToLimit(level => buildFormatB(csuite, level));
     } else {
-      const csuite = pickCsuite(candidates);
-      if (csuite) {
-        console.log(`  → Format B (C-suite): ${csuite.insider_name} @ ${csuite.company}`);
-        tweet = fitToLimit(level => buildFormatB(csuite, level));
+      const dip = pickPriceDip(candidates);
+      if (dip) {
+        console.log(`  → Format C (price dip): ${dip.company}`);
+        tweet = fitToLimit(level => buildFormatC(dip, level));
       } else {
-        const dip = pickPriceDip(candidates);
-        if (dip) {
-          console.log(`  → Format C (price dip): ${dip.company}`);
-          tweet = fitToLimit(level => buildFormatC(dip, level));
+        const roundup = pickCountryRoundup(candidates);
+        if (roundup) {
+          console.log(`  → Format D (country roundup): ${roundup.map(r => r.country_code).join(', ')}`);
+          tweet = fitToLimit(level => buildFormatD(roundup, 'today', level));
         } else {
-          const roundup = pickCountryRoundup(candidates);
-          if (roundup) {
-            console.log(`  → Format D (country roundup): ${roundup.map(r => r.country_code).join(', ')}`);
-            tweet = fitToLimit(level => buildFormatD(roundup, dayPhraseFor(roundup, today), level));
-          } else {
-            const top = pickHighestValue(candidates);
-            console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
-            tweet = fitToLimit(level => buildFormatB(top, level));
-          }
+          const top = pickHighestValue(candidates);
+          console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
+          tweet = fitToLimit(level => buildFormatB(top, level));
         }
       }
     }
   }
 
-  const finalText = tweet || 'No significant insider transactions today.';
-  const charCount = finalText.length;
+  const charCount = tweet.length;
 
   fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
-  fs.writeFileSync(OUT_FILE, finalText, 'utf8');
+  fs.writeFileSync(OUT_FILE, tweet, 'utf8');
 
   console.log(`\n=== InsidersAlpha Daily Tweet (17:30 UTC) ===`);
   console.log(`Characters: ${charCount}/${MAX_CHARS}`);
   console.log(``);
-  console.log(finalText);
+  console.log(tweet);
   console.log(``);
   console.log(`================================\n`);
 
-  await sendEmail(`📊 InsidersAlpha Daily Tweet - ${dateStr}`, finalText, charCount, dateStr);
+  await sendResendEmail(`📊 InsidersAlpha Daily Tweet - ${dateStr}`, buildTweetEmailHtml(tweet, charCount, dateStr));
 }
 
 if (require.main === module) {
@@ -402,5 +407,5 @@ if (require.main === module) {
 module.exports = {
   pickCluster, pickCsuite, pickPriceDip, pickCountryRoundup, pickHighestValue,
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
-  eurValue, simplifyRole, formatValue, formatPrice, getCashtag, dayPhraseFor,
+  eurValue, simplifyRole, formatValue, formatPrice, getCashtag,
 };
