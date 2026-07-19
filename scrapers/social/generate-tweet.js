@@ -362,6 +362,19 @@ function buildEmptyEmailHtml(dateStr) {
 </body></html>`.trim();
 }
 
+// When the picked transaction (Format B/C only — single company/role) is
+// dated before today, the subject says so up front, so opening the email
+// doesn't imply a same-day trade the filing doesn't support. Formats A/D
+// pick multiple rows with no single company to name and keep the generic
+// subject; so does the "dated today" case, where there's nothing to clarify.
+function buildEmailSubject(subjectRow, dateStr, todayStr) {
+  if (subjectRow && subjectRow.transaction_date && subjectRow.transaction_date !== todayStr) {
+    const role = simplifyRole(subjectRow.insider_role);
+    return `📊 Newly disclosed: ${subjectRow.company} ${role} buy · ${shortDate(subjectRow.transaction_date)}`;
+  }
+  return `📊 InsidersAlpha Daily Tweet - ${dateStr}`;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -387,6 +400,12 @@ async function main() {
   }
 
   let tweet;
+  // Only set for single-transaction formats (B, C) — used to build a subject
+  // line naming the actual company/role/date when that date isn't today.
+  // Formats A/D pick multiple rows with no single company to name in a
+  // subject, so they keep the generic subject.
+  let subjectRow = null;
+
   const cluster = pickCluster(candidates);
   if (cluster) {
     console.log(`  → Format A (cluster): ${cluster.length} insiders at ${cluster[0].company}`);
@@ -396,11 +415,13 @@ async function main() {
     if (csuite) {
       console.log(`  → Format B (C-suite): ${csuite.insider_name} @ ${csuite.company}`);
       tweet = fitToLimit(level => buildFormatB(csuite, level, today));
+      subjectRow = csuite;
     } else {
       const dip = pickPriceDip(candidates);
       if (dip) {
         console.log(`  → Format C (price dip): ${dip.company}`);
         tweet = fitToLimit(level => buildFormatC(dip, level, today));
+        subjectRow = dip;
       } else {
         const roundup = pickCountryRoundup(candidates);
         if (roundup) {
@@ -410,6 +431,7 @@ async function main() {
           const top = pickHighestValue(candidates);
           console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
           tweet = fitToLimit(level => buildFormatB(top, level, today));
+          subjectRow = top;
         }
       }
     }
@@ -427,7 +449,9 @@ async function main() {
   console.log(``);
   console.log(`================================\n`);
 
-  await sendResendEmail(`📊 InsidersAlpha Daily Tweet - ${dateStr}`, buildTweetEmailHtml(tweet, charCount, dateStr));
+  const subject = buildEmailSubject(subjectRow, dateStr, today);
+  console.log(`Subject: ${subject}\n`);
+  await sendResendEmail(subject, buildTweetEmailHtml(tweet, charCount, dateStr));
 }
 
 if (require.main === module) {
@@ -438,5 +462,5 @@ module.exports = {
   pickCluster, pickCsuite, pickPriceDip, pickCountryRoundup, pickHighestValue,
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
   eurValue, simplifyRole, formatValue, formatPrice, getCashtag, dayPhraseFor,
-  shortDate, dateSuffix,
+  shortDate, dateSuffix, buildEmailSubject,
 };
