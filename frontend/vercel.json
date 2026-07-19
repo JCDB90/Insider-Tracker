@@ -117,6 +117,18 @@
       "destination": "/signals/high-conviction-insider-buying.html"
     },
     {
+      "source": "/signals/ceo-buying",
+      "destination": "/signals/ceo-buying.html"
+    },
+    {
+      "source": "/signals/price-dip-buying",
+      "destination": "/signals/price-dip-buying.html"
+    },
+    {
+      "source": "/signals/pre-blackout",
+      "destination": "/signals/pre-blackout.html"
+    },
+    {
       "source": "/company/:slug",
       "destination": "/company/:slug.html"
     },
@@ -143,6 +155,18 @@
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/signals/insider-buying-after-price-decline",
+      "destination": "/signals/price-dip-buying",
+      "permanent": true
+    },
+    {
+      "source": "/signals/pre-earnings-insider-buying",
+      "destination": "/signals/pre-blackout",
+      "permanent": true
     }
   ]
 }
