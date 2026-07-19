@@ -280,6 +280,17 @@ function generateHTML(co, txns) {
     ? `Track insider buying at ${co.company} (${co.ticker}). ${co.total} transactions tracked since ${co.earliest || '—'}. Latest: ${(latestBuy.insider_name || 'An insider').slice(0,40)} ${latestBuy.transaction_type === 'SELL' || latestBuy.transaction_type === 'SALE' ? 'sold' : 'bought'} ${formatValue(latestBuy.total_value, cc)} on ${latestBuy.transaction_date}. Official MAR Art.19 data.`
     : `Track insider buying and selling at ${co.company} (${co.ticker}). ${co.total} transactions tracked since ${co.earliest || '—'}. Real-time MAR Art.19 disclosures from ${ctry.regulator}.`;
 
+  // GEO-optimized opening paragraph: states the actual latest transaction as
+  // a fact (who, what, when, how much) rather than a generic "track insider
+  // activity" line — easier for an LLM or search snippet to extract and
+  // quote directly.
+  const latestMonthYear = latestBuy
+    ? new Date(latestBuy.transaction_date + 'T12:00:00Z').toLocaleDateString('en', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    : null;
+  const introParagraph = latestBuy
+    ? `The most recent insider transactions at ${esc(co.company)} include purchases filed with ${ctry.regulator} under MAR Article 19. In ${latestMonthYear}, ${esc(latestBuy.insider_name || 'an insider')}${latestBuy.insider_role ? ` (${esc(latestBuy.insider_role)})` : ''} bought ${latestBuy.shares ? Number(latestBuy.shares).toLocaleString('en') + ' shares' : 'shares'} worth ${formatValue(latestBuy.total_value, cc)}.`
+    : `Insider transactions at ${esc(co.company)} are filed with ${ctry.regulator} under MAR Article 19. InsidersAlpha tracks ${co.total} transaction${co.total!==1?'s':''} on record from official regulatory disclosures.`;
+
   // Recent transactions rows
   const recentRows = recent5.map(t => {
     const tp    = (t.transaction_type || '').toUpperCase();
@@ -503,7 +514,7 @@ function generateHTML(co, txns) {
     <span class="hbadge">🔄 Updated daily</span>
     ${(co.last || '') >= CUTOFF_30D ? '<span class="hbadge" style="background:#DCFCE7;border-color:#BBF7D0;color:#15803D">🟢 <strong>Recently active</strong></span>' : ''}
   </div>
-  <p class="hero-sub">Track insider buying and selling at ${esc(co.company)}. ${co.total} transactions on record from official ${ctry.regulator} filings.</p>
+  <p class="hero-sub">${introParagraph}</p>
   <p class="updated-note">Last updated: ${TODAY} · Data sourced from MAR Article 19 regulatory disclosures</p>
 
   <div class="stats-grid">
