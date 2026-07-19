@@ -3,14 +3,19 @@
  * Daily Tweet Draft Generator
  *
  * Picks the single most interesting insider buy (or a cluster/roundup) from
- * TODAY's filings only (transaction_date = today, no fallback to prior days)
- * and drafts a ready-to-copy tweet. Does NOT post — this is a draft
- * generator only, emailed + written to disk for manual review/posting.
+ * filings discovered in the last 24 hours and drafts a ready-to-copy tweet.
+ * Does NOT post — this is a draft generator only, emailed + written to disk
+ * for manual review/posting.
  *
- * MAR Article 19 allows T+3 disclosure, so most days there simply is no
- * same-day filing — that's expected, not a bug. When nothing qualifies, an
- * explicit "no significant transactions today, check back tomorrow" email
- * goes out instead of drafting from a stale prior-day filing.
+ * Freshness is judged by created_at (when WE scraped/discovered the filing),
+ * not transaction_date (the actual trade date). MAR Article 19 allows T+3
+ * disclosure, so transaction_date matches its scrape day on <1% of rows —
+ * filtering on "transaction_date = today" leaves this empty on ~99% of runs.
+ * The scraper runs at 06:00 and 14:00 UTC, so by the 17:30 UTC cron, every
+ * filing discovered so far today is already in the DB; created_at >= 24h ago
+ * reliably captures that regardless of how old the underlying trade is. Tweet
+ * copy says "today" only when the picked row's transaction_date is actually
+ * today, else "recently" — see dayPhraseFor().
  *
  * Runs ONLY on its own dedicated cron — do not also call this from
  * run-daily.sh's 06:00/14:00 UTC runs, which would draft off stale data and
@@ -144,16 +149,19 @@ function shortCompanyName(name) {
 
 // ── DB query ──────────────────────────────────────────────────────────────────
 
-// Strictly today's transaction_date, no fallback to prior days. Note: MAR
-// Article 19 allows T+3 disclosure, so most days this returns few or zero
-// rows (measured: only ~0.6% of rows have transaction_date matching their
-// scrape day). That's accepted here — an explicit "check back tomorrow"
-// empty state is preferred over drafting a tweet from a stale filing.
-async function fetchTodaysBuys(todayStr) {
+// Freshness = discovered (created_at) in the last 24h, not transaction_date.
+// The scraper runs at 06:00 and 14:00 UTC, so by the 17:30 UTC cron every
+// filing found so far today is already in the DB — this reliably surfaces
+// them regardless of how old the underlying trade is. Note: total_value is
+// filtered in JS via eurValue() (EUR-equivalent conversion), not here, since
+// a raw "total_value >= 25000" DB filter would apply a wildly different real
+// threshold across currencies (25000 SEK is not 25000 EUR).
+async function fetchRecentBuys() {
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { data, error } = await sb
     .from('insider_transactions')
     .select('id,company,ticker,country_code,transaction_date,insider_name,insider_role,price_per_share,total_value,currency,is_price_dip,price_drawdown')
-    .eq('transaction_date', todayStr)
+    .gte('created_at', since)
     .eq('transaction_type', 'BUY')
     .eq('is_unusual_price', false)
     .gt('price_per_share', 0)
@@ -162,6 +170,14 @@ async function fetchTodaysBuys(todayStr) {
     .order('total_value', { ascending: false });
   if (error) throw new Error(`Supabase query failed: ${error.message}`);
   return data || [];
+}
+
+// "today" is only accurate in the tweet copy when the picked row's actual
+// transaction_date is today — otherwise say "recently" rather than assert a
+// same-day claim the underlying filing doesn't support.
+function dayPhraseFor(rows, todayStr) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  return list.every(r => r.transaction_date === todayStr) ? 'today' : 'recently';
 }
 
 // ── Tier selection ───────────────────────────────────────────────────────────
@@ -340,9 +356,9 @@ async function main() {
   console.log(`\n── Daily Tweet Generator ─────────────────────────────`);
   console.log(`  Date: ${today}`);
 
-  const rows = await fetchTodaysBuys(today);
+  const rows = await fetchRecentBuys();
   const candidates = rows.filter(r => eurValue(r) >= MIN_VALUE_EUR);
-  console.log(`  Rows fetched (transaction_date = today): ${rows.length}, qualifying (>=€${MIN_VALUE_EUR.toLocaleString('en')}): ${candidates.length}`);
+  console.log(`  Rows fetched (discovered in last 24h): ${rows.length}, qualifying (>=€${MIN_VALUE_EUR.toLocaleString('en')}): ${candidates.length}`);
 
   const dateStr = today;
 
@@ -360,7 +376,7 @@ async function main() {
   const cluster = pickCluster(candidates);
   if (cluster) {
     console.log(`  → Format A (cluster): ${cluster.length} insiders at ${cluster[0].company}`);
-    tweet = fitToLimit(level => buildFormatA(cluster, cluster[0].country_code, 'today', level));
+    tweet = fitToLimit(level => buildFormatA(cluster, cluster[0].country_code, dayPhraseFor(cluster, today), level));
   } else {
     const csuite = pickCsuite(candidates);
     if (csuite) {
@@ -375,7 +391,7 @@ async function main() {
         const roundup = pickCountryRoundup(candidates);
         if (roundup) {
           console.log(`  → Format D (country roundup): ${roundup.map(r => r.country_code).join(', ')}`);
-          tweet = fitToLimit(level => buildFormatD(roundup, 'today', level));
+          tweet = fitToLimit(level => buildFormatD(roundup, dayPhraseFor(roundup, today), level));
         } else {
           const top = pickHighestValue(candidates);
           console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
@@ -407,5 +423,5 @@ if (require.main === module) {
 module.exports = {
   pickCluster, pickCsuite, pickPriceDip, pickCountryRoundup, pickHighestValue,
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
-  eurValue, simplifyRole, formatValue, formatPrice, getCashtag,
+  eurValue, simplifyRole, formatValue, formatPrice, getCashtag, dayPhraseFor,
 };
