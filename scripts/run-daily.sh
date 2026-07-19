@@ -93,12 +93,11 @@ echo ""
 echo "── Lifecycle Emails ───────────────────────────────────"
 "$NODE_BIN" scrapers/emails/welcome-flow.js  || true  # non-fatal
 
-echo ""
-echo "── Social (optional) ──────────────────────────────────"
-# Also runs on its own schedule at 17:30 UTC Mon-Fri (see scrapers/social/generate-tweet.js
-# header). Running it here too is harmless — it just regenerates the draft from
-# whatever data exists at cron time.
-"$NODE_BIN" scrapers/social/generate-tweet.js || true  # non-fatal
+# Tweet draft generation is NOT run here. It has its own dedicated 17:30 UTC
+# Mon-Fri cron entry on Hetzner (scrapers/social/generate-tweet.js) so it
+# always runs after the day's filings are in, not whenever run-daily.sh
+# happens to fire (06:00 / 14:00 UTC — too early, would draft off yesterday's
+# data).
 
 # ── Post-run ─────────────────────────────────────────────────────────────────
 
