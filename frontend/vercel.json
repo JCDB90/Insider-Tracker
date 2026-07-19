@@ -137,6 +137,10 @@
       "destination": "/stocks/:slug.html"
     },
     {
+      "source": "/insiders/:slug",
+      "destination": "/insiders/:slug.html"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
