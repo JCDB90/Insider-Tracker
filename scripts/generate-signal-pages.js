@@ -16,8 +16,21 @@ const sb = createClient(
 );
 
 const OUT_DIR   = path.resolve(__dirname, '../frontend/public/signals');
+const STOCKS_DIR = path.resolve(__dirname, '../frontend/public/stocks');
 const BASE_URL  = 'https://www.insidersalpha.com';
 const YEAR      = new Date().getFullYear();
+
+// Real, already-generated stock pages — signal examples must only ever link
+// here. generate-stock-pages.js only publishes a page for companies that
+// clear its PRIORITY list or a 3+ transaction / top-N-by-volume bar; pulling
+// "recent examples" straight from is_cluster_buy/is_price_dip rows without
+// checking this produced dead /stocks/ links for companies that triggered a
+// signal but never had a page (e.g. Munters Group AB, AAK AB).
+const EXISTING_STOCK_SLUGS = new Set(
+  fs.readdirSync(STOCKS_DIR)
+    .filter(f => f.endsWith('-insider-transactions.html'))
+    .map(f => f.replace(/-insider-transactions\.html$/, ''))
+);
 
 const COUNTRY_FLAGS = {
   DE:'🇩🇪',FR:'🇫🇷',GB:'🇬🇧',SE:'🇸🇪',NO:'🇳🇴',DK:'🇩🇰',FI:'🇫🇮',NL:'🇳🇱',
@@ -73,14 +86,16 @@ async function fetchExamples(applyFilter, limit = 8) {
   q = applyFilter(q);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  return (data || []).slice(0, limit);
+  // Only keep rows for companies that actually have a stock page to link to.
+  const withPage = (data || []).filter(t => resolveStockSlug(t.company, t.country_code) !== null);
+  return withPage.slice(0, limit);
 }
 
 function exampleRows(rows, extra) {
   return rows.map(t => {
     const flag = COUNTRY_FLAGS[t.country_code] || '';
     const role = simplifyRole(t.insider_role);
-    const slug = makeCompanySlug(t.company);
+    const slug = resolveStockSlug(t.company, t.country_code); // guaranteed non-null — fetchExamples already filtered
     return `<tr>
           <td>${esc(fmtDate(t.transaction_date))}</td>
           <td>${flag} <a href="/stocks/${slug}-insider-transactions">${esc(t.company)}</a></td>
@@ -108,6 +123,19 @@ function makeCompanySlug(company) {
   s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   if (s.length > 60) s = s.slice(0, 60).replace(/-+$/, '');
   return s;
+}
+
+// Returns the real slug of an existing stock page for this company, or null
+// if none exists. Tries the bare slug first, then the country-disambiguated
+// form generate-stock-pages.js falls back to when two companies collide on
+// the same bare slug — checking only the bare form would miss real pages
+// that got disambiguated.
+function resolveStockSlug(company, countryCode) {
+  const bare = makeCompanySlug(company);
+  if (EXISTING_STOCK_SLUGS.has(bare)) return bare;
+  const disambiguated = `${bare}-${(countryCode || '').toLowerCase()}`;
+  if (EXISTING_STOCK_SLUGS.has(disambiguated)) return disambiguated;
+  return null;
 }
 
 function pageShell({ slug, badge, emoji, title, metaTitle, metaDesc, lead, howItWorksTitle, howItWorks, methodology, faq, examplesTitle, examplesHeaders, examplesRows, otherSignals }) {
@@ -385,9 +413,12 @@ async function main() {
     const fp = path.join(OUT_DIR, 'cluster-buying.html');
     let html = fs.readFileSync(fp, 'utf8');
     const marker = '<h2>Frequently asked questions</h2>';
-    if (html.includes('<h2>Recent cluster buys</h2>')) {
-      html = html.replace(/\n  <div class="divider"><\/div>\n  <h2>Recent cluster buys<\/h2>[\s\S]*?<\/p>\n(\n  <div class="divider"><\/div>\n  <h2>Frequently asked questions<\/h2>)/, `$1`);
-    }
+    // Strip every prior copy of the examples block (a non-anchored /g pass,
+    // not "must be immediately followed by the FAQ heading" — that
+    // assumption broke as soon as two copies existed back to back, since
+    // the first copy is then followed by another copy, not by FAQ, so nothing
+    // matched and re-runs kept appending instead of replacing).
+    html = html.replace(/\n  <div class="divider"><\/div>\n  <h2>Recent cluster buys<\/h2>[\s\S]*?<\/p>\n/g, '\n');
     html = html.replace(marker, `${examplesBlock.trim()}\n\n  <div class="divider"></div>\n\n  ${marker}`);
     fs.writeFileSync(fp, html, 'utf8');
     console.log(`  ✓ cluster-buying.html refreshed with ${rows.length} live examples`);
