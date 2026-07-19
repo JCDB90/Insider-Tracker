@@ -36,6 +36,11 @@ const PRIORITY = [
   { nameMatch: 'siemens',              cc: 'DE' },
   { nameMatch: 'adyen',                cc: 'NL' },
   { nameMatch: 'rheinmetall',          cc: 'DE' },
+  // Volvo Car AB (VOLCAR-B) is a separate, distinct company from AB Volvo
+  // (VOLV-B) — force-included since it currently has <3 transactions on
+  // record (its ticker was mis-scraped as VOLV-B until this fix, so it was
+  // previously silently merged into AB Volvo's page instead of having its own).
+  { nameMatch: 'volvo car',            cc: 'SE' },
   // Luxembourg
   { nameMatch: 'grand city properties', cc: 'LU' },
   { nameMatch: 'eurofins',             cc: 'LU' },
@@ -759,4 +764,8 @@ async function main() {
   console.log(`\n── Done ────────────────────────────────────────────────────\n`);
 }
 
-main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
+}
+
+module.exports = { fetchAllTransactions, aggregateCompanies, generateHTML, makeSlugFromName, PRIORITY };

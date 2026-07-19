@@ -93,7 +93,12 @@ const TICKERS = {
   // Large caps with share classes
   'evolution': 'EVO', 'hexagon': 'HEXA-B', 'ericsson': 'ERIC-B',
   'betsson': 'BETS-B', 'kindred': 'KIND-SDB', 'i-tech': 'ITECH',
-  'volvo cars': 'VOLCAR-B', 'volvo': 'VOLV-B',
+  // 'volvo car' (not 'volvo cars') so it matches both "Volvo Car AB" and
+  // "Volvo Cars" via substring — the plural-only key previously missed
+  // "Volvo Car AB" filings, which fell through to the generic 'volvo' entry
+  // below and got mis-ticked as AB Volvo (VOLV-B), a completely different
+  // company trading ~17x higher (VOLV-B ~340 SEK vs VOLCAR-B ~19 SEK).
+  'volvo car': 'VOLCAR-B', 'volvo': 'VOLV-B',
   'abb': 'ABB', 'atlas copco': 'ATCO-A', 'investor': 'INVE-B',
   'essity': 'ESSITY-B', 'sandvik': 'SAND',
   'handelsbanken': 'SHB-A', 'swedbank': 'SWED-A',
