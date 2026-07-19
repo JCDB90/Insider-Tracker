@@ -252,6 +252,20 @@ function roleFor(role, level) {
   return level >= 3 ? ROLE_ABBR[role] || role : role;
 }
 
+// "18 Jul" — short enough to always keep, even under the char-limit pipeline.
+function shortDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const day = d.getUTCDate();
+  const month = d.toLocaleString('en', { month: 'short', timeZone: 'UTC' });
+  return `${day} ${month}`;
+}
+
+// Only show the date when it isn't today — a same-day filing doesn't need
+// one, and this keeps single-transaction tweets from stating the obvious.
+function dateSuffix(row, todayStr) {
+  return row.transaction_date === todayStr ? '' : ` · ${shortDate(row.transaction_date)}`;
+}
+
 function buildFormatA(rows, ctry, dayPhrase, level) {
   const flag = COUNTRY_FLAGS[ctry] || '';
   const countryName = COUNTRY_NAMES[ctry] || ctry;
@@ -264,7 +278,7 @@ function buildFormatA(rows, ctry, dayPhrase, level) {
   return `🔄 Cluster buy — ${flag} ${countryName}\n\n${rows.length} insiders at ${company} bought ${dayPhrase}:\n${bullets}\n\ninsidersalpha.com`;
 }
 
-function buildFormatB(row, level) {
+function buildFormatB(row, level, todayStr) {
   const flag = COUNTRY_FLAGS[row.country_code] || '';
   const countryName = COUNTRY_NAMES[row.country_code] || row.country_code;
   const role = roleFor(simplifyRole(row.insider_role), level);
@@ -274,16 +288,16 @@ function buildFormatB(row, level) {
   const cashtag = level >= 2 || !cashtagText ? '' : ` ${cashtagText}`;
   const slug = COUNTRY_SLUGS[row.country_code];
   const link = slug ? `insidersalpha.com/market/${slug}-insider-transactions` : 'insidersalpha.com';
-  return `${flag} ${role} buy — ${countryName}\n\n${company}${cashtag}\n${row.insider_name} (${role}) bought ${formatValue(row.total_value, currency)}\n@ ${formatPrice(row.price_per_share, currency)}/share\n\n${link}`;
+  return `${flag} ${role} buy — ${countryName}\n\n${company}${cashtag}\n${row.insider_name} (${role}) bought ${formatValue(row.total_value, currency)}\n@ ${formatPrice(row.price_per_share, currency)}/share${dateSuffix(row, todayStr)}\n\n${link}`;
 }
 
-function buildFormatC(row, level) {
+function buildFormatC(row, level, todayStr) {
   const flag = COUNTRY_FLAGS[row.country_code] || '';
   const role = roleFor(simplifyRole(row.insider_role), level);
   const company = companyFor(row, level);
   const drawdownPct = row.price_drawdown != null ? Math.round(Number(row.price_drawdown) * 100) : null;
   const drawdownLine = drawdownPct != null ? `${company} down ${drawdownPct}% in 90 days` : `${company} bought after a price decline`;
-  return `📉 Buying the dip — ${flag}\n\n${drawdownLine}\n${role} just bought ${formatValue(row.total_value, currencyOf(row))}\n\ninsidersalpha.com`;
+  return `📉 Buying the dip — ${flag}\n\n${drawdownLine}\n${role} just bought ${formatValue(row.total_value, currencyOf(row))}${dateSuffix(row, todayStr)}\n\ninsidersalpha.com`;
 }
 
 function buildFormatD(rows, dayPhrase, level) {
@@ -381,12 +395,12 @@ async function main() {
     const csuite = pickCsuite(candidates);
     if (csuite) {
       console.log(`  → Format B (C-suite): ${csuite.insider_name} @ ${csuite.company}`);
-      tweet = fitToLimit(level => buildFormatB(csuite, level));
+      tweet = fitToLimit(level => buildFormatB(csuite, level, today));
     } else {
       const dip = pickPriceDip(candidates);
       if (dip) {
         console.log(`  → Format C (price dip): ${dip.company}`);
-        tweet = fitToLimit(level => buildFormatC(dip, level));
+        tweet = fitToLimit(level => buildFormatC(dip, level, today));
       } else {
         const roundup = pickCountryRoundup(candidates);
         if (roundup) {
@@ -395,7 +409,7 @@ async function main() {
         } else {
           const top = pickHighestValue(candidates);
           console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
-          tweet = fitToLimit(level => buildFormatB(top, level));
+          tweet = fitToLimit(level => buildFormatB(top, level, today));
         }
       }
     }
@@ -424,4 +438,5 @@ module.exports = {
   pickCluster, pickCsuite, pickPriceDip, pickCountryRoundup, pickHighestValue,
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
   eurValue, simplifyRole, formatValue, formatPrice, getCashtag, dayPhraseFor,
+  shortDate, dateSuffix,
 };
