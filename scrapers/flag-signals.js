@@ -139,10 +139,8 @@ function computeSignals(buys, priceReference) {
     // (a wrong flag would exclude itself from the peer pool forever, so the median
     // could never recover and the flag could never clear).
     //
-    //   1. price = 0, or 0 < price < 1 → free grant / sub-unit nominal price
-    //      (RSU vesting, option exercise, rights-issue subscription) — no real
-    //      market price in any covered country is ever under 1 unit of its
-    //      own currency, so this needs no peer comparison at all.
+    //   1. price = 0 → free grant (RSU / LTIP vesting), always unusual — no
+    //      peer comparison needed.
     //   2. price <60% of same-company median from the last 90 days of KNOWN
     //      market-price peers → option exercise / deep-discount plan.
     //   3. ≥2 different insiders bought at the exact same price on the exact
@@ -153,8 +151,18 @@ function computeSignals(buys, priceReference) {
     //      doesn't exist for these companies at all).
     // Without a reference to compare against, we do not flag: an unverifiable
     // guess must not become permanent.
-    let isUnusualPrice = t.price_per_share === 0 ||
-      (t.price_per_share > 0 && t.price_per_share < 1);
+    //
+    // A prior version of rule 1 also flagged any 0 < price < 1, on the
+    // assumption that no real penny stock trades under 1 unit of its own
+    // currency. That assumption was wrong and caused real false positives
+    // once this ran across more markets (commit f5ab8d3): KLEA HOLDING (FR)
+    // trades ~€0.16–0.20 (confirmed against live Yahoo data — exact match),
+    // Image Systems AB (SE) ~SEK 0.63–0.65, edyoutec AB (SE) ~SEK 0.16 — all
+    // genuine Nordic/Euronext Growth micro-caps. Removed; rules 2 and 3 below
+    // are the only reliable way to tell a real sub-1 stock apart from an
+    // option exercised at a nominal sub-1 price on a stock that trades much
+    // higher.
+    let isUnusualPrice = t.price_per_share === 0;
 
     if (!isUnusualPrice && t.price_per_share > 0) {
       const recentPrices = peers
