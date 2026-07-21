@@ -68,6 +68,8 @@ const SPECIFIC_OVERRIDES = {
   'DADELO|PL':    'DAD.WA',
   'NEUCA|PL':     'NEU.WA',
   'INGBSK|PL':    'ING.WA',
+  // SE tickers where the bare ticker doesn't resolve — needs share-class suffix
+  'RÖKO|SE':      'ROKO-B.ST',   // Röko AB (publ) — Yahoo lists it under the B-share class
 };
 
 /**

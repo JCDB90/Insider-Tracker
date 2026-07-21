@@ -62,8 +62,14 @@ function parseNum(s) {
   if (!str) return null;
   // European decimal: 1.234,56 → 1234.56
   if (/\d\.\d{3},\d/.test(str)) return parseFloat(str.replace(/\./g, '').replace(',', '.'));
-  // Period-thousands (no decimal): 10.000 or 1.234.567 → 10000, 1234567
-  if (/^\d{1,3}(\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
+  // Period-thousands (no decimal): 10.000 or 1.234.567 → 10000, 1234567.
+  // Leading group must NOT be "0" — "0.404" is a decimal fraction (nobody
+  // writes a thousands separator in front of a number under 1000), while
+  // "10.000" / "1.234" (leading 1-9) are the genuine thousands-grouped case.
+  // Real bug this caught: Ace Digital AS (ACED.OL) filings state "price of
+  // NOK 0.404 per share" — this branch was reading it as 404, a ~1000x
+  // inflated price that then propagated into total value calculations.
+  if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(str)) return parseFloat(str.replace(/\./g, ''));
   // American thousands+decimal: 1,234.56 → 1234.56
   if (/\d,\d{3}\./.test(str)) return parseFloat(str.replace(/,/g, ''));
   if (/,/.test(str) && !/\./.test(str)) {
