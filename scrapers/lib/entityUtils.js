@@ -1,7 +1,12 @@
 'use strict';
 
 // Legal suffixes that indicate a corporate entity (end of name)
-const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|SCA|SCS|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|ehf\.?|slf\.?|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
+// S\.?C\.?A\.? / S\.?C\.?S\.? (not bare SCA/SCS) so the common dotted Luxembourg/
+// French forms "S.C.A." and "S.C.S." (Société en Commandite par Actions/Simple)
+// match too — observed live: "Analytical Bioventures S.C.A" wasn't caught by a
+// bare "SCA" literal, letting the whole entity name fall through as if it were a
+// person (EUROFINS SCIENTIFIC SE / LU-OAM-260297 filing).
+const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|S\.?C\.?A\.?|S\.?C\.?S\.?|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|ehf\.?|slf\.?|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
 
 // Corporate keywords appearing anywhere in the name
 const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Participations?|Beteiligungen?|Beteiligungsgesellschaft|Vermögensverwaltung|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA))\b/i;
@@ -31,6 +36,14 @@ function looksLikeCorp(name) {
   if (LU_SARL_RE.test(n)) return true;
   // Prefix form: "A/S Motortramp", "N.V. SomeCorp" — legal suffix at start of name
   if (/^(?:A\/S|A\.S\.|N\.V\.|B\.V\.|S\.A\.|GmbH|AG|Oy|AB)\b/i.test(n)) return true;
+  // "Société ..." / "Societe ..." — no legitimate person name starts with this word;
+  // catches generic French company names with no recognizable trailing legal suffix
+  // (e.g. "Société financière des Caoutchoucs \"SOCFIN\"", which CORP_FULLFORM_RE's
+  // narrower "société civile/anonyme/par actions/..." list doesn't cover). Matched
+  // against `normalized` (diacritics already stripped) — matching against the raw
+  // accented string is fragile since a hand-typed "é" literal in source code isn't
+  // guaranteed to be the same Unicode normalization form as the PDF-extracted text.
+  if (/^societe\b/i.test(normalized)) return true;
   // Org number pattern: "Name (987654321)" or "Name (org.nr. 987654321)"
   if (/\(\s*(?:org\.?\s*nr\.?\s*)?[\d\s]{6,11}\s*\)/.test(n)) return true;
   return false;

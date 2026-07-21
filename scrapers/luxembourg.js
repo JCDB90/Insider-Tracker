@@ -308,6 +308,30 @@ function parsePdf(text) {
     return null;
   }
 
+  // Some LU filers print the full entity name on its own line ABOVE the "a) Name" /
+  // "Name1"/"Nom1" row within section 1 — likely because the name is too long to fit
+  // inline with the label — leaving that row's own filled-in value as something else
+  // entirely. Observed live: Analytical Bioventures S.C.A. (EUROFINS SCIENTIFIC SE
+  // filing, ref LU-OAM-260297) prints its name on the line above the label, and
+  // "a) Name" itself holds "23, Val Fleuri, L-1526 Luxembourg" — the entity's
+  // registered address, not its name. When the extracted name looks like an address
+  // (see lib/entityUtils.js's looksLikeAddress), walk backward from wherever the
+  // label line was found to the nearest non-blank line — stopping at the section-1
+  // header, past which there is nothing usable — and use that instead.
+  function findPrecedingEntityName(labelRe) {
+    for (let i = 0; i < lines.length; i++) {
+      if (!labelRe.test(lines[i])) continue;
+      for (let j = i - 1; j >= 0; j--) {
+        const t = lines[j].trim();
+        if (!t) continue;
+        if (/^1[.)]\s/.test(t)) return null; // hit the section-1 header — nothing above it
+        return t.replace(/\s{2,}/g, ' '); // collapse the PDF's wide inter-column gaps
+      }
+      return null;
+    }
+    return null;
+  }
+
   // Detect UK/English notification format by presence of a)/b) section labels
   const isEnFormat = /^\s*a\)\s+Name\b/m.test(body) || /^\s*b\)\s+Nature of the transaction/m.test(body);
 
@@ -331,7 +355,10 @@ function parsePdf(text) {
       return null;
     }
 
-    const insiderName = getEnField(/^\s*a\)\s+Name\b/);
+    let insiderName = getEnField(/^\s*a\)\s+Name\b/);
+    if (insiderName && looksLikeAddress(insiderName)) {
+      insiderName = findPrecedingEntityName(/^\s*a\)\s+Name\b/) || insiderName;
+    }
     const issuerName  = getEnField(/Name of (?:the )?issuer/i) || getEnField(/^\s*d\)\s+Name\b/);
 
     // Nature text: try b) label first, then bare label fallback
@@ -396,9 +423,12 @@ function parsePdf(text) {
   // Standard HOS-2 form
   // Fallback to 1-space gap for narrow-column PDFs (e.g. Grand City Properties).
   // Also try bare "Name" label (no digit) for filers like Reinet that omit the field number.
-  const insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1)
+  let insiderName = getField(/\bName1\b/) || getField(/\bName1\b/, 1)
                    || getField(/^\s*Name\s*$/)
                    || getField(/\bNom1\b/) || getField(/\bNom1\b/, 1) || null;
+  if (insiderName && looksLikeAddress(insiderName)) {
+    insiderName = findPrecedingEntityName(/\bName1\b/) || findPrecedingEntityName(/\bNom1\b/) || insiderName;
+  }
   const issuerName  = getField(/\bName4\b/) || getField(/\bName4\b/, 1)
                    || getField(/\bNom4\b/)  || getField(/\bNom4\b/, 1);
 
@@ -417,7 +447,14 @@ function parsePdf(text) {
   // silently dropped every transaction after the first — split into blocks and parse each.
   // \f? tolerates a leading form-feed (page-break marker pdftotext emits when a
   // repeated block starts on a new PDF page, e.g. Brederode filing ref 14632).
-  const blockHeaderRe = /^\f?4\.\s*(?:Details of the transaction|D[eé]tails? de la transaction)/i;
+  // (?:\/des)? tolerates the French form's actual phrasing "Détails de la/des
+  // transaction(s)" (singular/plural slash-variant) — without it this regex never
+  // matched at all for French filers, so blockStarts stayed empty and the whole
+  // document (all pages) fell back to being treated as a single block, silently
+  // dropping every transaction after the first one found (e.g. SOCFIN/SOCFINASIA
+  // filing ref LU-OAM-260007: a 2-page, 2-transaction filing where only the first
+  // page's transaction was ever saved).
+  const blockHeaderRe = /^\f?4\.\s*(?:Details of the transaction|D[eé]tails? de la(?:\/des)? transaction)/i;
   const blockStarts = [];
   for (let i = 0; i < lines.length; i++) if (blockHeaderRe.test(lines[i])) blockStarts.push(i);
   const blocks = blockStarts.length
@@ -445,23 +482,39 @@ function parsePdf(text) {
     if (pm) totalValue = parseFloat(pm[1].replace(/,/g, '')) || null;
 
     // Price9 table (EN: "Price(s) and volume(s)9"; FR: "Prix et volume(s)9")
-    // Lists per-share price: more reliable than Price11/Prix11 for some filers.
+    // Lists per-share price AND volume — needed as a fallback for filers whose
+    // "Informations agrégées" / "Aggregated information" section (d) is left blank
+    // and the only real numbers live in this per-execution row instead (e.g. SOCFIN/
+    // SOCFINASIA filing ref LU-OAM-260007, where "Volumes agrégés10" was empty).
     let priceFromTable = null;
+    let volumeFromTable = null;
     for (let i = 0; i < blockLines.length; i++) {
       if (/Price\(s\) and volume\(s\)\d+|Prix et volume\(s\)\d*/i.test(blockLines[i])) {
         for (let j = i + 1; j < Math.min(i + 6, blockLines.length); j++) {
-          const m = blockLines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b/i);
+          // EN format: "56.50 EUR    5,000" — price with explicit currency, volume after.
+          const m = blockLines[j].match(/([\d,]+\.?\d+)\s*(?:EUR|USD)\b(?:\s+([\d,]+\.?\d*))?/i);
           if (m) {
-            priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null; break;
+            priceFromTable = parseFloat(m[1].replace(/,/g, '')) || null;
+            if (m[2]) volumeFromTable = parseFloat(m[2].replace(/,/g, '')) || null;
+            break;
           } else {
-            // French format: price and volume on same line, comma decimal, e.g. "56,50  5000"
-            const mFr = blockLines[j].match(/^\s*([\d,]+\.?\d*)\s{3,}[\d,]+\s*$/);
-            if (mFr) { priceFromTable = parseFloat(mFr[1].replace(',', '.')) || null; break; }
+            // French format: price and volume side by side, no currency suffix, comma
+            // decimal, and space-grouped thousands (e.g. "25.00        9 747.00" or
+            // "56,50  5 000"). \d+(?:\s\d{3})* matches the space-thousands grouping;
+            // the >=3-space gap between the two numbers disambiguates it from that
+            // single-space internal separator.
+            const mFr = blockLines[j].match(/^\s*(\d+(?:\s\d{3})*(?:[.,]\d+)?)\s{3,}(\d+(?:\s\d{3})*(?:[.,]\d+)?)\s*$/);
+            if (mFr) {
+              priceFromTable  = parseFloat(mFr[1].replace(/\s/g, '').replace(',', '.')) || null;
+              volumeFromTable = parseFloat(mFr[2].replace(/\s/g, '').replace(',', '.')) || null;
+              break;
+            }
           }
         }
         break;
       }
     }
+    if (!shares && volumeFromTable) shares = volumeFromTable;
 
     let pricePerShare = null;
     if (priceFromTable && shares && shares > 0) {

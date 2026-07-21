@@ -9,7 +9,7 @@
  */
 
 const { createClient }   = require('@supabase/supabase-js');
-const { looksLikeCorp } = require('./entityUtils');
+const { looksLikeCorp, looksLikeAddress } = require('./entityUtils');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -82,6 +82,17 @@ async function saveInsiderTransactions(rows, options = {}) {
   // Skip corporate entity rows where no individual is identified (via_entity not set).
   // Only real-person transactions belong in insider_transactions.
   const withEntityResolved = deTransfered.filter(r => {
+    // A street address is never a person's name — and not useful as via_entity either
+    // (via_entity should hold an entity NAME, not its registered address). Cross-scraper
+    // safety net: individual scrapers should resolve the real name/entity themselves
+    // (see scrapers/luxembourg.js's findPrecedingEntityName), but this catches any
+    // future/other scraper that lets an address slip through, e.g. "23, Val Fleuri,
+    // L-1526 Luxembourg". If the row also has no via_entity, it's dropped below by the
+    // "hasName" check; otherwise the row is kept with its already-resolved via_entity.
+    if (r.insider_name && looksLikeAddress(r.insider_name)) {
+      console.log(`  ℹ  Nulling address-as-name: "${r.insider_name}" — ${r.company || '?'}`);
+      r.insider_name = null;
+    }
     if (r.insider_name && !r.via_entity && looksLikeCorp(r.insider_name)) {
       drops.corp_entity++;
       console.log(`  ℹ  Skipping corporate entity: ${r.insider_name} — ${r.company || '?'}`);

@@ -321,6 +321,27 @@ function parsePdfText(text) {
     txType = 'BUY';
   }
 
+  // ── PDMR real-person name from section 2a ────────────────────────────────
+  // When section 1a is a corporate entity, section 2a "Cargo - posición" contains
+  // the real person. All observed CNMV formats have the person on one side of a
+  // separator and the role on the other — extractPdmrFromCargo handles all variants.
+  // Extracted up front (not per-row) so it's available for BOTH the single- and
+  // multi-execution return paths below — this used to run only after the
+  // multi-execution early return, silently dropping the real person's name for
+  // every filing that bundled more than one same-day execution (e.g. NEM BOM
+  // VENTO NEM BOM CASAMENTO S.L. / NYESA VALORES CORPORACIÓN: 23 of 25 rows had
+  // insider_name=null purely because those filings had multiple execution rows,
+  // while the 2 filings with exactly one row correctly resolved to
+  // "Liberto Campillo Molina" — same cargo line, same entity, every time).
+  let pdmrName = null;
+  const cargoM = text.match(/(?:cargo\s*[-–]\s*posici[oó]n|job\s+title)\s*\n+\s*([^\n]+)/i);
+  if (cargoM) {
+    let name = extractPdmrFromCargo(cargoM[1]);
+    // Strip "Persona Estrechamente Vinculada De D." prefix that sometimes leaks in
+    if (name) name = name.replace(/^Persona\s+Estrechamente\s+Vinculada\s+De\s+D[ñ]?\.?\s*/i, '').trim();
+    if (name && name.length >= 5) pdmrName = name;
+  }
+
   // ── ISIN, price, volume: from ISIN-anchored data rows ────────────────────
   // CNMV PDFs: data row format is:
   //   ISIN  instrument_type  tx_type  DD/MM/YYYY  venue  volume  unit_price  currency
@@ -340,6 +361,7 @@ function parsePdfText(text) {
       shares:        Math.round(parseEsNum(m[3]) || 0) || null,
       price:         parseEsNum(m[4]),
       currency:      m[5],
+      pdmrName,
     }));
   }
 
@@ -377,20 +399,7 @@ function parsePdfText(text) {
     if (currMatch) currency = currMatch[1];
   }
 
-  // ── PDMR real-person name from section 2a ────────────────────────────────
-  // When section 1a is a corporate entity, section 2a "Cargo - posición" contains
-  // the real person. All observed CNMV formats have the person on one side of a
-  // separator and the role on the other — extractPdmrFromCargo handles all variants.
-  let pdmrName = null;
-  const cargoM = text.match(/(?:cargo\s*[-–]\s*posici[oó]n|job\s+title)\s*\n+\s*([^\n]+)/i);
-  if (cargoM) {
-    let name = extractPdmrFromCargo(cargoM[1]);
-    // Strip "Persona Estrechamente Vinculada De D." prefix that sometimes leaks in
-    if (name) name = name.replace(/^Persona\s+Estrechamente\s+Vinculada\s+De\s+D[ñ]?\.?\s*/i, '').trim();
-    if (name && name.length >= 5) pdmrName = name;
-  }
-
-  // Single-block result (or empty fallback)
+  // Single-block result (or empty fallback) — pdmrName was extracted up front above
   return { txType, isin, price, shares, currency, txDateFromPdf, pdmrName };
 }
 
