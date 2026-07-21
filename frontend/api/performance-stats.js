@@ -97,6 +97,13 @@ export default async function handler(req, res) {
 
     const overall = rowStatsBundle(rows);
 
+    // Signalled vs. unsignalled comparison — a buy with at least one of the four
+    // boolean signal flags, vs. every tracked buy. Used for the "signals vs. no
+    // signal" callout on the Performance tab.
+    const hasAnySignal = r => r.is_cluster_buy || r.is_price_dip || r.is_pre_blackout_buy || r.is_repetitive_buy;
+    const statsAll         = overall;
+    const statsWithSignals = rowStatsBundle(rows.filter(hasAnySignal));
+
     const signalDefs = [
       { key: 'Cluster Buy',     test: r => r.is_cluster_buy },
       { key: 'Price Dip Buy',   test: r => r.is_price_dip },
@@ -125,7 +132,12 @@ export default async function handler(req, res) {
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, s-maxage=21600, stale-while-revalidate=43200');
-    res.status(200).json({ overall, bySignal, byCountry, generated_at: new Date().toISOString() });
+    res.status(200).json({
+      overall, bySignal, byCountry,
+      stats_all: statsAll,
+      stats_with_signals: statsWithSignals,
+      generated_at: new Date().toISOString(),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

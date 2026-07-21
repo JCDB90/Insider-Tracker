@@ -4405,12 +4405,54 @@ function PerformanceTab() {
   if (loading) return <div style={{ padding: 48, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading performance data…</div>;
   if (error)   return <div style={{ padding: 48, textAlign: 'center', color: '#DC2626', fontSize: 13 }}>{error}</div>;
 
-  const { overall, bySignal, byCountry } = data;
+  const { overall, bySignal, byCountry, stats_all, stats_with_signals } = data;
+
+  // Comparison is only meaningful (and only shown) once both sides have a real
+  // average to compare — avoids a "+40% higher" claim built on a null/zero base.
+  const allAvg    = stats_all?.['30d']?.avg;
+  const sigAvg    = stats_with_signals?.['30d']?.avg;
+  const upliftPct = (allAvg != null && sigAvg != null && allAvg > 0)
+    ? Math.round(((sigAvg - allAvg) / allAvg) * 1000) / 10
+    : null;
 
   return (
     <div style={{ marginBottom: 20 }}>
+      {/* Signal vs. no-signal comparison callout */}
+      {upliftPct != null && (
+        <div style={{
+          background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10,
+          padding: '16px 20px', marginBottom: 28,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 15 }}>🎯</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>
+              Signalled buys outperform{upliftPct > 0 ? ` by ${upliftPct}%` : ''}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <span style={{ fontSize: 11, color: '#6B7280' }}>Insider buys with a signal: </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#15803D', fontFamily: "'JetBrains Mono', monospace" }}>
+                {sigAvg > 0 ? '+' : ''}{sigAvg}% avg 30d
+              </span>
+            </div>
+            <div>
+              <span style={{ fontSize: 11, color: '#6B7280' }}>All insider buys: </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>
+                {allAvg > 0 ? '+' : ''}{allAvg}% avg 30d
+              </span>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.5 }}>
+            Our signal algorithms (cluster buying, price dips, pre-blackout timing, repetitive buying) identify
+            insider purchases with a higher average 30-day return than the typical tracked buy — based on
+            {' '}{stats_with_signals.n_total.toLocaleString()} signalled vs. {stats_all.n_total.toLocaleString()} total trades.
+          </div>
+        </div>
+      )}
+
       {/* Section 1 — overall average return */}
-      <SectionLabel>Average Return</SectionLabel>
+      <SectionLabel>Average Return — All Tracked Buys</SectionLabel>
       <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
         {[
           { label: 'Avg 30d Return',     stat: overall['30d']  },
@@ -4426,7 +4468,7 @@ function PerformanceTab() {
             }}>
               {c.stat.avg == null ? '—' : `${c.stat.avg > 0 ? '+' : ''}${c.stat.avg}%`}
             </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>based on {c.stat.n.toLocaleString()} trades</div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>avg across all tracked buys ({c.stat.n.toLocaleString()} trades)</div>
           </div>
         ))}
       </div>
