@@ -74,7 +74,7 @@ export default async function handler(req, res) {
   try {
     const txns = await fetchAll(
       'insider_transactions',
-      'id,country_code,is_cluster_buy,is_price_dip,is_pre_blackout_buy,is_repetitive_buy',
+      'id,country_code,is_cluster_buy,is_price_dip,is_pre_blackout_buy,is_repetitive_buy,total_value',
       q => q
         .eq('transaction_type', 'BUY')
         .eq('is_unusual_price', false)
@@ -103,6 +103,15 @@ export default async function handler(req, res) {
     const hasAnySignal = r => r.is_cluster_buy || r.is_price_dip || r.is_pre_blackout_buy || r.is_repetitive_buy;
     const statsAll         = overall;
     const statsWithSignals = rowStatsBundle(rows.filter(hasAnySignal));
+
+    // Two specific combinations investigated separately and confirmed to
+    // genuinely outperform the "any signal" baseline above (checked against
+    // live data before adding these — see conversation/commit history):
+    // price-dip buying alone, and large (>€50k) purchases with a signal.
+    const statsPriceDip        = rowStatsBundle(rows.filter(r => r.is_price_dip));
+    const statsHighValueSignal = rowStatsBundle(
+      rows.filter(r => r.total_value > 50000 && (r.is_cluster_buy || r.is_price_dip))
+    );
 
     const signalDefs = [
       { key: 'Cluster Buy',     test: r => r.is_cluster_buy },
@@ -136,6 +145,8 @@ export default async function handler(req, res) {
       overall, bySignal, byCountry,
       stats_all: statsAll,
       stats_with_signals: statsWithSignals,
+      stats_price_dip: statsPriceDip,
+      stats_high_value_signal: statsHighValueSignal,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {

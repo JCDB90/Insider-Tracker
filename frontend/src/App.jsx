@@ -4405,51 +4405,75 @@ function PerformanceTab() {
   if (loading) return <div style={{ padding: 48, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading performance data…</div>;
   if (error)   return <div style={{ padding: 48, textAlign: 'center', color: '#DC2626', fontSize: 13 }}>{error}</div>;
 
-  const { overall, bySignal, byCountry, stats_all, stats_with_signals } = data;
+  const { overall, bySignal, byCountry, stats_all, stats_price_dip, stats_high_value_signal } = data;
 
-  // Comparison is only meaningful (and only shown) once both sides have a real
-  // average to compare — avoids a "+40% higher" claim built on a null/zero base.
-  const allAvg    = stats_all?.['30d']?.avg;
-  const sigAvg    = stats_with_signals?.['30d']?.avg;
-  const upliftPct = (allAvg != null && sigAvg != null && allAvg > 0)
-    ? Math.round(((sigAvg - allAvg) / allAvg) * 1000) / 10
-    : null;
+  function CalloutStat({ label, value, suffix = '', baseline }) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0' }}>
+        <span style={{ fontSize: 12, color: '#6B7280' }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+          {value == null ? '—' : `${value > 0 ? '+' : ''}${value}${suffix}`}
+          {baseline != null && (
+            <span style={{ fontSize: 11, fontWeight: 400, color: '#9CA3AF', marginLeft: 6 }}>
+              (vs {baseline > 0 ? '+' : ''}{baseline}{suffix} base)
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div style={{ marginBottom: 20 }}>
-      {/* Signal vs. no-signal comparison callout */}
-      {upliftPct != null && (
+      {/* Strongest-performing signal combinations, checked directly against live
+          data (see conversation/commit history) before being added here. */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
+        {/* Box 1 — Price Dip signal */}
         <div style={{
-          background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10,
-          padding: '16px 20px', marginBottom: 28,
+          flex: '1 1 320px', minWidth: 280, background: '#F0FDF4', border: '1px solid #BBF7D0',
+          borderRadius: 10, padding: '16px 20px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 15 }}>🎯</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>
-              Signalled buys outperform{upliftPct > 0 ? ` by ${upliftPct}%` : ''}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 15 }}>📉</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>Price Dip Signal — Strongest Performer</span>
           </div>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 10 }}>
-            <div>
-              <span style={{ fontSize: 11, color: '#6B7280' }}>Insider buys with a signal: </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#15803D', fontFamily: "'JetBrains Mono', monospace" }}>
-                {sigAvg > 0 ? '+' : ''}{sigAvg}% avg 30d
-              </span>
-            </div>
-            <div>
-              <span style={{ fontSize: 11, color: '#6B7280' }}>All insider buys: </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', fontFamily: "'JetBrains Mono', monospace" }}>
-                {allAvg > 0 ? '+' : ''}{allAvg}% avg 30d
-              </span>
-            </div>
+          <CalloutStat label="Avg 30d return" value={stats_price_dip['30d'].avg} suffix="%" baseline={stats_all['30d'].avg} />
+          <CalloutStat label="Avg 90d return" value={stats_price_dip['90d'].avg} suffix="%" baseline={stats_all['90d'].avg} />
+          <CalloutStat label="Win rate 30d"   value={stats_price_dip['30d'].winRate} suffix="%" baseline={stats_all['30d'].winRate} />
+          <CalloutStat label="Win rate 90d"   value={stats_price_dip['90d'].winRate} suffix="%" baseline={stats_all['90d'].winRate} />
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8, marginBottom: 8 }}>
+            Based on {stats_price_dip['30d'].n.toLocaleString()} trades
           </div>
           <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.5 }}>
-            Our signal algorithms (cluster buying, price dips, pre-blackout timing, repetitive buying) identify
-            insider purchases with a higher average 30-day return than the typical tracked buy — based on
-            {' '}{stats_with_signals.n_total.toLocaleString()} signalled vs. {stats_all.n_total.toLocaleString()} total trades.
+            Insider buying after a significant price drawdown is our most predictive signal.
           </div>
         </div>
-      )}
+
+        {/* Box 2 — High value + signal */}
+        <div style={{
+          flex: '1 1 320px', minWidth: 280, background: '#FFFBEB', border: '1px solid #FDE68A',
+          borderRadius: 10, padding: '16px 20px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 15 }}>💰</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#92400E' }}>High Value + Signal — Best Long-Term</span>
+          </div>
+          <CalloutStat label="Avg 90d return" value={stats_high_value_signal['90d'].avg} suffix="%" />
+          <CalloutStat label="Avg 6m return"  value={stats_high_value_signal['180d'].avg} suffix="%" />
+          <CalloutStat label="Win rate 90d"   value={stats_high_value_signal['90d'].winRate} suffix="%" />
+          <CalloutStat label="Win rate 6m"    value={stats_high_value_signal['180d'].winRate} suffix="%" />
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8, marginBottom: 8 }}>
+            Based on {stats_high_value_signal['30d'].n.toLocaleString()} trades (&gt;€50K + signal)
+          </div>
+          <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
+            Large purchases with signals show the strongest long-term outperformance.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: '#9CA3AF', lineHeight: 1.5, marginBottom: 28 }}>
+        Outliers excluded (±50% at 30d, ±75% at 90d, ±100% at 6m). Past performance does not guarantee future results.
+      </div>
 
       {/* Section 1 — overall average return */}
       <SectionLabel>Average Return — All Tracked Buys</SectionLabel>
