@@ -798,6 +798,7 @@ function computeInsiderScorecard(trades, performance) {
     if (!name) continue;
     const type = (t.transaction_type || '').toUpperCase();
     if (type !== 'BUY' && type !== 'PURCHASE') continue;
+    if (t.is_unusual_price) continue; // RSU vesting / option exercise — not a real market decision
     if (!meetsLeaderboardThreshold(t)) continue;
     if (!map[name]) map[name] = {
       name, role: t.insider_role, company: t.company,

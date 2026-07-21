@@ -123,9 +123,21 @@ class PriceCache {
 
   /** Return cached prices between fromStr and toStr if we have any, null if none.
    *
-   * Returns null (cache miss) if the earliest cached date is more than 7 days
-   * after fromStr — ensures a gap at the start of the range triggers a fresh
-   * Yahoo fetch rather than silently returning incomplete data.
+   * Returns null (cache miss, forcing a fresh Yahoo fetch) if the cached data
+   * has a >7 day gap at either the START or the END of the requested range.
+   *
+   * The end check matters just as much as the start check: a ticker cached on
+   * an earlier run (when "today" — i.e. toStr, since callers cap it at today —
+   * was much earlier) will have cached prices stopping at that older date. A
+   * later run asking for a wider toStr would still find data satisfying the
+   * start-gap check (same fromStr, cache begins on time) and, without this end
+   * check, would silently return that stale, truncated range instead of
+   * re-fetching — so any horizon (60d/90d/etc.) whose target date falls after
+   * the old cutoff would find no matching price forever, even though the real
+   * Yahoo data now covers it. This was confirmed live: SANLORENZO SPA (SL) had
+   * cached prices only through 2026-05-25 while a 90d-horizon target date of
+   * 2026-06-15 needed data past that — 7d/30d resolved fine (within the stale
+   * window) while 90d/180d/365d silently stayed null run after run.
    */
   _getFromCache(ticker, fromStr, toStr) {
     const result = [];
@@ -136,10 +148,10 @@ class PriceCache {
     }
     if (result.length === 0) return null;
     result.sort((a, b) => a.date.localeCompare(b.date));
-    // If cached data starts more than 7 days after the requested range start,
-    // the cache doesn't cover the early horizons — force a Yahoo re-fetch.
-    const gapDays = (new Date(result[0].date) - new Date(fromStr)) / 86400000;
-    if (gapDays > 7) return null;
+    const startGapDays = (new Date(result[0].date) - new Date(fromStr)) / 86400000;
+    if (startGapDays > 7) return null;
+    const endGapDays = (new Date(toStr) - new Date(result[result.length - 1].date)) / 86400000;
+    if (endGapDays > 7) return null;
     return result;
   }
 

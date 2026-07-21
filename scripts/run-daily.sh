@@ -79,9 +79,15 @@ EXIT_CODE=$?
 
 echo ""
 echo "── Scoring & Performance ──────────────────────────────"
+# flag-signals.js MUST run before score-insiders.js: score-insiders.js's
+# queries treat is_unusual_price IS NULL as "not unusual" (it hasn't been
+# computed yet for today's freshly-scraped rows otherwise), so scoring first
+# would score option exercises / RSU vestings as ordinary high-conviction
+# buys — and since it only (re)scores rows where conviction_normalized IS
+# NULL, that wrong score would then never get corrected by a later run.
+"$NODE_BIN" scrapers/flag-signals.js         || true  # non-fatal
 "$NODE_BIN" scrapers/score-insiders.js       || true  # non-fatal
 "$NODE_BIN" scrapers/track-performance.js    || true  # non-fatal
-"$NODE_BIN" scrapers/flag-signals.js         || true  # non-fatal
 "$NODE_BIN" scrapers/daily-health-check.js   || true  # non-fatal
 "$NODE_BIN" scrapers/enrich-sectors.js       || true  # non-fatal
 

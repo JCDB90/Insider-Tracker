@@ -354,7 +354,12 @@ function aggregateInsiders(rawRows, perfById) {
     const totalBuyValueEur = buys.reduce((s, t) => s + eurValue(t), 0);
     const totalSellValueEur = sells.reduce((s, t) => s + eurValue(t), 0);
 
-    const perfRows = buys.map(t => perfById.get(t.id)).filter(Boolean);
+    // Exclude option exercises / RSU vestings (is_unusual_price) from performance
+    // stats — "Buys" count/value above still includes them (real events worth
+    // showing), but averaging their returns against a market price would produce
+    // fake-looking triple-digit "wins" (the transaction price is a nominal/strike
+    // price, not what was actually paid on the open market that day).
+    const perfRows = buys.filter(t => !t.is_unusual_price).map(t => perfById.get(t.id)).filter(Boolean);
     const avg = key => {
       const vals = perfRows.map(p => p[key]).filter(v => v !== null && v !== undefined);
       return vals.length ? vals.reduce((s, v) => s + Number(v), 0) / vals.length : null;
