@@ -4356,6 +4356,165 @@ function SEKCalculator() {
   );
 }
 
+// ── PerformanceTab ────────────────────────────────────────────────────────────
+// Aggregate insider-buy performance stats, fetched from /api/performance-stats
+// (server computes it from insider_transactions + insider_performance — see that
+// file for the exact filters/outlier caps).
+
+function PerformanceTab() {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+
+  useEffect(() => {
+    fetch('/api/performance-stats')
+      .then(async res => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.status);
+        setData(body);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const cardStyle = { background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '20px 24px', flex: 1, minWidth: 160 };
+  const thStyle   = { padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f0f0f0' };
+  const tdStyle   = { padding: '10px 14px', fontSize: 13, color: '#374151', borderBottom: '1px solid #f8f8f8' };
+  const numTd     = { ...tdStyle, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" };
+
+  function SectionLabel({ children }) {
+    return (
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+        color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginBottom: 12,
+      }}>{children}</div>
+    );
+  }
+
+  function ReturnPct({ value }) {
+    if (value == null) return <span style={{ color: '#D1D5DB' }}>—</span>;
+    const pos = value > 0;
+    return <span style={{ color: pos ? '#15803D' : '#B91C1C', fontWeight: 600 }}>{pos ? '+' : ''}{value}%</span>;
+  }
+  function WinRatePct({ value }) {
+    if (value == null) return <span style={{ color: '#D1D5DB' }}>—</span>;
+    const color = value >= 60 ? '#16A34A' : value >= 40 ? '#D97706' : '#DC2626';
+    return <span style={{ color, fontWeight: 600 }}>{value}%</span>;
+  }
+
+  if (loading) return <div style={{ padding: 48, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading performance data…</div>;
+  if (error)   return <div style={{ padding: 48, textAlign: 'center', color: '#DC2626', fontSize: 13 }}>{error}</div>;
+
+  const { overall, bySignal, byCountry } = data;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Section 1 — overall average return */}
+      <SectionLabel>Average Return</SectionLabel>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Avg 30d Return',     stat: overall['30d']  },
+          { label: 'Avg 90d Return',     stat: overall['90d']  },
+          { label: 'Avg 6-Month Return', stat: overall['180d'] },
+        ].map(c => (
+          <div key={c.label} style={cardStyle}>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
+            <div style={{
+              fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: c.stat.avg == null ? '#9CA3AF' : c.stat.avg > 0 ? '#15803D' : '#B91C1C',
+            }}>
+              {c.stat.avg == null ? '—' : `${c.stat.avg > 0 ? '+' : ''}${c.stat.avg}%`}
+            </div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>based on {c.stat.n.toLocaleString()} trades</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Section 2 — win rate */}
+      <SectionLabel>Win Rate</SectionLabel>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 32, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Win Rate 30d', stat: overall['30d'] },
+          { label: 'Win Rate 90d', stat: overall['90d'] },
+        ].map(c => (
+          <div key={c.label} style={cardStyle}>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 6, fontWeight: 500 }}>{c.label}</div>
+            <div style={{
+              fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: c.stat.winRate == null ? '#9CA3AF' : c.stat.winRate >= 60 ? '#16A34A' : c.stat.winRate >= 40 ? '#D97706' : '#DC2626',
+            }}>
+              {c.stat.winRate == null ? '—' : `${c.stat.winRate}%`}
+            </div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>of buys profitable ({c.stat.n.toLocaleString()} trades)</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Section 3 — performance by signal type */}
+      <SectionLabel>Performance by Signal Type</SectionLabel>
+      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden', marginBottom: 32 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr>
+            <th style={thStyle}>Signal</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Avg 30d</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Avg 90d</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Win Rate</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>N Trades</th>
+          </tr></thead>
+          <tbody>
+            {bySignal.map(s => (
+              <tr key={s.signal}>
+                <td style={tdStyle}>{s.signal}</td>
+                <td style={numTd}><ReturnPct value={s['30d'].avg} /></td>
+                <td style={numTd}><ReturnPct value={s['90d'].avg} /></td>
+                <td style={numTd}><WinRatePct value={s['30d'].winRate} /></td>
+                <td style={{ ...numTd, color: '#9CA3AF' }}>{s.n_total.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Section 4 — performance by market */}
+      <SectionLabel>Performance by Market</SectionLabel>
+      <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr>
+            <th style={thStyle}>Country</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Avg 30d</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Avg 90d</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Win Rate</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>N Trades</th>
+          </tr></thead>
+          <tbody>
+            {byCountry.map(c => (
+              <tr key={c.country_code}>
+                <td style={tdStyle}>{c.flag} {c.country_name}</td>
+                <td style={numTd}><ReturnPct value={c['30d'].avg} /></td>
+                <td style={numTd}><ReturnPct value={c['90d'].avg} /></td>
+                <td style={numTd}><WinRatePct value={c['30d'].winRate} /></td>
+                <td style={{ ...numTd, color: '#9CA3AF' }}>{c.n_total.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Section 5 — disclaimer */}
+      <div style={{
+        fontSize: 11, color: '#9CA3AF', lineHeight: 1.6, padding: '14px 16px',
+        background: '#f8f8f8', border: '1px solid #f0f0f0', borderRadius: 8,
+      }}>
+        Past performance does not guarantee future results. Returns are calculated from
+        open-market insider purchases across 16 markets, excluding option exercises and
+        grants. Outliers above ±50% (30d), ±75% (90d), ±100% (6m) are excluded.
+      </div>
+    </div>
+  );
+}
+
 // ── InsightsPage ──────────────────────────────────────────────────────────────
 
 function InsightsPage({ trades, tradesLoading }) {
@@ -4363,12 +4522,14 @@ function InsightsPage({ trades, tradesLoading }) {
   const [openEdu, setOpenEdu] = useState(null);
 
   const FILTERS = [
-    { key: 'all',       label: 'All' },
-    { key: 'tools',     label: 'Tools' },
-    { key: 'brokers',   label: 'Broker Guides' },
-    { key: 'education', label: 'Education' },
+    { key: 'all',         label: 'All' },
+    { key: 'performance', label: 'Performance' },
+    { key: 'tools',       label: 'Tools' },
+    { key: 'brokers',     label: 'Broker Guides' },
+    { key: 'education',   label: 'Education' },
   ];
 
+  const showPerformance = filter === 'performance';
   const showTools     = filter === 'all' || filter === 'tools';
   const showBrokers   = filter === 'all' || filter === 'brokers';
   const showEducation = filter === 'all' || filter === 'education';
@@ -4415,6 +4576,9 @@ function InsightsPage({ trades, tradesLoading }) {
             }}>{f.label}</button>
           ))}
         </div>
+
+        {/* ── Performance ───────────────────────────────────────────────── */}
+        {showPerformance && <PerformanceTab />}
 
         {/* ── Tools ─────────────────────────────────────────────────────── */}
         {showTools && (
