@@ -37,6 +37,7 @@ const path  = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { romanizeKoreanName }      = require('./lib/korean');
+const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
 
 const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
@@ -438,6 +439,11 @@ async function scrapeKR() {
         total_value:      (txn.price && txn.shares) ? Math.round(txn.shares * txn.price) : null,
         currency:         'KRW',
         filing_url:       filingUrl,
+        // KRW has no fractional unit, so this only ever fires for price=0 grants —
+        // real option-exercise strike prices (e.g. a few thousand won vs. a market
+        // price in the hundreds of thousands) still need flag-signals.js's fuller
+        // cross-insider comparison, which this single-filing scrape can't see.
+        is_unusual_price: isAbsoluteUnusualPrice(txn.price) ? true : null,
       }));
   };
 

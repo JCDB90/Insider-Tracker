@@ -35,6 +35,7 @@ const https   = require('https');
 const cheerio = require('cheerio');
 const { saveInsiderTransactions } = require('./lib/db');
 const { looksLikeCorp }          = require('./lib/entityUtils');
+const { isAbsoluteUnusualPrice } = require('./lib/unusualPrice');
 
 const COUNTRY_CODE   = 'NL';
 const SOURCE         = 'AFM Netherlands';
@@ -271,7 +272,10 @@ function parseXml(xml, cutoffDate) {
       const pe = cashSells[0];
       rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: 'SELL',
         shares: sumCashSell, price_per_share: pe.prijs, currency: pe.valuta,
-        total_value: Math.round(pe.prijs * sumCashSell) });
+        total_value: Math.round(pe.prijs * sumCashSell),
+        // Sub-unit "prijs" (e.g. Ferrovial's €0.01) is an RSU/option nominal value,
+        // not a real market price — AFM's register literally states par value here.
+        is_unusual_price: isAbsoluteUnusualPrice(pe.prijs) ? true : null });
       pushed++;
     }
 
@@ -280,7 +284,8 @@ function parseXml(xml, cutoffDate) {
       const pe = cashBuys[0];
       rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: 'BUY',
         shares: sumCashBuy, price_per_share: pe.prijs, currency: pe.valuta,
-        total_value: Math.round(pe.prijs * sumCashBuy) });
+        total_value: Math.round(pe.prijs * sumCashBuy),
+        is_unusual_price: isAbsoluteUnusualPrice(pe.prijs) ? true : null });
       pushed++;
     }
 
@@ -298,7 +303,8 @@ function parseXml(xml, cutoffDate) {
       const valuta = pe?.valuta ?? CURRENCY;
       const total  = Math.round(price * shares);
       rows.push({ ...base, filing_id: `NL-${id}`, transaction_type: txType,
-        shares, price_per_share: price, currency: valuta, total_value: total });
+        shares, price_per_share: price, currency: valuta, total_value: total,
+        is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null });
       pushed++;
     }
 

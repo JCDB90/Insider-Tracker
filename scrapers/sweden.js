@@ -25,6 +25,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }          = require('./lib/translate');
 const { isinToTicker }           = require('./lib/isinToTicker');
 const { contentId }              = require('./lib/contentId');
+const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
 
 const COUNTRY_CODE = 'SE';
 const SOURCE       = 'Finansinspektionen Sweden';
@@ -560,6 +561,13 @@ async function scrapeSE() {
       price_per_share: price, total_value: total, currency: r.currency,
       filing_url: `${BASE}?SearchFunctionType=Insyn&Transaktionsdatum.From=${from}&Transaktionsdatum.To=${to}`,
       source: SOURCE,
+      // Sub-unit or zero prices are RSU vestings / option exercises / rights-issue
+      // subscriptions (e.g. BTA/warrant/option instrument rows), never a real market
+      // price — FI's table doesn't expose instrument type to this scraper, so this
+      // is the only signal available at scrape time. flag-signals.js re-derives this
+      // daily with fuller cross-company context; this just makes the row correct
+      // immediately after scraping.
+      is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
     });
   }
   if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (kept via via_entity)`);

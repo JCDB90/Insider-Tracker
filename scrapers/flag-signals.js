@@ -77,9 +77,48 @@ async function loadAllBuys() {
   return rows;
 }
 
+// ── Broader price reference (all transaction types, any date) ─────────────────
+// Used only by the unusual-price rules below. A same-day cluster of option
+// exercises often has no OTHER *BUY* in the 90-day window (see rule 2's
+// `peers` pool, which is BUY-only) but a nearby SELL at a real market price
+// is just as valid a reference — e.g. Thule Group's board members bought at
+// SEK 19.42 the same week another director sold at the real SEK ~218 price,
+// but rule 2 alone never sees that SELL row since loadAllBuys() excludes it.
+async function loadPriceReference() {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await sb
+      .from('insider_transactions')
+      .select('company, transaction_date, price_per_share, is_unusual_price')
+      .gt('price_per_share', 1)
+      .not('transaction_date', 'is', null)
+      .order('transaction_date', { ascending: false })
+      .range(from, from + 999);
+    if (error) throw new Error('Load price reference: ' + error.message);
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+    from += 1000;
+  }
+  // Keep {price, date} pairs (not just price) — the caller must exclude the exact
+  // same-day/same-price cluster it is currently evaluating from its own reference,
+  // otherwise a company whose ONLY nearby activity IS the suspect cluster (e.g. LPP
+  // SA: every price>1 row in the DB is the same PLN 2 exercise) would have that
+  // cluster's own repeated price dominate the "reference" median and mask itself.
+  const byCompany = {};
+  for (const r of rows) {
+    if (r.is_unusual_price) continue; // never trust a prior unusual flag as a reference either
+    const key = (r.company || '').toLowerCase();
+    if (!byCompany[key]) byCompany[key] = [];
+    byCompany[key].push({ price: Number(r.price_per_share), date: r.transaction_date });
+  }
+  return byCompany;
+}
+
 // ── Signal computation ────────────────────────────────────────────────────────
 
-function computeSignals(buys) {
+function computeSignals(buys, priceReference) {
   const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_blackout_buy, is_price_dip, is_unusual_price }
 
   // Index by company (for cluster / repetitive detection)
@@ -100,14 +139,22 @@ function computeSignals(buys) {
     // (a wrong flag would exclude itself from the peer pool forever, so the median
     // could never recover and the flag could never clear).
     //
-    //   1. price = 0 → free grant (RSU / LTIP vesting), always unusual.
+    //   1. price = 0, or 0 < price < 1 → free grant / sub-unit nominal price
+    //      (RSU vesting, option exercise, rights-issue subscription) — no real
+    //      market price in any covered country is ever under 1 unit of its
+    //      own currency, so this needs no peer comparison at all.
     //   2. price <60% of same-company median from the last 90 days of KNOWN
     //      market-price peers → option exercise / deep-discount plan.
-    // Coordinated same-day/same-price purchases (e.g. annual director share
-    // plans) are NOT flagged on that pattern alone — only if the price itself
-    // clears the 60% discount bar above. Without a peer median to compare
-    // against, we do not flag: an unverifiable guess must not become permanent.
-    let isUnusualPrice = t.price_per_share === 0;
+    //   3. ≥2 different insiders bought at the exact same price on the exact
+    //      same date, AND that price is <20% of the company's own broader
+    //      price-reference median (≥1 other-priced data point is enough here —
+    //      see below) → coordinated incentive-plan exercise, not independent
+    //      open-market decisions (rule 2's 90-day BUY-only peer pool frequently
+    //      doesn't exist for these companies at all).
+    // Without a reference to compare against, we do not flag: an unverifiable
+    // guess must not become permanent.
+    let isUnusualPrice = t.price_per_share === 0 ||
+      (t.price_per_share > 0 && t.price_per_share < 1);
 
     if (!isUnusualPrice && t.price_per_share > 0) {
       const recentPrices = peers
@@ -120,6 +167,37 @@ function computeSignals(buys) {
 
       if (recentMedian !== null) {
         isUnusualPrice = t.price_per_share < recentMedian * 0.60;
+      }
+    }
+
+    if (!isUnusualPrice && t.price_per_share > 0) {
+      const sameDaySamePricePeers = peers.filter(p =>
+        p.id !== t.id &&
+        p.transaction_date === t.transaction_date &&
+        Number(p.price_per_share) === Number(t.price_per_share) &&
+        p.insider_name && t.insider_name &&
+        (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase()
+      );
+      if (sameDaySamePricePeers.length >= 1) {
+        // Exclude ANY reference row at this exact suspect price, regardless of its
+        // date — the same incentive-plan price is often exercised by different
+        // people on different days (not just clustered on one calendar day), and
+        // those other-day rows would otherwise pollute the median right back down
+        // to the suspect price itself (e.g. Evolution AB: 3 people cluster on one
+        // day, but 3 MORE rows at the identical price sit on 3 other days).
+        const refPrices = (priceReference[companyKey] || [])
+          .filter(p => Number(p.price) !== Number(t.price_per_share))
+          .map(p => p.price)
+          .sort((a, b) => a - b);
+        // Threshold is 1, not 2 like rule 2 — rule 3 already has strong corroborating
+        // evidence (multiple distinct insiders, identical price, identical date) before
+        // it even looks at the reference, so a single genuine reference point (e.g.
+        // Thule Group's one real SELL at SEK 218 alongside ten SEK 19.42 "BUY" rows)
+        // is enough to act on, unlike rule 2 which has no such corroboration.
+        if (refPrices.length >= 1) {
+          const refMedian = refPrices[Math.floor(refPrices.length / 2)];
+          if (t.price_per_share < refMedian * 0.20) isUnusualPrice = true;
+        }
       }
     }
 
@@ -222,8 +300,11 @@ async function main() {
   const buys = await loadAllBuys();
   console.log(`  ${buys.length} BUY transactions loaded`);
 
+  console.log('  Loading broader price reference (all transaction types)…');
+  const priceReference = await loadPriceReference();
+
   console.log('  Computing signals (pre-blackout: 7-day windows before quarterly blackout)…');
-  const results = computeSignals(buys);
+  const results = computeSignals(buys, priceReference);
 
   const cluster      = Object.values(results).filter(r => r.is_cluster_buy).length;
   const repetitive   = Object.values(results).filter(r => r.is_repetitive_buy).length;

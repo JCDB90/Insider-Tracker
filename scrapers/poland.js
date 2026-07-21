@@ -35,6 +35,7 @@ const zlib  = require('zlib');
 const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { getPlCompanyName }        = require('./lib/tickerMap');
+const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
 
 const COUNTRY_CODE   = 'PL';
 const CURRENCY       = 'PLN';
@@ -249,6 +250,11 @@ async function scrapePL() {
       currency:         CURRENCY,
       filing_url:       `https://www.bankier.pl/gielda/transakcje-insiderow`,
       source:           SOURCE,
+      // Sub-unit/zero prices are incentive-program option exercises (Bankier doesn't
+      // expose the same-day multi-insider grouping this scraper would need to catch
+      // e.g. mBank's PLN 4 or LPP's PLN 2 batch exercises) — flag-signals.js catches
+      // those with full cross-insider history; this only covers the unambiguous cases.
+      is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
     });
   }
 

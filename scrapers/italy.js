@@ -38,6 +38,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const { looksLikeCorp }           = require('./lib/entityUtils');
 const { isinToTicker }            = require('./lib/isinToTicker');
 const { translateRole }           = require('./lib/translate');
+const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
 
 const COUNTRY_CODE   = 'IT';
 const SOURCE         = 'eMarket STORAGE Italy';
@@ -528,6 +529,10 @@ async function scrapeIT() {
         total_value:      (price != null && shares) ? Math.round(price * shares) : null,
         currency:         pdf.currency || CURRENCY,
         filing_url:       f.pdfUrl || `https://${HOST}/it/comunicati-finanziari`,
+        // Exact zero_price is already dropped above; this catches the sub-unit case
+        // that still slips through, e.g. Buzzi SpA's €0.7122/share derivative-collar
+        // settlement (a real cash consideration divided by share count, not a price).
+        is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
       });
     }
 
