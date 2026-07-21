@@ -4473,6 +4473,7 @@ function PerformanceTab() {
 
       <div style={{ fontSize: 11, color: '#9CA3AF', lineHeight: 1.5, marginBottom: 28 }}>
         Outliers excluded (±50% at 30d, ±75% at 90d, ±100% at 6m). Past performance does not guarantee future results.
+        {' '}Read the full <a href="/articles/european-insider-trading-performance-analysis" style={{ color: ACCENT, fontWeight: 600 }}>write-up on this data</a>.
       </div>
 
       {/* Section 1 — overall average return */}
@@ -4583,8 +4584,8 @@ function PerformanceTab() {
 
 // ── InsightsPage ──────────────────────────────────────────────────────────────
 
-function InsightsPage({ trades, tradesLoading }) {
-  const [filter, setFilter] = useState('all');
+function InsightsPage({ trades, tradesLoading, initialFilter }) {
+  const [filter, setFilter] = useState(initialFilter || 'all');
   const [openEdu, setOpenEdu] = useState(null);
 
   const FILTERS = [
@@ -4717,6 +4718,12 @@ function InsightsPage({ trades, tradesLoading }) {
                   desc: 'How to identify potentially undervalued European stocks using insider transaction data and signals.',
                   href: '/articles/how-to-find-undervalued-european-stocks-using-insider-data',
                   tag: 'Guide',
+                },
+                {
+                  title: "We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.",
+                  desc: 'Which insider buying signals actually predict returns — data-backed findings on price dip, cluster buy, and repetitive buy signals.',
+                  href: '/articles/european-insider-trading-performance-analysis',
+                  tag: 'Research',
                 },
               ].map((a, i) => (
                 <a key={i} href={a.href} style={{
@@ -5733,7 +5740,18 @@ function PricingPage({ session, onLogin }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage] = useState('dashboard');
+  const [page, setPage] = useState(() => {
+    // Deep-link support for marketing/article CTAs, e.g. /?page=insights&tab=performance
+    // — same pattern as the ?country= pre-select below.
+    try {
+      const p = new URLSearchParams(window.location.search).get('page');
+      return p === 'insights' ? 'insights' : 'dashboard';
+    } catch { return 'dashboard'; }
+  });
+  const [insightsInitialTab] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('tab') || 'all'; }
+    catch { return 'all'; }
+  });
   const [alertInitialFilter, setAlertInitialFilter] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedCountries, setSelectedCountries] = useState(() => {
@@ -6103,7 +6121,7 @@ export default function App() {
           />
         )}
         {page === 'insights' && (
-          <InsightsPage trades={trades} tradesLoading={tradesLoading} />
+          <InsightsPage trades={trades} tradesLoading={tradesLoading} initialFilter={insightsInitialTab} />
         )}
         {page === 'pricing' && <PricingPage session={session} onLogin={mode => setShowLoginModal(mode || 'signin')} />}
         {page === 'admin' && access.isAdmin && <AdminPage session={session} />}

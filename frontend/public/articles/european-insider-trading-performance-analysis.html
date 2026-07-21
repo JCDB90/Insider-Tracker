@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>We Analyzed 13,000 European Insider Transactions — Here's What the Data Shows | InsidersAlpha</title>
+  <meta name="description" content="Analysis of 13,000+ MAR Article 19 insider transactions across European markets reveals which insider buying signals actually predict stock returns. Data-backed findings on price dip, cluster buy, and repetitive buy signals.">
+  <meta property="og:title" content="We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.">
+  <meta property="og:description" content="Data-backed analysis of which insider buying signals actually predict stock returns, across 15 European and Asian markets.">
+  <meta property="og:url" content="https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis">
+  <meta property="og:type" content="article">
+  <link rel="canonical" href="https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RPT36NKE74"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-RPT36NKE74');</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.",
+    "description": "Analysis of 13,000+ MAR Article 19 insider transactions across European and Asian markets reveals which insider buying signals actually predict stock returns.",
+    "url": "https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis",
+    "publisher": {"@type": "Organization", "name": "InsidersAlpha", "url": "https://www.insidersalpha.com"},
+    "datePublished": "2026-07-22",
+    "dateModified": "2026-07-22"
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type":"ListItem","position":1,"name":"InsidersAlpha","item":"https://www.insidersalpha.com"},
+      {"@type":"ListItem","position":2,"name":"Articles","item":"https://www.insidersalpha.com/articles"},
+      {"@type":"ListItem","position":3,"name":"We Analyzed 13,000 European Insider Transactions","item":"https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis"}
+    ]
+  }</script>
+  <script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Do European insider transactions predict stock returns?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Based on analysis of 13,000+ MAR Article 19 filings, insider buying overall shows a modest +1.0% average 30-day return and 51.3% win rate. That baseline improves meaningfully once you filter for quality signals: price dip buying (insiders buying after a 10%+ drawdown) shows +2.4% average 30-day return and a 58.8% win rate across 1,135 trades."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the price dip insider buying signal?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The price dip signal flags insider purchases made while a company's stock is down at least 10% from its recent high (capped at 60% to exclude stock splits and other data artifacts). Analysis of 1,135 such trades shows a 58.8% win rate and +2.4% average return at 30 days, rising to a 62.8% win rate and +5.0% average return at 90 days."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is a cluster buy signal?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A cluster buy signal fires when two or more distinct insiders at the same company each purchase shares within a 7-day window of each other, suggesting independently-reached but aligned conviction. Alone, cluster buying is only marginally better than the baseline (+1.2% at 30 days). Combined with a price dip, the 90-day win rate reaches 59.3%."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which insider trading signal is most reliable?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Of the signals tested, price dip buying alone was the most consistent standalone predictor: +2.4% average 30-day return and a 58.8% win rate, rising to +5.0%/62.8% at 90 days, across 1,135 trades. Large purchases (over €50,000) combined with any signal showed the strongest long-term results: +6.0% average return and a 60.3% win rate at 6 months."
+        }
+      }
+    ]
+  }</script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:16px}
+    a{color:#111318}a:hover{text-decoration:underline}
+    .nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;padding:0 24px;height:56px;gap:12px}
+    .nav a{font-size:13px;color:#6B7280}.nav a:hover{color:#111318}
+    .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em;color:#111318;margin-right:auto}
+    .breadcrumb{font-size:12px;color:#9CA3AF;margin-bottom:24px}
+    .breadcrumb a{color:#9CA3AF}.breadcrumb a:hover{color:#111318}
+    .breadcrumb span{margin:0 6px}
+    .wrap{max-width:720px;margin:0 auto;padding:48px 24px 80px}
+    .meta{display:flex;gap:16px;align-items:center;margin-bottom:32px;font-size:13px;color:#9CA3AF}
+    .tag{background:#EEF2FF;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-family:'JetBrains Mono',monospace;color:#4338CA}
+    h1{font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1.25;margin-bottom:16px}
+    h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:36px 0 14px}
+    h3{font-size:15px;font-weight:600;margin:20px 0 8px}
+    p{color:#374151;margin-bottom:18px;line-height:1.75}
+    ul,ol{color:#374151;padding-left:22px;margin-bottom:18px}
+    li{margin-bottom:8px;line-height:1.7}
+    .lede{font-size:18px;color:#374151;line-height:1.7;margin-bottom:28px;font-weight:400}
+    .callout{background:#EEF2FF;border-left:3px solid #4338CA;border-radius:0 8px 8px 0;padding:14px 18px;margin:24px 0;font-size:15px;color:#374151}
+    .callout strong{color:#111318}
+    table.data{width:100%;border-collapse:collapse;margin:20px 0 28px;font-size:14px}
+    table.data th{text-align:right;padding:9px 12px;font-size:11px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #f0f0f0;font-family:'JetBrains Mono',monospace}
+    table.data th:first-child{text-align:left}
+    table.data td{text-align:right;padding:10px 12px;color:#374151;border-bottom:1px solid #f8f8f8;font-family:'JetBrains Mono',monospace}
+    table.data td:first-child{text-align:left;font-family:'Inter',sans-serif;font-weight:500;color:#111318}
+    table.data .pos{color:#15803D;font-weight:700}
+    table.data .neg{color:#B91C1C;font-weight:700}
+    .stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:24px 0}
+    .stat-card{border:1px solid #f0f0f0;border-radius:8px;padding:14px;text-align:center}
+    .stat-card .n{font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:-.02em;color:#4338CA;margin-bottom:4px}
+    .stat-card .l{font-size:11px;color:#9CA3AF;text-transform:uppercase;font-weight:600;letter-spacing:.06em}
+    .finding-box{border:1px solid #f0f0f0;border-radius:10px;padding:18px 22px;margin:20px 0;background:#fafafa}
+    .finding-box.works{border-color:#BBF7D0;background:#F0FDF4}
+    .finding-box.doesnt{border-color:#FDE68A;background:#FFFBEB}
+    .finding-box h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;margin:0 0 10px;font-family:'JetBrains Mono',monospace}
+    .cta-box{background:#0f1117;border-radius:10px;padding:24px 28px;margin:36px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .cta-box p{color:#9CA3AF;font-size:13px;margin:0}
+    .cta-box strong{display:block;color:#fff;font-size:15px;font-weight:700;margin-bottom:4px}
+    .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none}
+    .cta-btn:hover{background:#f0f0f0;text-decoration:none}
+    .divider{height:1px;background:#f0f0f0;margin:32px 0}
+    .related{background:#f8f8f8;border-radius:10px;padding:20px 24px;margin-top:36px}
+    .related h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;margin:0 0 12px;font-family:'JetBrains Mono',monospace}
+    .related-links{display:flex;flex-direction:column;gap:8px}
+    .related-links a{font-size:14px;font-weight:500;color:#111318;text-decoration:none}
+    .related-links a:hover{text-decoration:underline}
+    footer{border-top:1px solid #f0f0f0;padding:20px 24px;text-align:center;font-size:12px;color:#9CA3AF}
+    footer a{color:#9CA3AF;margin:0 8px}footer a:hover{color:#111318}
+    @media (max-width:520px){table.data{font-size:12px}table.data th,table.data td{padding:8px 6px}}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="nav-logo">
+    <svg width="26" height="26" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="200" height="200" rx="22" fill="#1a2545"/>
+      <rect x="12" y="12" width="176" height="176" rx="14" fill="#ffffff"/>
+      <rect x="36" y="12" width="22" height="176" fill="#1a2545"/>
+      <path d="M 109 72 L 190 200 L 28 200 Z" fill="#1a2545"/>
+      <path d="M 109 113 L 164 200 L 54 200 Z" fill="#ffffff"/>
+    </svg>
+    InsidersAlpha
+  </a>
+  <a href="/">← Back to app</a>
+</nav>
+
+<main class="wrap">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="/">InsidersAlpha</a><span>›</span>
+    <a href="/methodology">Education</a><span>›</span>
+    Insider Trading Performance Analysis
+  </nav>
+
+  <div class="meta">
+    <span class="tag">📊 Research</span>
+    <span>11 min read</span>
+    <span>Published July 2026</span>
+  </div>
+
+  <h1>We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.</h1>
+
+  <p class="lede">Every quarter, thousands of company directors, CEOs, and CFOs across Europe are legally required to disclose their personal stock purchases to financial regulators under MAR Article 19. We aggregated over 13,000 of these transactions across 15 markets and analyzed which patterns actually predict future stock returns.</p>
+
+  <p class="lede" style="margin-top:-16px">The results challenge some common assumptions about insider trading signals — plain insider buying is only a weak predictor on its own, one signal outperforms every other filter we tested, and at least one popular heuristic (buying by a CEO or CFO specifically) turns out not to matter at all once you control for what they actually bought and why.</p>
+
+  <h2>What We Measured</h2>
+
+  <p>InsidersAlpha ingests disclosures directly from national financial regulators — including BaFin (Germany), the AMF (France), the FCA (United Kingdom), Finansinspektionen (Sweden), the CNMV (Spain), CONSOB (Italy), the AFM (Netherlands), and others — across 16 European and Asian markets. For this specific analysis we excluded Switzerland: FINMA's disclosure format does not identify individual insiders by name, so Swiss filings cannot be matched to a specific person's trading history the way the other 15 markets can.</p>
+
+  <p>The dataset: 13,000+ total tracked transactions, narrowed to <strong>6,225 open-market purchases</strong> that met our analysis criteria, of which <strong>4,690 have matured enough</strong> (at least 30 days old) to have a tracked return. The bulk of this dataset — over 99% — falls between October 2025 and July 2026; a small number of older filings were backfilled from regulator archives and are included but do not materially affect the averages below.</p>
+
+  <p>Filters applied to every transaction in this study:</p>
+
+  <ul>
+    <li><strong>Open-market purchases only.</strong> Transaction type must be a BUY.</li>
+    <li><strong>Option exercises and grants excluded.</strong> Any transaction flagged as an option exercise, RSU vesting, or below-market nominal-price allocation is excluded — these prices don't reflect what the insider actually believes the stock is worth on the open market.</li>
+    <li><strong>Minimum transaction value.</strong> Transactions under €1,000 (converted to EUR where filed in another currency) are excluded as immaterial.</li>
+    <li><strong>Switzerland excluded.</strong> Anonymized filings can't be attributed to a specific insider.</li>
+    <li><strong>Named insiders only.</strong> Transactions filed only under a corporate entity with no identifiable individual are excluded.</li>
+  </ul>
+
+  <p>Returns are measured against the closing price on the transaction date, at 30, 90, and 180 days out. To prevent a handful of extreme outliers (bad ticker matches, corporate actions, thinly-traded micro-caps) from distorting the averages, we exclude any return beyond ±50% at 30 days, ±75% at 90 days, or ±100% at 6 months from both the average return and win rate calculations for every metric in this article.</p>
+
+  <h2>The Baseline: Do Insider Buys Outperform?</h2>
+
+  <p>Before looking at any specific signal, the first question is simpler: does buying alongside <em>any</em> insider purchase, with no further filtering, actually beat a coin flip?</p>
+
+  <table class="data">
+    <thead><tr><th>Metric</th><th>30 days</th><th>90 days</th><th>6 months</th></tr></thead>
+    <tbody>
+      <tr><td>Avg return</td><td class="pos">+1.0%</td><td class="pos">+2.9%</td><td class="pos">+3.2%</td></tr>
+      <tr><td>Win rate</td><td>51.3%</td><td>55.6%</td><td>56.0%</td></tr>
+      <tr><td>Trades</td><td>3,568</td><td>1,800</td><td>509</td></tr>
+    </tbody>
+  </table>
+
+  <p>Insider buying alone modestly outperforms a coin flip — a 51.3% win rate is only barely better than random, though it does improve as the horizon lengthens (55.6% at 90 days, 56.0% at 6 months). The average return is positive at every horizon, but +1.0% at 30 days is not, on its own, a compelling trading edge. The real alpha, as the next few sections show, comes from filtering for which insider buys carry genuine signal — not treating every disclosed purchase as equally informative.</p>
+
+  <h2>Signal 1 — Price Dip Buying: The Strongest Predictor</h2>
+
+  <p>The price dip signal flags an insider purchase made while the stock is down at least 10% from its recent high (capped at 60% drawdown, to exclude stock splits and other data artifacts rather than genuine sell-offs). The logic: insiders have the best view of their own company's fundamentals, and buying into a decline is a direct bet that the market has overreacted.</p>
+
+  <table class="data">
+    <thead><tr><th>Metric</th><th>30 days</th><th>90 days</th></tr></thead>
+    <tbody>
+      <tr><td>Avg return</td><td class="pos">+2.4%</td><td class="pos">+5.0%</td></tr>
+      <tr><td>Win rate</td><td>58.8%</td><td>62.8%</td></tr>
+      <tr><td>vs. baseline (pp)</td><td>+1.4 pp win rate</td><td>+2.1x avg return</td></tr>
+      <tr><td>Trades</td><td>1,135</td><td>613</td></tr>
+    </tbody>
+  </table>
+
+  <p>This is, by a clear margin, the strongest single signal in the entire dataset. The win rate more than doubles the "coin flip plus a bit" baseline (58.8% and 62.8% vs. 51.3% and 55.6%), and the average return is roughly 2.4x the baseline at 30 days and 1.7x at 90 days.</p>
+
+  <p><strong>Why this works:</strong> insiders buying during a selloff are effectively disagreeing with the market's negative assessment, with their own capital, at a moment when doing so is publicly visible and carries real reputational risk if they're wrong. A CEO who buys after a 10% decline and is subsequently proven wrong doesn't get to quietly walk that back — the filing is permanent and public. That asymmetry (visible downside for being wrong, no equivalent signal for staying silent) is a big part of why this particular pattern carries more information than routine buying at all-time highs.</p>
+
+  <h2>Signal 2 — Cluster Buying: When Multiple Insiders Agree</h2>
+
+  <p>A cluster buy fires when two or more distinct insiders at the same company each purchase shares within a 7-day window of each other. The idea is that independently-reached conviction from multiple people with access to the same non-public operational context is harder to dismiss than one executive's personal view.</p>
+
+  <div class="stat-row">
+    <div class="stat-card"><div class="n">+1.2%</div><div class="l">Cluster alone, avg 30d</div></div>
+    <div class="stat-card"><div class="n">49.8%</div><div class="l">Cluster alone, win rate 30d</div></div>
+    <div class="stat-card"><div class="n">59.3%</div><div class="l">+ price dip, win rate 90d</div></div>
+  </div>
+
+  <p><strong>Key insight: cluster buying alone is not predictive.</strong> A 49.8% win rate on its own — slightly <em>below</em> a coin flip — means simply seeing multiple insiders buy in the same week tells you very little by itself. What changes the picture is combining it with the price dip signal above: when a cluster buy also happens during a 10%+ drawdown, the 90-day win rate climbs to 59.3%, meaningfully ahead of either signal used alone. Multiple insiders agreeing is only informative when there's also something worth agreeing about.</p>
+
+  <h2>Signal 3 — Repetitive Buying</h2>
+
+  <p>A repetitive buy signal fires when the same insider returns to buy again — with a minimum 4-day gap from their prior purchase (to exclude a single decision executed across several trades) but within 14 days, treating it as a genuinely separate decision rather than one transaction split across settlement dates.</p>
+
+  <table class="data">
+    <thead><tr><th>Metric</th><th>30 days</th><th>90 days</th><th>6 months</th></tr></thead>
+    <tbody>
+      <tr><td>Avg return</td><td class="pos">+2.5%</td><td class="pos">+1.7%</td><td class="neg">-3.4%</td></tr>
+      <tr><td>Win rate</td><td>58.7%</td><td>55.8%</td><td>45.8%</td></tr>
+      <tr><td>Trades</td><td>409</td><td>217</td><td>72</td></tr>
+    </tbody>
+  </table>
+
+  <p>Repetitive buying is a strong short-term signal (58.7% win rate at 30 days, comparable to price dip) but it clearly weakens over longer horizons — the 6-month average return actually turns negative, though on a much smaller sample (72 trades) than the 30-day figure. Treat this as a short-term timing signal, not a long-term conviction indicator.</p>
+
+  <h2>Signal 4 — Pre-Blackout Buying</h2>
+
+  <p>Under MAR, insiders are restricted from trading during a defined "closed period" ahead of scheduled financial results. We flag purchases that fall in the roughly week-long window just before a quarterly blackout period is estimated to begin — the last realistic opportunity to trade before results, when a purchase can reasonably be read as a confidence signal heading into earnings.</p>
+
+  <table class="data">
+    <thead><tr><th>Metric</th><th>30 days</th><th>90 days</th></tr></thead>
+    <tbody>
+      <tr><td>Avg return</td><td class="pos">+1.3%</td><td class="pos">+0.4%</td></tr>
+      <tr><td>Win rate</td><td>56.1%</td><td>49.2%</td></tr>
+      <tr><td>Trades</td><td>508</td><td>122</td></tr>
+    </tbody>
+  </table>
+
+  <p>Pre-blackout buying is a reasonable short-term timing signal (56.1% win rate at 30 days) but the effect largely disappears by 90 days, where the win rate drops back to essentially coin-flip territory. Best used as a short-term signal specifically, not a long-hold thesis.</p>
+
+  <h2>The Best Combination: High Value + Signal</h2>
+
+  <p>Combining transaction size with signal quality produced the strongest longer-horizon results in the whole study: purchases over €50,000 that also carry at least one signal flag (cluster buy or price dip).</p>
+
+  <table class="data">
+    <thead><tr><th>Metric</th><th>90 days</th><th>6 months</th></tr></thead>
+    <tbody>
+      <tr><td>Avg return</td><td class="pos">+5.2%</td><td class="pos">+6.0%</td></tr>
+      <tr><td>Win rate</td><td>59.8%</td><td>60.3%</td></tr>
+      <tr><td>Trades</td><td>676</td><td>131</td></tr>
+    </tbody>
+  </table>
+
+  <p>Both size and signal quality matter, and combining them compounds rather than duplicates the effect: a large purchase (real money, real conviction) made under one of the qualifying signal conditions produces the best 6-month numbers of any combination tested — a +6.0% average return with a 60.3% win rate, though on a comparatively small sample (131 trades) that widens the uncertainty around that specific figure.</p>
+
+  <h2>What Doesn't Work: Role Alone</h2>
+
+  <div class="finding-box doesnt">
+    <h3>CEO / CFO / Chief-titled buys, no other filter</h3>
+    <p style="margin-bottom:8px">Avg 30d return: <strong>+1.3%</strong> · Win rate: <strong>49.3%</strong> · Trades: 533</p>
+    <p style="margin-bottom:0">Barely distinguishable from the +1.0% / 51.3% baseline — and the win rate is actually slightly below it.</p>
+  </div>
+
+  <p>It's a common assumption that a CEO or CFO buying is inherently more meaningful than a purchase by any other insider, since they presumably have the clearest view of the business. The data doesn't support that as a standalone filter: purchases from insiders whose disclosed role contains "CEO", "CFO", or "Chief" perform essentially identically to the unfiltered baseline, and slightly worse on win rate. Seniority alone, without also checking whether the purchase coincides with a price dip, a cluster, or unusual size, is not a useful signal by itself.</p>
+
+  <h2>Methodology and Limitations</h2>
+
+  <ul>
+    <li>Data sourced exclusively from official regulatory filings (MAR Article 19 disclosures), not aggregators or third-party estimates.</li>
+    <li>15 markets included in this analysis: 14 European markets plus South Korea. Switzerland is tracked by InsidersAlpha but excluded here because its filings don't identify individual insiders.</li>
+    <li>Outliers excluded per horizon: beyond ±50% at 30 days, ±75% at 90 days, ±100% at 6 months.</li>
+    <li>Sample sizes shrink materially at longer horizons — the 6-month figures for several signals (49–140 trades) carry meaningfully more statistical uncertainty than the 30-day figures (400–2,000+ trades) and should be read with that in mind.</li>
+    <li>The bulk of the dataset (99%+) spans October 2025 through July 2026 — a single ~10-month window, not multiple market cycles. These results have not been tested through a full bear market or a rate-cutting cycle.</li>
+    <li>Transaction values are currency-normalized to EUR for the €50,000 threshold comparison.</li>
+    <li>Past performance does not guarantee future results. This is a description of historical patterns in the dataset, not investment advice.</li>
+  </ul>
+
+  <h2>How to Apply This in Practice</h2>
+
+  <ol>
+    <li><strong>Look for price dip buys first.</strong> An insider purchase while the stock is down 10%+ from its recent high is, on this data, the single strongest filter available.</li>
+    <li><strong>Check whether multiple insiders are buying in the same window.</strong> Cluster buying isn't a strong signal alone, but stacked with a price dip it clearly improves the odds.</li>
+    <li><strong>Weight transaction size.</strong> A purchase over roughly €50,000 combined with any signal produced the best longer-term (6-month) results in this study.</li>
+    <li><strong>Treat pre-blackout and repetitive buying as short-term signals only.</strong> Both look meaningfully better at 30 days than at 90 days or 6 months — don't extrapolate a short-term edge into a long-hold thesis.</li>
+    <li><strong>Don't rely on job title alone.</strong> A CEO or CFO buying, with no other context, performed no better than the average tracked purchase in this dataset.</li>
+  </ol>
+
+  <div class="cta-box">
+    <div>
+      <strong>See these signals live, updated daily</strong>
+      <p>Track all European and Asian insider transactions in real time at InsidersAlpha — free access to 15+ markets, signal badges, and the full performance breakdown behind this article.</p>
+    </div>
+    <a href="/?page=insights&amp;tab=performance" class="cta-btn">Explore Insider Transactions →</a>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="related">
+    <h3>Related reading</h3>
+    <div class="related-links">
+      <a href="/?page=insights&amp;tab=performance">📊 Performance tab — live, continuously-updated version of this data</a>
+      <a href="/signals/price-dip-buying">📉 Price dip buying — signal reference page</a>
+      <a href="/signals/cluster-buying">🔄 Cluster buying — signal reference page</a>
+      <a href="/signals/repeated-insider-buying">🔁 Repetitive buying — signal reference page</a>
+      <a href="/signals/pre-blackout">⚠️ Pre-blackout buying — signal reference page</a>
+      <a href="/articles/what-is-cluster-buying">What is cluster buying? A deeper explainer</a>
+      <a href="/articles/mar-article-19-explained">MAR Article 19, explained</a>
+      <a href="/methodology">Full InsidersAlpha methodology</a>
+    </div>
+  </div>
+
+  <p style="margin-top:32px;font-size:12px;color:#9CA3AF">Published July 2026 · Data updated daily · Author: InsidersAlpha Research Team</p>
+</main>
+
+<footer>
+  © 2026 InsidersAlpha &nbsp;·&nbsp;
+  <a href="/about">About</a>
+  <a href="/methodology">Methodology</a>
+  <a href="/disclaimer">Disclaimer</a>
+  <a href="/privacy">Privacy</a>
+  <a href="/terms">Terms</a>
+  <a href="/contact">Contact</a>
+</footer>
+</body>
+</html>
