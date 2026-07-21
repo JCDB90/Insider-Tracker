@@ -224,13 +224,51 @@ function parseDocumentContent(content, meta) {
 
   let price = null, volume = null;
   if (priceVolBlock) {
-    const pvStr = priceVolBlock.replace(/N\s*\/?\s*A|nil|N\/A/gi, '0').trim();
+    // Word-bounded: an unbounded "N A" match corrupts ordinary words containing
+    // "na" case-insensitively (e.g. "Ordinary" → "Ordi0ry"), silently breaking
+    // any downstream pattern that expects that literal text.
+    const pvStr = priceVolBlock.replace(/\bN\s*\/?\s*A\b|\bnil\b/gi, '0').trim();
+
+    // Pattern A-dual: "Nil cost 0.03p 548,055 258,105" — a combined option-exercise
+    // + sale-to-cover-tax notification. Two price columns (nil-cost, priced) each
+    // pair positionally with their own volume column: nil↔vol1 (exercise), price↔vol2
+    // (sale). Must pair the priced column with the SECOND volume, not the first —
+    // otherwise you get the priced sale's price attached to the exercise's much
+    // larger share count (e.g. price 0.03p × 548,055 exercised shares instead of the
+    // 258,105 actually sold at that price).
+    // Unit suffix on the price group is mandatory (not "?") — otherwise a bare
+    // number belonging to a THIRD nil-cost tranche (e.g. "0 consideration 0
+    // consideration 0 consideration 79,653 56,786 4,829" — three grant tranches,
+    // no priced sale at all) gets misread as the "price".
+    const dualM = pvStr.match(/\b0\b\s*(?:[a-z]+\s+)?([\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|£))\s+([\d,]+)\s+([\d,]+)\s*$/i);
+    if (dualM) {
+      price = parsePrice(dualM[1].trim());
+      volume = parseVolume(dualM[3].trim());
+    }
+
+    // Pattern A-dual2: "Nil <vol1> ... <price>p <vol2>" — same nil-cost-vesting +
+    // priced-tax-sale shape as above but with the two sub-items spread across a
+    // longer narrative line instead of clustered together, e.g. "Acquisition of
+    // shares on vesting of award Nil 841,045 Sale of shares to satisfy income tax
+    // and NIC liability 77.792p 396,282". Without this, the "derive price from
+    // aggregate consideration" fallback below misreads the pence-suffixed sale
+    // price as a GBP total and divides it by the unrelated nil-cost volume,
+    // producing a price ~1000x too small (e.g. £0.000092 instead of £0.778).
+    if (price === null && volume === null && /\bnil\b|\bn\s*\/?\s*a\b/i.test(priceVolBlock)) {
+      const dual2M = pvStr.match(/([\d,\.]+)\s*p\b\s+([\d,]+)\s*$/i);
+      if (dual2M) {
+        price = parsePrice(dual2M[1].trim() + 'p');
+        volume = parseVolume(dual2M[2].trim());
+      }
+    }
 
     // Pattern A: "Price(s) <price> Volume(s) <volume>" — table with labels
-    const labelM = pvStr.match(/Price\(s\)\s+([\S]+(?:\s+\S+)?)\s+Volume\(s\)\s+([\d,\s]+)/i);
-    if (labelM) {
-      price = parsePrice(labelM[1].trim());
-      volume = parseVolume(labelM[2].trim());
+    if (!price && !volume) {
+      const labelM = pvStr.match(/Price\(s\)\s+([\S]+(?:\s+\S+)?)\s+Volume\(s\)\s+([\d,\s]+)/i);
+      if (labelM) {
+        price = parsePrice(labelM[1].trim());
+        volume = parseVolume(labelM[2].trim());
+      }
     }
 
     if (!price && !volume) {
@@ -239,6 +277,22 @@ function parseDocumentContent(content, meta) {
       if (pvMatch) {
         price = parsePrice(pvMatch[1].trim());
         volume = parseVolume(pvMatch[2].trim());
+      }
+    }
+
+    if (!price && !volume) {
+      // Pattern C: "<N> Ordinary Shares at £<price>" — narrative purchase/sale
+      // format, e.g. "Purchase: 2,880 Ordinary Shares at £3.43500 Sale: 400
+      // Ordinary Shares at £3.40451". Takes the first share block only —
+      // combined PDMR + PCA disclosures with two different people dealing
+      // aren't split into separate rows by this parser. Without this pattern
+      // the block falls through to the "Aggregated information ... £X" fallback
+      // below, which misreads this same per-share price as a total consideration
+      // and divides it by the share count again (£3.435 / 2,880 = £0.0012/share).
+      const atM = pvStr.match(/([\d,]+)\s+(?:Ordinary\s+)?Shares?\s+at\s+(?:£|GBP\s*)?([\d,\.]+)/i);
+      if (atM) {
+        volume = parseVolume(atM[1].trim());
+        price = parseFloat(atM[2].replace(/,/g, ''));
       }
     }
 
