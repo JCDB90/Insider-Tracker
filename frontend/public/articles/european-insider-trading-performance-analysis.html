@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>We Analyzed 13,000 European Insider Transactions — Here's What the Data Shows | InsidersAlpha</title>
-  <meta name="description" content="Analysis of 13,000+ MAR Article 19 insider transactions across European markets reveals which insider buying signals actually predict stock returns. Data-backed findings on price dip, cluster buy, and repetitive buy signals.">
+  <meta name="description" content="Analysis of 13,000+ MAR Article 19 insider transactions across European markets, with a controlled analysis isolating insider buying from mean reversion. Data-backed findings on price dip, cluster buy, and repetitive buy signals.">
   <meta property="og:title" content="We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.">
-  <meta property="og:description" content="Data-backed analysis of which insider buying signals actually predict stock returns, across 15 European and Asian markets.">
+  <meta property="og:description" content="Data-backed analysis of which insider buying signals actually predict stock returns, with a controlled analysis separating insider conviction from simple mean reversion.">
   <meta property="og:url" content="https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis">
   <meta property="og:type" content="article">
   <link rel="canonical" href="https://www.insidersalpha.com/articles/european-insider-trading-performance-analysis">
@@ -69,6 +69,14 @@
         "acceptedAnswer": {
           "@type": "Answer",
           "text": "Of the signals tested, price dip buying alone was the most consistent standalone predictor: +2.4% average 30-day return and a 58.8% win rate, rising to +5.0%/62.8% at 90 days, across 1,135 trades. Large purchases (over €50,000) combined with any signal showed the strongest long-term results: +6.0% average return and a 60.3% win rate at 6 months."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is the price dip signal just mean reversion, or does insider buying add real value?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "We built an independent control group from two years of Yahoo Finance price history across 447 tickers, isolating periods where a stock fell 10-60% from its trailing 60-day high but no insider bought within 30 days. That control group's win rate was 48.0% at 30 days and 49.4% at 90 days — essentially a coin flip, meaning drawdowns do not reliably self-correct on their own. The actual price-dip signal (drawdown plus an insider purchase) reached 58.4%/61.1% win rates over the same horizons, a 10-11 percentage point improvement. This suggests the outperformance comes predominantly from the insider buying itself, not from mean reversion."
         }
       }
     ]
@@ -150,8 +158,8 @@
 
   <div class="meta">
     <span class="tag">📊 Research</span>
-    <span>11 min read</span>
-    <span>Published July 2026</span>
+    <span>13 min read</span>
+    <span>Updated July 2026</span>
   </div>
 
   <h1>We Analyzed 13,000 European Insider Transactions. Here's What the Data Shows.</h1>
@@ -277,6 +285,25 @@
   </div>
 
   <p>It's a common assumption that a CEO or CFO buying is inherently more meaningful than a purchase by any other insider, since they presumably have the clearest view of the business. The data doesn't support that as a standalone filter: purchases from insiders whose disclosed role contains "CEO", "CFO", or "Chief" perform essentially identically to the unfiltered baseline, and slightly worse on win rate. Seniority alone, without also checking whether the purchase coincides with a price dip, a cluster, or unusual size, is not a useful signal by itself.</p>
+
+  <h2>Controlling for Mean Reversion: Is the Signal Real?</h2>
+
+  <p>A reader asked an excellent question after we first published this analysis: how much of the price-dip signal's return comes from insider buying itself, versus simple mean reversion that follows any sharp drawdown, insider or not? Stocks that have fallen a lot sometimes bounce back on their own — so is the price-dip signal really capturing insider conviction, or just the ordinary tendency of oversold stocks to recover?</p>
+
+  <p>Our transaction database can't answer this by itself — it only contains rows where an insider transaction actually happened, so there's no built-in group of "stocks that dropped, but no insider bought" to compare against. To build a genuine control group, we went outside that database: for every one of the 447 tickers with a real price-dip signal, we pulled two years of daily price history from Yahoo Finance and independently identified every period where that same stock fell 10-60% from its own trailing 60-day high — the identical drawdown definition used to flag the real signal — regardless of whether an insider bought or not. We then excluded any of those periods within 30 days of an actual insider purchase, leaving a clean sample of drawdowns where no insider bought at all, and measured the forward returns from those dates exactly as we do for the signal group.</p>
+
+  <table class="data">
+    <thead><tr><th>Group</th><th>30 days</th><th>90 days</th></tr></thead>
+    <tbody>
+      <tr><td>Price dip + insider buy (signal)</td><td class="pos">+2.3% avg · 58.4% win</td><td class="pos">+5.0% avg · 61.1% win</td></tr>
+      <tr><td>Drawdown, no insider buy (control)</td><td>+0.3% avg · 48.0% win</td><td>+1.1% avg · 49.4% win</td></tr>
+      <tr><td><strong>Incremental value</strong></td><td class="pos"><strong>+2.0pp avg · +10.4pp win</strong></td><td class="pos"><strong>+3.9pp avg · +11.7pp win</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>The control group's win rate sits at or slightly below a coin flip (48.0% at 30 days, 49.4% at 90 days).</strong> In other words, a stock that has fallen 10-60% from its recent high does not reliably bounce back on its own — mean reversion, by itself, is weak to negligible in this dataset. The meaningful outperformance in the price-dip signal — nearly 60% win rates instead of roughly 50%, and a 5.0% average 90-day return instead of 1.1% — appears to come predominantly from the insider buying itself, not from the drawdown creating its own recovery. This is, as far as we know, a genuinely new finding: the price-dip signal isn't just "buy the dip and wait" dressed up with an insider's name attached to it.</p>
+
+  <p>A caveat worth stating plainly: the control group draws only from tickers that had at least one insider-linked price-dip signal at some point, not a random cross-section of the market — so this isolates the value of insider buying <em>given</em> that a stock is one where insiders are active at all, rather than a claim about every stock that ever falls 10-60%. The comparison is also not date-matched pair-by-pair (both groups draw from overlapping but not identical periods within the same roughly two-year window).</p>
 
   <h2>Methodology and Limitations</h2>
 
