@@ -27,6 +27,27 @@ const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
 const SAME_PRICE_WINDOW = 14;  // days — "different insiders, identical price" match window (rule 3)
 const BATCH_SIZE       = 200;
 
+// ── Currency normalization (peer-median comparisons must be apples-to-apples) ──
+// Dual-listed stocks (e.g. SSAB on Stockholm in SEK and Helsinki in EUR) file
+// transactions in different currencies for the exact same underlying share.
+// Comparing raw price_per_share across currencies makes a normal-priced trade
+// in one currency look like a massive discount against peers priced in
+// another (SSAB's CFO buying at EUR 8.78 got flagged unusual against a SEK
+// ~96 peer median — same real price, ~11x apart only because SEK/EUR ≈ 11).
+// Approximate reference rates (ECB euro foreign exchange reference rates,
+// 2026-07-22) — only used to make peer comparisons commensurable; every
+// displayed/stored price_per_share and total_value keeps its original filed
+// currency untouched.
+const EUR_RATE = { // 1 unit of currency → EUR
+  EUR: 1,
+  SEK: 0.0903, NOK: 0.0914, DKK: 0.1338, GBP: 1.1718, CHF: 1.0790,
+  PLN: 0.2310, KRW: 0.000592, USD: 0.8766, ZAR: 0.0532, CAD: 0.6222,
+};
+function toEUR(price, currency) {
+  const rate = EUR_RATE[currency];
+  return price * (rate != null ? rate : 1);
+}
+
 // ── Pre-Blackout Buy windows ──────────────────────────────────────────────────
 // The 7-day window immediately before the estimated MAR blackout period starts.
 // Insiders buying in this tight window are committing capital at the last
@@ -62,7 +83,7 @@ async function loadAllBuys() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, is_unusual_price')
+      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, currency, is_unusual_price')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
       .not('insider_name', 'is', null)
@@ -91,7 +112,7 @@ async function loadPriceReference() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('company, transaction_date, price_per_share, is_unusual_price')
+      .select('company, transaction_date, price_per_share, currency, is_unusual_price')
       .gt('price_per_share', 1)
       .not('transaction_date', 'is', null)
       .order('transaction_date', { ascending: false })
@@ -112,7 +133,7 @@ async function loadPriceReference() {
     if (r.is_unusual_price) continue; // never trust a prior unusual flag as a reference either
     const key = (r.company || '').toLowerCase();
     if (!byCompany[key]) byCompany[key] = [];
-    byCompany[key].push({ price: Number(r.price_per_share), date: r.transaction_date });
+    byCompany[key].push({ price: Number(r.price_per_share), date: r.transaction_date, currency: r.currency });
   }
   return byCompany;
 }
@@ -153,6 +174,12 @@ function computeSignals(buys, priceReference) {
     // Without a reference to compare against, we do not flag: an unverifiable
     // guess must not become permanent.
     //
+    // Rules 2, 2.5 (below) and 3 all compare prices via toEUR() — dual-listed
+    // stocks (e.g. SSAB trades in SEK on Stockholm and EUR on Helsinki) file
+    // transactions for the exact same real share in different currencies, and
+    // a raw-number comparison (SEK 96 vs EUR 8.78) makes a normal trade look
+    // like a ~90% discount purely from the currency gap. See EUR_RATE above.
+    //
     // A prior version of rule 1 also flagged any 0 < price < 1, on the
     // assumption that no real penny stock trades under 1 unit of its own
     // currency. That assumption was wrong and caused real false positives
@@ -165,17 +192,19 @@ function computeSignals(buys, priceReference) {
     // higher.
     let isUnusualPrice = t.price_per_share === 0;
 
+    const tEUR = toEUR(t.price_per_share, t.currency);
+
     if (!isUnusualPrice && t.price_per_share > 0) {
       const recentPrices = peers
         .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
-        .map(p => p.price_per_share)
+        .map(p => toEUR(p.price_per_share, p.currency))
         .sort((a, b) => a - b);
       const recentMedian = recentPrices.length >= 2
         ? recentPrices[Math.floor(recentPrices.length / 2)]
         : null;
 
       if (recentMedian !== null) {
-        isUnusualPrice = t.price_per_share < recentMedian * 0.60;
+        isUnusualPrice = tEUR < recentMedian * 0.60;
       }
     }
 
@@ -203,12 +232,12 @@ function computeSignals(buys, priceReference) {
     // reference avoids a single unverified same-day print deciding the flag.
     if (!isUnusualPrice && t.price_per_share > 0) {
       const sameDayRefs = (priceReference[companyKey] || [])
-        .filter(p => p.date === t.transaction_date && Number(p.price) !== Number(t.price_per_share))
-        .map(p => p.price)
+        .filter(p => p.date === t.transaction_date && !(p.currency === t.currency && Number(p.price) === Number(t.price_per_share)))
+        .map(p => toEUR(p.price, p.currency))
         .sort((a, b) => a - b);
       if (sameDayRefs.length >= 2) {
         const medianSameDayRef = sameDayRefs[Math.floor(sameDayRefs.length / 2)];
-        if (t.price_per_share < medianSameDayRef * 0.80) isUnusualPrice = true;
+        if (tEUR < medianSameDayRef * 0.80) isUnusualPrice = true;
       }
     }
 
@@ -222,23 +251,30 @@ function computeSignals(buys, priceReference) {
       // open-market prices essentially never repeat to the exact cent/öre
       // across multiple unrelated trades — an exact match this close in time
       // is strong evidence of a shared fixed plan price, regardless of day.
+      // Same currency required too — an exact numeric match across two DIFFERENT
+      // currencies (e.g. SEK 90 and NOK 90) is coincidental, not evidence of a
+      // shared fixed plan price the way an exact match in the SAME currency is.
       const samePricePeers = peers.filter(p =>
         p.id !== t.id &&
+        p.currency === t.currency &&
         Number(p.price_per_share) === Number(t.price_per_share) &&
         p.insider_name && t.insider_name &&
         (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase() &&
         daysBetween(p.transaction_date, t.transaction_date) <= SAME_PRICE_WINDOW
       );
       if (samePricePeers.length >= 1) {
-        // Exclude ANY reference row at this exact suspect price, regardless of its
-        // date — the same incentive-plan price is often exercised by different
-        // people on different days (not just clustered on one calendar day), and
-        // those other-day rows would otherwise pollute the median right back down
-        // to the suspect price itself (e.g. Evolution AB: 3 people cluster on one
-        // day, but 3 MORE rows at the identical price sit on 3 other days).
+        // Exclude ANY reference row at this exact suspect price (same currency),
+        // regardless of its date — the same incentive-plan price is often
+        // exercised by different people on different days (not just clustered on
+        // one calendar day), and those other-day rows would otherwise pollute the
+        // median right back down to the suspect price itself (e.g. Evolution AB:
+        // 3 people cluster on one day, but 3 MORE rows at the identical price sit
+        // on 3 other days). A genuine peer filed in a DIFFERENT currency at the
+        // same real price (e.g. SSAB's SEK 96.05 vs a suspect EUR row) is kept —
+        // it's independent corroborating evidence, not the suspect price itself.
         const refPrices = (priceReference[companyKey] || [])
-          .filter(p => Number(p.price) !== Number(t.price_per_share))
-          .map(p => p.price)
+          .filter(p => !(p.currency === t.currency && Number(p.price) === Number(t.price_per_share)))
+          .map(p => toEUR(p.price, p.currency))
           .sort((a, b) => a - b);
         if (refPrices.length >= 1) {
           const refMedian = refPrices[Math.floor(refPrices.length / 2)];
@@ -251,7 +287,7 @@ function computeSignals(buys, priceReference) {
           // discount (SEK 235.15 vs a 5-point real reference median ~SEK 431),
           // which the stricter 20% bar (tuned for near-zero nominal prices) missed.
           const threshold = refPrices.length >= 2 ? 0.60 : 0.20;
-          if (t.price_per_share < refMedian * threshold) isUnusualPrice = true;
+          if (tEUR < refMedian * threshold) isUnusualPrice = true;
         }
       }
     }

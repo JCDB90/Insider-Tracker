@@ -107,6 +107,20 @@ const TICKER_MAP = {
 // contain (e.g. "bayerische motoren werke" over "bayer"), regardless of insertion order.
 const TICKER_MAP_BY_SPECIFICITY = Object.entries(TICKER_MAP).sort((a, b) => b[0].length - a[0].length);
 
+// BaFin's CSV export only exposes the "Meldepflichtiger" (reporting party) name. When
+// that party is a closely-related legal person (a GmbH/AG holding entity — looksLikeCorp()
+// below), the CSV has no separate field for the natural person (PDMR) it's associated
+// with; that name only appears in the full EQS-DD filing text, not the CSV. Without it,
+// insider_name is left null and the row is only identifiable by its corporate via_entity —
+// which quietly drops real, attributable PDMR activity from cluster/repetitive signals
+// (those require a named insider_name). Verified individually via each entity's EQS-DD
+// disclosure text before adding — do not guess these.
+const CLOSELY_RELATED_PERSON_MAP = {
+  // sino AG — Ingo Hillen (Vorstand/board member). Confirmed via EQS-DD filing text:
+  // https://www.finanznachrichten.de/nachrichten-2026-04/68336071-eqs-dd-sino-ag-mmi-leisure-capital-management-gmbh-kauf-022.htm
+  'mmi leisure & capital management gmbh': 'Ingo Hillen',
+};
+
 function getTicker(companyName) {
   if (!companyName) return null;
   const lower = companyName.toLowerCase();
@@ -272,7 +286,9 @@ function parseCsv(csvText, letter) {
       ticker:           getTicker(company) || '',
       company,
       isin:             isin || null,
-      insider_name:     (insider && looksLikeCorp(insider)) ? null  : (insider || null),
+      insider_name:     (insider && looksLikeCorp(insider))
+                          ? (CLOSELY_RELATED_PERSON_MAP[insider.toLowerCase()] || null)
+                          : (insider || null),
       via_entity:       (insider && looksLikeCorp(insider)) ? insider : null,
       insider_role:     translateRole(role) || null,
       transaction_type: txType,
