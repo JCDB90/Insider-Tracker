@@ -24,6 +24,7 @@ const REP_MIN_GAP      = 4;    // days — exclude 1–3 day tranche executions
 const REP_MAX_GAP      = 14;   // days — same insider "came back" window
 const DIP_MIN          = 0.10; // 10 % minimum drawdown
 const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
+const SAME_PRICE_WINDOW = 14;  // days — "different insiders, identical price" match window (rule 3)
 const BATCH_SIZE       = 200;
 
 // ── Pre-Blackout Buy windows ──────────────────────────────────────────────────
@@ -178,15 +179,57 @@ function computeSignals(buys, priceReference) {
       }
     }
 
+    // ── UNUSUAL PRICE (rule 2.5): same-day real-transaction mismatch ──────────
+    // Catches "exercise + sell-to-cover" patterns: an insider buys at a fixed
+    // incentive-plan price while OTHER transactions (BUY or SELL, any insider)
+    // at the same company on the SAME calendar date trade at a meaningfully
+    // higher real price (e.g. Atlas Copco's Sara Hägg Liljedal exercising at
+    // SEK 138–144 while selling the same day at the real SEK 197.5 market
+    // price). Real same-day trades in a single liquid stock essentially never
+    // diverge by >20% — a gap this size on the same day means one side isn't
+    // a market price.
+    //
+    // Requires ≥2 same-day reference points and uses their MEDIAN, not max/1
+    // point: a single same-day reference is not enough, because that lone
+    // reference could itself be an unrelated bad price that hasn't been
+    // identified yet (same chicken-and-egg risk loadPriceReference() already
+    // guards against for prior-run flags — this guards against it within a
+    // single run). E.g. ODIOT HOLDING: Jean Marc Jobert bought both EUR 20
+    // AND EUR 40 on the same day (2026-07-15) — the EUR 40 print is the bad
+    // one (a fixed incentive-plan price island — see the "different insiders,
+    // same price" rule below), but with only that ONE same-day reference,
+    // max()-based comparison wrongly flagged the genuinely-market-price EUR 20
+    // trade as unusual. Requiring 2+ points before trusting a same-day
+    // reference avoids a single unverified same-day print deciding the flag.
     if (!isUnusualPrice && t.price_per_share > 0) {
-      const sameDaySamePricePeers = peers.filter(p =>
+      const sameDayRefs = (priceReference[companyKey] || [])
+        .filter(p => p.date === t.transaction_date && Number(p.price) !== Number(t.price_per_share))
+        .map(p => p.price)
+        .sort((a, b) => a - b);
+      if (sameDayRefs.length >= 2) {
+        const medianSameDayRef = sameDayRefs[Math.floor(sameDayRefs.length / 2)];
+        if (t.price_per_share < medianSameDayRef * 0.80) isUnusualPrice = true;
+      }
+    }
+
+    if (!isUnusualPrice && t.price_per_share > 0) {
+      // ≥2 different insiders bought at the exact same price within
+      // SAME_PRICE_WINDOW days of each other (not necessarily the same
+      // calendar day — a coordinated incentive-plan exercise is commonly
+      // staggered across nearby filing/execution dates, e.g. SOBI's Lena
+      // Bjurner, Mahmood Ladha and Henrik Stenqvist each buying at the
+      // identical SEK 235.15 on three consecutive days). Real, independent
+      // open-market prices essentially never repeat to the exact cent/öre
+      // across multiple unrelated trades — an exact match this close in time
+      // is strong evidence of a shared fixed plan price, regardless of day.
+      const samePricePeers = peers.filter(p =>
         p.id !== t.id &&
-        p.transaction_date === t.transaction_date &&
         Number(p.price_per_share) === Number(t.price_per_share) &&
         p.insider_name && t.insider_name &&
-        (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase()
+        (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase() &&
+        daysBetween(p.transaction_date, t.transaction_date) <= SAME_PRICE_WINDOW
       );
-      if (sameDaySamePricePeers.length >= 1) {
+      if (samePricePeers.length >= 1) {
         // Exclude ANY reference row at this exact suspect price, regardless of its
         // date — the same incentive-plan price is often exercised by different
         // people on different days (not just clustered on one calendar day), and
@@ -197,14 +240,18 @@ function computeSignals(buys, priceReference) {
           .filter(p => Number(p.price) !== Number(t.price_per_share))
           .map(p => p.price)
           .sort((a, b) => a - b);
-        // Threshold is 1, not 2 like rule 2 — rule 3 already has strong corroborating
-        // evidence (multiple distinct insiders, identical price, identical date) before
-        // it even looks at the reference, so a single genuine reference point (e.g.
-        // Thule Group's one real SELL at SEK 218 alongside ten SEK 19.42 "BUY" rows)
-        // is enough to act on, unlike rule 2 which has no such corroboration.
         if (refPrices.length >= 1) {
           const refMedian = refPrices[Math.floor(refPrices.length / 2)];
-          if (t.price_per_share < refMedian * 0.20) isUnusualPrice = true;
+          // Tiered threshold: with only one corroborating reference point (weak
+          // support — e.g. Thule Group's single real SELL at SEK 218 alongside ten
+          // SEK 19.42 "BUY" rows) stay conservative at 20%, requiring a near-total
+          // mismatch. With ≥2 real reference points the median itself is well
+          // supported, so use the same 60% threshold rule 2 already trusts for
+          // peer-discount classification — this is what catches SOBI's ~50%
+          // discount (SEK 235.15 vs a 5-point real reference median ~SEK 431),
+          // which the stricter 20% bar (tuned for near-zero nominal prices) missed.
+          const threshold = refPrices.length >= 2 ? 0.60 : 0.20;
+          if (t.price_per_share < refMedian * threshold) isUnusualPrice = true;
         }
       }
     }
