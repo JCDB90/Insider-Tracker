@@ -17,6 +17,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 const { createClient } = require('@supabase/supabase-js');
+const { toEUR } = require('./lib/currency');
 
 const SUPABASE_URL     = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY     = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -75,7 +76,7 @@ async function checkPriceAnomalies(since) {
 async function checkMissingFields(since) {
   const { data } = await sb
     .from('insider_transactions')
-    .select('country_code, company, insider_name, shares, price_per_share, total_value, transaction_date')
+    .select('country_code, company, insider_name, via_entity, shares, price_per_share, total_value, transaction_date')
     .gte('transaction_date', since)
     // Only flag truly unknown data: NULL fields (not zero — price=0 is a legitimate vesting/grant)
     .or('insider_name.is.null,shares.is.null,price_per_share.is.null,total_value.is.null');
@@ -85,6 +86,10 @@ async function checkMissingFields(since) {
     // Exclude explicit zero-price vestings saved via allowPartial — these are intentional free grants,
     // not parsing errors. A NULL price (truly unknown) is the real flag.
     if (r.price_per_share === 0) continue;
+    // A null insider_name with via_entity set is a known institutional/corporate filer
+    // (e.g. Korea's National Pension Service) — not missing data, just attributed
+    // to an entity instead of a person.
+    if (r.insider_name === null && r.via_entity) continue;
     byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
   }
   return byCc;
@@ -150,41 +155,51 @@ async function checkUnusualPrices(since) {
   // Load all transactions and check peer-price ratio
   const { data: recent } = await sb
     .from('insider_transactions')
-    .select('id, company, insider_name, country_code, price_per_share, transaction_date, transaction_type')
+    .select('id, company, insider_name, country_code, price_per_share, currency, transaction_date, transaction_type')
     .gte('transaction_date', since)
     .in('transaction_type', ['BUY', 'SELL'])
     .gt('price_per_share', 1)
     .eq('is_unusual_price', false);  // skip rows already flagged by flag-signals (option exercises, dual-class shares)
   if (!recent?.length) return [];
 
-  // Load last 90 days of data for company-peer comparison
+  // Load last 90 days of data for company-peer comparison. Excludes rows flag-signals
+  // already flagged unusual — an old bad print (e.g. a fixed incentive-plan price island)
+  // must not sit in the reference pool and poison the median against genuinely-priced
+  // trades that come in after it (ODIOT HOLDING: two EUR 40 rows, real price ~EUR 19,
+  // kept pulling the median up and flagging every subsequent legitimate declining-price
+  // trade as "unusual" relative to them).
   const since90 = cutoffDate(90);
   const { data: peers } = await sb
     .from('insider_transactions')
-    .select('company, price_per_share, transaction_date')
+    .select('company, price_per_share, currency, transaction_date')
     .gte('transaction_date', since90)
     .gt('price_per_share', 1)
+    .eq('is_unusual_price', false)
     .in('transaction_type', ['BUY', 'SELL']);
   if (!peers) return [];
 
-  // Build per-company price arrays
+  // Build per-company price arrays, normalized to EUR — dual-listed stocks (e.g. SSAB
+  // trades in SEK on Stockholm and EUR on Helsinki) file the exact same real share in
+  // different currencies, and a raw-number comparison makes a normal trade look like a
+  // massive discount purely from the currency gap. See lib/currency.js.
   const companyPrices = {};
   for (const p of peers) {
     if (!companyPrices[p.company]) companyPrices[p.company] = [];
-    companyPrices[p.company].push(p.price_per_share);
+    companyPrices[p.company].push(toEUR(p.price_per_share, p.currency));
   }
 
   const flagged = [];
   for (const r of recent) {
-    const prices = (companyPrices[r.company] || []).filter(p => p !== r.price_per_share).sort((a,b)=>a-b);
+    const rEUR = toEUR(r.price_per_share, r.currency);
+    const prices = (companyPrices[r.company] || []).filter(p => p !== rEUR).sort((a,b)=>a-b);
     if (prices.length < 2) continue;
     const median = prices[Math.floor(prices.length / 2)];
-    if (r.price_per_share < median * 0.75) {
+    if (rEUR < median * 0.75) {
       flagged.push({
         company: r.company, insider: r.insider_name, country: r.country_code,
         date: r.transaction_date, tx_price: r.price_per_share,
         peer_median: Math.round(median * 100) / 100,
-        ratio: (r.price_per_share / median).toFixed(2),
+        ratio: (rEUR / median).toFixed(2),
       });
     }
   }

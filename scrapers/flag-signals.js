@@ -14,6 +14,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { toEUR } = require('./lib/currency');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -27,26 +28,8 @@ const DIP_MAX          = 0.60; // 60 % cap — above this is splits / bad data
 const SAME_PRICE_WINDOW = 14;  // days — "different insiders, identical price" match window (rule 3)
 const BATCH_SIZE       = 200;
 
-// ── Currency normalization (peer-median comparisons must be apples-to-apples) ──
-// Dual-listed stocks (e.g. SSAB on Stockholm in SEK and Helsinki in EUR) file
-// transactions in different currencies for the exact same underlying share.
-// Comparing raw price_per_share across currencies makes a normal-priced trade
-// in one currency look like a massive discount against peers priced in
-// another (SSAB's CFO buying at EUR 8.78 got flagged unusual against a SEK
-// ~96 peer median — same real price, ~11x apart only because SEK/EUR ≈ 11).
-// Approximate reference rates (ECB euro foreign exchange reference rates,
-// 2026-07-22) — only used to make peer comparisons commensurable; every
-// displayed/stored price_per_share and total_value keeps its original filed
-// currency untouched.
-const EUR_RATE = { // 1 unit of currency → EUR
-  EUR: 1,
-  SEK: 0.0903, NOK: 0.0914, DKK: 0.1338, GBP: 1.1718, CHF: 1.0790,
-  PLN: 0.2310, KRW: 0.000592, USD: 0.8766, ZAR: 0.0532, CAD: 0.6222,
-};
-function toEUR(price, currency) {
-  const rate = EUR_RATE[currency];
-  return price * (rate != null ? rate : 1);
-}
+// Currency normalization (peer-median comparisons must be apples-to-apples) —
+// see lib/currency.js for the rate table and rationale.
 
 // ── Pre-Blackout Buy windows ──────────────────────────────────────────────────
 // The 7-day window immediately before the estimated MAR blackout period starts.
@@ -288,6 +271,20 @@ function computeSignals(buys, priceReference) {
           // which the stricter 20% bar (tuned for near-zero nominal prices) missed.
           const threshold = refPrices.length >= 2 ? 0.60 : 0.20;
           if (tEUR < refMedian * threshold) isUnusualPrice = true;
+          // Symmetric high-side check: the same "≥2 different insiders, exact
+          // identical price" signature is just as suspicious when the shared
+          // price sits far ABOVE the reference median as when it sits far below
+          // (ODIOT HOLDING: Joachim Prince Murat and Jean Marc Jobert both
+          // "bought" at EUR 40 a day apart while the real market price that
+          // week was ~EUR 19 — over 2x). A general too-high-vs-peers rule was
+          // deliberately rejected elsewhere (a real rally could trigger it just
+          // as easily as a stale fixed price) — but that risk doesn't apply
+          // here, because this branch only runs under the same narrow
+          // precondition as the low-side check above: independent open-market
+          // trades don't land on the exact identical cent/öre by chance, so a
+          // real rally can't produce this signature no matter which direction
+          // the price sits.
+          if (tEUR > refMedian * (2 - threshold)) isUnusualPrice = true;
         }
       }
     }
@@ -440,4 +437,8 @@ async function main() {
   else console.log('  ℹ  CH signal flags cleared (anonymous insiders)');
 }
 
-main().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+if (require.main === module) {
+  main().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+} else {
+  module.exports = { loadAllBuys, loadPriceReference, computeSignals };
+}
