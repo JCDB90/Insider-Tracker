@@ -25,7 +25,7 @@
  */
 
 const https   = require('https');
-const { saveBuybackPrograms } = require('../lib/db');
+const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { htmlToText } = require('../lib/htmlToText');
 
 const COUNTRY_CODE   = 'GB';
@@ -264,7 +264,11 @@ async function scrapeGBBuybacks() {
   }
 
   console.log(`  Found ${total} buyback filings, processing ${allHits.length}`);
-  if (!allHits.length) { console.log('  No data.'); return { saved: 0 }; }
+  if (!allHits.length) {
+    console.log('  No data.');
+    await logScraperRun(COUNTRY_CODE, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
 
   // Step 2: fetch and parse each document
   const seen   = new Set();
@@ -324,10 +328,18 @@ async function scrapeGBBuybacks() {
 
   console.log(`  Parsed: ${parsed}, Skipped: ${skipped}`);
 
-  if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
+  if (!dbRows.length) {
+    console.log('  Nothing to save.');
+    await logScraperRun(COUNTRY_CODE, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
 
   const { inserted, error } = await saveBuybackPrograms(dbRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  if (error) {
+    await logScraperRun(COUNTRY_CODE, 0, (Date.now()-t0)/1000, 'failed');
+    console.error('  ❌ Supabase:', error.message); process.exit(1);
+  }
+  await logScraperRun(COUNTRY_CODE, dbRows.length, (Date.now()-t0)/1000, 'success');
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved`);
   console.log(`  Sample: ${dbRows.slice(0,3).map(r=>`${r.company} ${r.shares_bought?.toLocaleString()} @ ${r.avg_price}`).join('; ')}`);

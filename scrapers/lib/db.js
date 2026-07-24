@@ -272,4 +272,26 @@ async function saveBuybackPrograms(rows) {
   return { inserted: rows.length };
 }
 
-module.exports = { supabase, saveInsiderTransactions, saveBuybackPrograms };
+/**
+ * Log a scraper run to scraper_runs — same table/shape run-all.js already
+ * writes for the daily insider scrapers, extended here so the weekly buyback
+ * scrapers (which never wrote to this table before) show up in
+ * daily-health-check.js's stale-scraper detection too.
+ * @param {string} countryCode
+ * @param {number} rowsSaved
+ * @param {number} durationS
+ * @param {string} status - 'success' | 'failed' | 'timeout'
+ */
+async function logScraperRun(countryCode, rowsSaved, durationS, status = 'success') {
+  if (!countryCode) return;
+  try {
+    await supabase.from('scraper_runs').insert({
+      country_code: countryCode,
+      rows_saved:   rowsSaved ?? 0,
+      duration_s:   durationS,
+      status,
+    });
+  } catch { /* non-fatal */ }
+}
+
+module.exports = { supabase, saveInsiderTransactions, saveBuybackPrograms, logScraperRun };

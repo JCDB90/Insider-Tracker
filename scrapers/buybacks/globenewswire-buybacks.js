@@ -28,7 +28,7 @@
  */
 
 const https = require('https');
-const { saveBuybackPrograms } = require('../lib/db');
+const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { htmlToText } = require('../lib/htmlToText');
 
 const SOURCE          = 'GlobeNewswire';
@@ -201,10 +201,21 @@ async function scrapeGlobeNewswireBuybacks() {
   }
 
   console.log(`  Fetched ${fetched} articles, ${parsed} with program-level detail, ${skipped} failed`);
-  if (!dbRows.length) { console.log('  No data.'); return { saved: 0 }; }
+  if (!dbRows.length) {
+    console.log('  No data.');
+    for (const c of COUNTRIES) await logScraperRun(c.code, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
+
+  const byCc = {};
+  for (const r of dbRows) byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
 
   const { error } = await saveBuybackPrograms(dbRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  if (error) {
+    for (const c of COUNTRIES) await logScraperRun(c.code, 0, (Date.now()-t0)/1000, 'failed');
+    console.error('  ❌ Supabase:', error.message); process.exit(1);
+  }
+  for (const c of COUNTRIES) await logScraperRun(c.code, byCc[c.code] || 0, (Date.now()-t0)/1000, 'success');
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} filings saved`);
   console.log(`  Sample: ${dbRows.slice(0,3).map(r=>`${r.company} (${r.country_code}): max=${r.total_value?.toLocaleString()||'?'} ${r.currency}, start=${r.announced_date}, end=${r.program_end||'?'}`).join('; ')}`);

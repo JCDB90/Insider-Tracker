@@ -26,7 +26,7 @@
  */
 
 const https = require('https');
-const { saveBuybackPrograms } = require('../lib/db');
+const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { isinToTicker }        = require('../lib/isinToTicker');
 
 const COUNTRY_CODE     = 'BE';
@@ -183,7 +183,11 @@ async function scrapeBEBuybacks() {
   }
 
   console.log(`  Scan complete: ${hits} companies with filings in window, ${errors} API errors`);
-  if (!dbRows.length) { console.log('  No data.'); return { saved: 0 }; }
+  if (!dbRows.length) {
+    console.log('  No data.');
+    await logScraperRun(COUNTRY_CODE, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
 
   // ── Step 3: Resolve ISIN → ticker ─────────────────────────────────────────
   let resolved = 0;
@@ -205,7 +209,11 @@ async function scrapeBEBuybacks() {
   console.log(`  Companies: ${uniqueCompanies.slice(0, 10).join(', ')}${uniqueCompanies.length > 10 ? '…' : ''}`);
 
   const { inserted, error } = await saveBuybackPrograms(dbRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  if (error) {
+    await logScraperRun(COUNTRY_CODE, 0, (Date.now()-t0)/1000, 'failed');
+    console.error('  ❌ Supabase:', error.message); process.exit(1);
+  }
+  await logScraperRun(COUNTRY_CODE, dbRows.length, (Date.now()-t0)/1000, 'success');
 
   console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} filings saved (${uniqueCompanies.length} companies)`);
   return { saved: dbRows.length };

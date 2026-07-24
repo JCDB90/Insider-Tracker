@@ -7,9 +7,26 @@
 #   (07:00 UTC every Saturday)
 #
 # Buyback reports are filed weekly by companies; daily scraping is overkill.
+#
+# Markets covered: NO (Oslo Newsweb), GB (FCA NSM), SE/DK/FI/IS (Nasdaq
+# Nordic), BE (FSMA STORI), FR/NL/BE (GlobeNewswire press releases — AMF/AFM/
+# BaFin confirmed to have no buyback-program category for these markets, do
+# not re-add them here). DE/ES/IT are not covered by any current source.
+#
+# Each scraper call below is fault-isolated (`|| true`) so one broken source
+# doesn't take down the rest of the run — this script used to run under
+# `set -e`, which meant when the FCA NSM scraper broke silently for ~10 days
+# in July 2026 it also aborted every scraper listed after it that week.
+#
+# Double-conviction research review: Jan 2027 — check whether Tier 1
+# (price-dip BUY + insider + active buyback) has grown to n>=100 before
+# treating that comparison as meaningful. As of 2026-07-24, n=82 (pooled
+# across NO/DK/SE/FI/GB/FR/NL/BE) and directionally UNDERPERFORMED the
+# dip-without-buyback tier on every metric — see project memory
+# project_buyback_programs.md for the full breakdown before re-running this.
 # ─────────────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+set -uo pipefail
 
 APP_DIR="/opt/insider-tracker"
 LOG_DIR="${APP_DIR}/logs"
@@ -34,9 +51,12 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 cd "$APP_DIR"
 
-"$NODE_BIN" scrapers/buybacks/norway-buybacks.js
-"$NODE_BIN" scrapers/buybacks/uk-buybacks.js
-"$NODE_BIN" scrapers/buybacks/watchlist-buybacks.js
+"$NODE_BIN" scrapers/buybacks/norway-buybacks.js         || echo "  ⚠ norway-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/uk-buybacks.js              || echo "  ⚠ uk-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/nordic-buybacks.js          || echo "  ⚠ nordic-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/belgium-buybacks.js         || echo "  ⚠ belgium-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/globenewswire-buybacks.js   || echo "  ⚠ globenewswire-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/watchlist-buybacks.js       || echo "  ⚠ watchlist-buybacks.js failed"
 
 echo ""
 echo "  Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"

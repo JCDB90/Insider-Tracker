@@ -28,7 +28,7 @@
  */
 
 const https = require('https');
-const { saveBuybackPrograms } = require('../lib/db');
+const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { isinToTicker }        = require('../lib/isinToTicker');
 
 const SOURCE         = 'Nasdaq Nordic';
@@ -390,7 +390,11 @@ async function scrapeNordicBuybacks() {
   }
 
   console.log(`  Found ${allItems.length} filings`);
-  if (!allItems.length) { console.log('  No data.'); return { saved: 0 }; }
+  if (!allItems.length) {
+    console.log('  No data.');
+    for (const cc of new Set(Object.values(MARKET_COUNTRY))) await logScraperRun(cc, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
 
   // ── Process each filing ────────────────────────────────────────────────────
   const seen            = new Set();
@@ -470,7 +474,11 @@ async function scrapeNordicBuybacks() {
   }
 
   console.log(`  Parsed: ${parsed}, Skipped (no data): ${skipped}`);
-  if (!dbRows.length) { console.log('  Nothing to save.'); return { saved: 0 }; }
+  if (!dbRows.length) {
+    console.log('  Nothing to save.');
+    for (const cc of new Set(Object.values(MARKET_COUNTRY))) await logScraperRun(cc, 0, (Date.now()-t0)/1000, 'success');
+    return { saved: 0 };
+  }
 
   const byCc = {};
   for (const r of dbRows) byCc[r.country_code] = (byCc[r.country_code] || 0) + 1;
@@ -478,7 +486,11 @@ async function scrapeNordicBuybacks() {
 
   const { supabase: sbClient } = require('../lib/db');
   const { inserted, error } = await saveBuybackPrograms(dbRows);
-  if (error) { console.error('  ❌ Supabase:', error.message); process.exit(1); }
+  if (error) {
+    for (const cc of Object.keys(byCc)) await logScraperRun(cc, 0, (Date.now()-t0)/1000, 'failed');
+    console.error('  ❌ Supabase:', error.message); process.exit(1);
+  }
+  for (const [cc, n] of Object.entries(byCc)) await logScraperRun(cc, n, (Date.now()-t0)/1000, 'success');
 
   // UPDATE program_end separately — never via upsert to avoid clearing existing values
   // (Supabase upsert with ignoreDuplicates:false overwrites ALL columns in payload on conflict)
