@@ -2,12 +2,20 @@
  * UK — Insider Transactions Scraper
  *
  * Source: FCA National Storage Mechanism (NSM)
- * Search API: POST https://api.data.fca.org.uk/search?index=fca-nsm-searchdata
- * Details API: GET  https://api.data.fca.org.uk/details/{id}?index=fca-nsm-searchdata
+ * Search API: POST https://api.data.fca.org.uk/search?index=nsm-search
+ * Details API: GET  https://api.data.fca.org.uk/details/{id}?index=nsm-search
+ *
+ * Note: FCA renamed the index from "fca-nsm-searchdata" to "nsm-search" at some
+ * point before 2026-07-14 (confirmed via the live nsm_index_name value in FCA's
+ * own frontend bundle at data.fca.org.uk/main.js) — the old name now 400s with
+ * "Invalid index" on /search and 502s on /details. Both this scraper and
+ * buybacks/uk-buybacks.js were silently broken for ~9-10 days as a result
+ * (masked by `continue-on-error: true` in the GitHub Actions workflows).
  *
  * Type filter: "Director/PDMR Shareholding"
- * Document content is returned in _source.document_content as plain text
- * containing the standard MAR Art. 19 notification form.
+ * /details no longer returns document_content (dropped by FCA, see note above)
+ * — the MAR Art. 19 form text is fetched from the artefact HTML at
+ * data.fca.org.uk/artefacts/{download_link} and flattened via lib/htmlToText.
  *
  * No authentication required — search and details endpoints are public.
  */
@@ -19,6 +27,7 @@ const { translateRole }           = require('./lib/translate');
 const { looksLikeCorp }           = require('./lib/entityUtils');
 const { isinToTicker }            = require('./lib/isinToTicker');
 const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
+const { htmlToText }              = require('./lib/htmlToText');
 
 const COUNTRY_CODE    = 'GB';
 const SOURCE          = 'FCA NSM / RNS';
@@ -61,11 +70,35 @@ function postJson(path, body) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// FCA dropped _source.document_content from /details (see note above) — the
+// actual form text now only lives in this artefact HTML page.
+function fetchArtefactHtml(downloadLink) {
+  return new Promise((resolve) => {
+    const req = https.get({
+      hostname: 'data.fca.org.uk',
+      path: `/artefacts/${downloadLink}`,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html',
+      },
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(25000, () => { req.destroy(); resolve(null); });
+  });
+}
+
 function fetchDetails(id) {
   return new Promise((resolve) => {
     const req = https.get({
       hostname: 'api.data.fca.org.uk',
-      path: `/details/${encodeURIComponent(id)}?index=fca-nsm-searchdata`,
+      path: `/details/${encodeURIComponent(id)}?index=nsm-search`,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
@@ -514,7 +547,7 @@ async function scrapeUK() {
   let total = null;
 
   while (true) {
-    const res = await postJson('/search?index=fca-nsm-searchdata', {
+    const res = await postJson('/search?index=nsm-search', {
       from,
       size: pageSize,
       sort: 'submitted_date',
@@ -574,6 +607,15 @@ async function scrapeUK() {
       content = details._source.document_content;
       meta.company = meta.company || details._source.company;
       meta.download_link = meta.download_link || details._source.download_link;
+    }
+
+    // FCA no longer returns document_content from /details at all (see note at
+    // top of file) — fall back to fetching the artefact HTML directly and
+    // flattening it to the same plain-text shape parseDocumentContent expects.
+    if (!content && meta.download_link) {
+      await delay(REQUEST_DELAY_MS);
+      const html = await fetchArtefactHtml(meta.download_link);
+      if (html) content = htmlToText(html);
     }
 
     fetched++;

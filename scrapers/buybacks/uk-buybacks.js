@@ -3,8 +3,12 @@
  * GB — Share Buyback Scraper
  *
  * Source: FCA National Storage Mechanism (NSM)
- * API: POST https://api.data.fca.org.uk/search?index=fca-nsm-searchdata
+ * API: POST https://api.data.fca.org.uk/search?index=nsm-search
  * Keyword: "buyback" in headline
+ *
+ * Note: FCA renamed the index from "fca-nsm-searchdata" to "nsm-search" at some
+ * point before 2026-07-14 — see scrapers/uk.js for the full note. This scraper
+ * was silently broken (400 "Invalid index") for ~10 days as a result.
  *
  * Companies file weekly MAR Article 5 buyback reports (HTML documents).
  * Each document covers one reporting period (typically a week) per company.
@@ -22,6 +26,7 @@
 
 const https   = require('https');
 const { saveBuybackPrograms } = require('../lib/db');
+const { htmlToText } = require('../lib/htmlToText');
 
 const COUNTRY_CODE   = 'GB';
 const SOURCE         = 'FCA NSM';
@@ -89,26 +94,6 @@ function getHtml(path) {
     req.on('error', () => resolve(null));
     req.setTimeout(25000, () => { req.destroy(); resolve(null); });
   });
-}
-
-// ── HTML → plain text ─────────────────────────────────────────────────────────
-
-function htmlToText(html) {
-  if (!html) return '';
-  // Remove style/script blocks
-  let t = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ');
-  // Replace block elements with newlines
-  t = t.replace(/<\/(?:tr|p|div|br|li|h[1-6])[^>]*>/gi, '\n');
-  // Replace cell separators with spaces
-  t = t.replace(/<\/(?:td|th)[^>]*>/gi, ' ');
-  // Strip remaining tags
-  t = t.replace(/<[^>]+>/g, ' ');
-  // Decode common entities
-  t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-  // Collapse whitespace
-  t = t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n');
-  return t.trim();
 }
 
 // ── Parse buyback document text ───────────────────────────────────────────────
@@ -257,7 +242,7 @@ async function scrapeGBBuybacks() {
   let from = 0, total = null;
 
   while (true) {
-    const res = await postJson('/search?index=fca-nsm-searchdata', {
+    const res = await postJson('/search?index=nsm-search', {
       from,
       size: PAGE_SIZE,
       sort: 'submitted_date',
