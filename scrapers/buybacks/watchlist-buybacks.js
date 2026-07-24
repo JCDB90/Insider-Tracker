@@ -3,11 +3,20 @@
  * Watchlist IR Monitor — Buyback Keyword Detector
  *
  * Fetches the Investor Relations / press-release page for each watchlist stock
- * and searches for buyback/repurchase keywords in the HTML.  When found,
+ * and looks for a link whose OWN text names a buyback/repurchase. When found,
  * stores an entry in buyback_programs so the Watchlist tab can surface it.
  *
  * Runs weekly (alongside the other buyback scrapers).  Designed to be
  * resilient: pages that timeout, block, or require JS are skipped gracefully.
+ *
+ * Fixed 2026-07-25: previously matched a buyback keyword anywhere within
+ * ±150 chars of ANY link on the page (not the link's own text), and fell back
+ * to a page-wide "mention found somewhere" row when no specific link matched.
+ * Every row this had ever saved for BE/NL was a false positive from that —
+ * generic nav links like "Shares in issue" or "Media library" sitting near an
+ * unrelated buyback mention elsewhere on the page, not real announcements.
+ * Both loosened match paths were removed; a row now only gets created when a
+ * link's own visible text contains a buyback keyword.
  */
 
 const https   = require('https');
@@ -111,7 +120,14 @@ function extractRecentBuybackItems(html) {
   const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
 
-  // Find anchor + surrounding context where buyback keyword appears
+  // Find anchors whose OWN link text names a buyback — not a wide surrounding-
+  // page context. A ±150-char proximity window matched generic nav links
+  // ("Shares in issue", "Media library", "Download PDF") purely because a
+  // buyback mention sat elsewhere nearby on the page (e.g. in a shared footer
+  // or an unrelated older news teaser). Every row this scraper had ever saved
+  // for BE/NL turned out to be one of these false positives — audited all 120
+  // live rows on 2026-07-25, zero were genuine buyback announcements — so the
+  // context window is removed entirely, not just narrowed.
   const matches = [];
   const anchorRe = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,200}?)<\/a>/gi;
   let m;
@@ -119,19 +135,14 @@ function extractRecentBuybackItems(html) {
     const href = m[1];
     const inner = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (inner.length < 5) continue;
-    // Check if buyback keyword is in this anchor or surrounding 300 chars
-    const ctx = text.slice(Math.max(0, m.index - 150), m.index + m[0].length + 150);
-    if (BUYBACK_RE.test(ctx) || BUYBACK_RE.test(inner)) {
-      // Extract a date if visible
+    if (BUYBACK_RE.test(inner)) {
+      const ctx = text.slice(Math.max(0, m.index - 150), m.index + m[0].length + 150);
       const dateM = ctx.match(/(\d{1,2}[-\/\s]\w{2,10}[-\/\s]\d{2,4}|\d{4}-\d{2}-\d{2})/);
       matches.push({ title: inner.slice(0, 120), href, date: dateM?.[1] || null });
     }
   }
 
-  // Also do a broad keyword scan — if any match exists on the page, flag the company
-  const pageHasKeyword = BUYBACK_RE.test(text);
-
-  return { matches, pageHasKeyword };
+  return { matches };
 }
 
 function isoDate(s) {
@@ -167,20 +178,17 @@ async function scrapeWatchlistBuybacks() {
       const html = await fetchPage(url);
       if (!html) { console.log(`    ⚠ ${url} — no response`); continue; }
 
-      const { matches, pageHasKeyword } = extractRecentBuybackItems(html);
+      const { matches } = extractRecentBuybackItems(html);
 
-      if (!pageHasKeyword && matches.length === 0) {
-        console.log(`    ✓ ${url} — no buyback keywords`);
+      if (matches.length === 0) {
+        console.log(`    ✓ ${url} — no buyback keywords in any link text`);
         continue;
       }
 
       console.log(`    🔔 ${url} — buyback keyword detected! ${matches.length} matching links`);
 
-      // Store each match as a separate row, or one page-level row if no specific links found
-      const items = matches.length > 0 ? matches : [{ title: `Buyback / repurchase mention on ${stock.company} IR page`, href: url, date: null }];
-
-      for (let idx = 0; idx < Math.min(3, items.length); idx++) {
-        const item = items[idx];
+      for (let idx = 0; idx < Math.min(3, matches.length); idx++) {
+        const item = matches[idx];
         const execDate = isoDate(item.date) || today;
         if (execDate < cutoff) continue;  // skip old items
 

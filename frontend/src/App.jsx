@@ -1653,13 +1653,16 @@ function BuybackPrograms({ rows, loading }) {
       );
       const completionPct = rawPct != null && rawPct > 0 && rawPct <= 150 ? rawPct : null;
 
-      // Status: only Active reaches the card — Expired/Completed are filtered
+      // Status: only Active reaches the card — Expired/Completed are filtered.
+      // 'Announced' counts as Active too (recency is already gated by isStale
+      // above — a source can legitimately report a program as "Announced"
+      // rather than "Active" and still be a real, current program).
       const hasFutureEnd = programEnd && programEnd >= today;
       const isStale = !hasFutureEnd && lastDate < cutoffDate;
       const status = completionPct >= 100 ? 'Completed'
                    : isStale            ? 'Expired'
-                   : latest?.status === 'Active' ? 'Active'
-                   : 'Expired'; // treat Announced/unknown as Expired
+                   : ['Active', 'Announced'].includes(latest?.status) ? 'Active'
+                   : 'Expired'; // treat other/unknown statuses as Expired
 
       return {
         ...g, programMax, spentCumul, cumShares: totalShares,
