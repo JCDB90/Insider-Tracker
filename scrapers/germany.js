@@ -119,6 +119,21 @@ const CLOSELY_RELATED_PERSON_MAP = {
   // sino AG — Ingo Hillen (Vorstand/board member). Confirmed via EQS-DD filing text:
   // https://www.finanznachrichten.de/nachrichten-2026-04/68336071-eqs-dd-sino-ag-mmi-leisure-capital-management-gmbh-kauf-022.htm
   'mmi leisure & capital management gmbh': 'Ingo Hillen',
+  // Meta Wolf AG — Thomas Wolf (supervisory board member). Confirmed via EQS-DD filing text:
+  // https://www.eqs-news.com/news/directors-dealings/meta-wolf-ag-lubanco-pte-ltd-buy/0e277faa-8416-416c-bb53-e6f9ee0b6517_en
+  'lubanco pte. ltd.': 'Thomas Wolf',
+  'lubanco pte ltd.':  'Thomas Wolf',
+  'lubanco pte ltd':   'Thomas Wolf',
+  // LAIQON AG — Achim Plate (board member). Confirmed via EQS-DD filing text:
+  // https://www.eqs-news.com/news/directors-dealings/laiqon-ag-plate-cie-gmbh-buy/1ae7a283-e9df-4bca-9ac9-fa6faaeb53d1_de
+  'plate & cie. gmbh': 'Achim Plate',
+  'plate & cie gmbh':  'Achim Plate',
+  // Friedrich Vorwerk Group SE / MBB SE — Dr. Christof Nesemeier (Executive Chairman of
+  // MBB SE, supervisory board member of Friedrich Vorwerk). Confirmed via two independent
+  // EQS-DD filing texts:
+  // https://www.eqs-news.com/news/directors-dealings/friedrich-vorwerk-group-se-mbb-capital-management-gmbh-buy/474fd182-471d-477a-8424-65ee098f0b45_en
+  // https://www.eqs-news.com/news/directors-dealings/mbb-se-mbb-capital-management-gmbh-buy/785e69d3-6344-46e4-9970-279b49fa617b_en
+  'mbb capital management gmbh': 'Dr. Christof Nesemeier',
 };
 
 function getTicker(companyName) {

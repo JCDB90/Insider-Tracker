@@ -44,6 +44,22 @@ const CURRENCY       = 'EUR';
 const PDF_CONCURRENCY = 4;
 const PDF_DELAY_MS    = 400;
 
+// Some CNMV "Cargo - posición" lines name multiple directors in a single sentence
+// (e.g. "D. X y D. Y son Consejeros del Emisor") rather than the single "Name - Role"
+// / "Role - Name" shape extractPdmrFromCargo() handles — those fall through to null.
+// The real controlling person is only stated in section 3 "Otra información"
+// ("... es una sociedad controlada por D. X, en la que es Consejero y Presidente...").
+// Verified individually via each entity's actual CNMV filing text before adding —
+// do not guess. Mirrors germany.js's CLOSELY_RELATED_PERSON_MAP.
+const CLOSELY_RELATED_PERSON_MAP = {
+  // MIQUEL Y COSTAS & MIQUEL, S.A. — HACIA S.A. is controlled by Jorge Mercader Miró
+  // (Consejero y Presidente of HACIA S.A.; also Consejero of the issuer). Confirmed via
+  // CNMV filing text, section 3: "HACIA S.A. es una sociedad controlada por D. Jorge
+  // Mercader Miró, en la que es Consejero y Presidente, y en la que D. Jorge Mercader
+  // Barata desempeña el cargo de Consejero."
+  'hacia s.a.': 'Jorge Mercader Miró',
+};
+
 // ─── Ticker lookup — IBEX 35 + main mid-caps ──────────────────────────────────
 
 const TICKER_MAP = {
@@ -465,8 +481,12 @@ async function scrapeES() {
       }
 
       const isCorp = f.insiderName && looksLikeCorp(f.insiderName);
-      // For corporate filers, try to use the real PDMR name from PDF section 2a
-      const pdmrName = pdfBlocks[0]?.pdmrName || null;
+      // For corporate filers, try to use the real PDMR name from PDF section 2a,
+      // falling back to the verified entity map for cargo lines that don't parse
+      // (multi-name sentences — see CLOSELY_RELATED_PERSON_MAP above).
+      const pdmrName = pdfBlocks[0]?.pdmrName
+        || (isCorp ? CLOSELY_RELATED_PERSON_MAP[f.insiderName.toLowerCase()] : null)
+        || null;
 
       pdfBlocks.forEach((p, idx) => {
         const shares = p.shares ?? null;

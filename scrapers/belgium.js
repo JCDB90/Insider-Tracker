@@ -49,6 +49,19 @@ const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const CURRENCY       = 'EUR';
 const CONCURRENCY    = 5;   // parallel detail page fetches
 
+// Some FSMA detail pages have no "Declarer Related Persons" field at all — the
+// notifying holding company's own name is the only name published, so the
+// natural-person fallback below (relatedPersonsRaw parsing) can never resolve
+// these and previously left insider_name wrongly equal to the entity name itself.
+// Verified individually via external sources before adding — do not guess.
+// Mirrors germany.js's CLOSELY_RELATED_PERSON_MAP.
+const CLOSELY_RELATED_PERSON_MAP = {
+  // OPTION — Van Zele Holding is Eric Van Zele's personal holding company (investor/
+  // director at Option NV). Confirmed via public company records (Companyweb,
+  // De Rijkste Belgen) — FSMA's own detail pages for this notifier never name him.
+  'van zele holding': 'Eric Van Zele',
+};
+
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
@@ -153,6 +166,8 @@ function parseDetailPage(html, slug) {
     const parts = relatedPersonsRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
     if (parts.length === 1 && parts[0] && !looksLikeCorp(parts[0])) {
       insiderName = parts[0];
+    } else if (CLOSELY_RELATED_PERSON_MAP[notifyingPerson.toLowerCase()]) {
+      insiderName = CLOSELY_RELATED_PERSON_MAP[notifyingPerson.toLowerCase()];
     }
     // If multiple PDMRs or none resolved, keep entity name so the row isn't lost
   }
