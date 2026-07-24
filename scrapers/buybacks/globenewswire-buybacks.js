@@ -35,10 +35,18 @@ const SOURCE          = 'GlobeNewswire';
 const RETENTION_DAYS  = parseInt(process.env.LOOKBACK_DAYS || '30');
 const DELAY_MS        = 300;
 
+// keywords: 'share buyback' alone missed real French program announcements
+// (NEURONES, Crédit Agricole de la Touraine et du Poitou, IPSOS) that only
+// surfaced under the single French term 'rachat' — French companies often
+// use "rachat d'actions"/"programme de rachat" rather than the English
+// phrase. Confirmed via direct feed testing 2026-07-25 that multi-word French
+// phrases ("rachat actions", "programme de rachat") return 0 — GlobeNewswire's
+// keyword param appears to require all words in exact sequence, not an OR/AND
+// of terms, so only single-word 'rachat' works here, not a French phrase.
 const COUNTRIES = [
-  { code: 'FR', name: 'France' },
-  { code: 'NL', name: 'Netherlands' },
-  { code: 'BE', name: 'Belgium' },
+  { code: 'FR', name: 'France',      keywords: ['share buyback', 'rachat'] },
+  { code: 'NL', name: 'Netherlands', keywords: ['share buyback'] },
+  { code: 'BE', name: 'Belgium',     keywords: ['share buyback'] },
 ];
 
 function isoDate(d) {
@@ -113,10 +121,22 @@ function parseProseDate(s) {
 
 const CCY_SYM = { '€': 'EUR', '£': 'GBP', '$': 'USD' };
 
-function parseArticleBody(text) {
+function addMonths(dateIso, months) {
+  if (!dateIso) return null;
+  const d = new Date(dateIso + 'T00:00:00Z');
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+function parseArticleBody(text, pubDateIso) {
   // "maximum total value of €175 million" / "up to a maximum of €50 million"
   let programMax = null, currency = null;
-  const maxM = text.match(/(?:maximum\s+(?:total\s+)?(?:aggregate\s+)?(?:market\s+)?value\s+of|up\s+to(?:\s+a\s+maximum\s+of)?)\s*([€£$]|[A-Z]{3})\s*([\d.,]+)\s*(million|billion|mn|bn)?/i);
+  const maxM = text.match(/(?:maximum\s+(?:total\s+)?(?:aggregate\s+)?(?:market\s+)?value\s+of|up\s+to(?:\s+a\s+maximum\s+of)?)\s*([€£$]|[A-Z]{3})\s*([\d.,]+)\s*(million|billion|mn|bn)?/i)
+           // French AMF Article 241-2 standardized disclosure ("Description of
+           // the share buyback program"): "Maximum amount of the program
+           // authorized by the Shareholders' Meeting: €218,958,390" — no
+           // million/billion shorthand, bare full number after a colon.
+           || text.match(/maximum\s+amount\s+of\s+the\s+program(?:me)?[\s\S]{0,80}?:\s*([€£$]|[A-Z]{3})\s*([\d.,]+)\s*(million|billion|mn|bn)?/i);
   if (maxM) {
     currency = CCY_SYM[maxM[1]] || maxM[1].toUpperCase();
     const mult = /billion|bn/i.test(maxM[3] || '') ? 1e9 : /million|mn/i.test(maxM[3] || '') ? 1e6 : 1;
@@ -130,7 +150,21 @@ function parseArticleBody(text) {
 
   // "run until 1 July 2026 at the latest" / "until 1 July 2026"
   const endM = text.match(/(?:run\s+until|until)\s+(\d{1,2}\s+\w+\s+\d{4})(?:\s+at\s+the\s+latest)?/i);
-  const programEnd = endM ? parseProseDate(endM[1]) : null;
+  let programEnd = endM ? parseProseDate(endM[1]) : null;
+
+  // Same French standardized disclosure: authorizations are duration-based
+  // ("for a period of 18 months", "not to exceed 18 months from this
+  // Meeting"), not an explicit end date — derive one from the duration plus
+  // whichever start reference is available (explicit start, else this
+  // article's own publish date, since the authorization is announced the
+  // same day it's granted in this format).
+  if (!programEnd) {
+    const durM = text.match(/period\s+(?:of\s+|not\s+(?:to\s+)?exceed(?:ing)?\s+)(\d{1,2})\s+months?/i);
+    if (durM) {
+      const base = programStart || pubDateIso;
+      programEnd = addMonths(base, parseInt(durM[1], 10));
+    }
+  }
 
   // Weekly declarations: "conducted from May 11 to May 15, 2026" / "from 11 May to 15 May 2026"
   let execDate = null;
@@ -154,10 +188,14 @@ async function scrapeGlobeNewswireBuybacks() {
   let fetched = 0, parsed = 0, skipped = 0;
 
   for (const country of COUNTRIES) {
-    const url = `https://www.globenewswire.com/RssFeed/country/${country.name}/keyword/share%20buyback`;
-    const xml = await httpsGetText(url);
-    const items = parseRssItems(xml);
-    console.log(`  ${country.code}: ${items.length} items in feed`);
+    let items = [];
+    for (const keyword of country.keywords) {
+      const url = `https://www.globenewswire.com/RssFeed/country/${country.name}/keyword/${encodeURIComponent(keyword)}`;
+      const xml = await httpsGetText(url);
+      items = items.concat(parseRssItems(xml));
+      await delay(DELAY_MS);
+    }
+    console.log(`  ${country.code}: ${items.length} items across ${country.keywords.length} keyword(s)`);
 
     for (const item of items) {
       if (!item.link || !item.identifier) continue;
@@ -174,7 +212,7 @@ async function scrapeGlobeNewswireBuybacks() {
       fetched++;
 
       const text = htmlToText(html);
-      const { programMax, currency, programStart, programEnd, execDate } = parseArticleBody(text);
+      const { programMax, currency, programStart, programEnd, execDate } = parseArticleBody(text, pubDateIso);
 
       const ticker = item.stock ? item.stock.split(':').pop() : null;
       const status = /complet/i.test(item.title || '') ? 'Completed' : 'Active';

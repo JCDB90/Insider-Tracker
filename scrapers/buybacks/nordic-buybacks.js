@@ -36,6 +36,10 @@ const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
 const DELAY_MS       = 250;
 const CNS_CATEGORY   = "Changes in company's own shares";
 
+// 'Main Market, Iceland' deliberately excluded — Insider Tracker doesn't scrape
+// Icelandic insider transactions at all, so IS buyback data has no insider
+// activity to correlate against. Any item with no entry here is skipped by
+// the `if (!countryCode) continue;` check below.
 const MARKET_COUNTRY = {
   'Main Market, Stockholm':  'SE',
   'First North Sweden':      'SE',
@@ -44,7 +48,6 @@ const MARKET_COUNTRY = {
   'First North Finland':     'FI',
   'Main Market, Copenhagen': 'DK',
   'First North Denmark':     'DK',
-  'Main Market, Iceland':    'IS',
 };
 
 function isoDate(d) {
