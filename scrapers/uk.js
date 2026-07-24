@@ -501,7 +501,7 @@ function parseDocumentContent(content, meta) {
     currency:         'GBP',
     shares:           volume,
     total_value:      (price && volume) ? Math.round(price * volume) : null,
-    filing_url:       meta.download_link ? `https://data.fca.org.uk/${meta.download_link}` : null,
+    filing_url:       meta.download_link ? `https://data.fca.org.uk/artefacts/${meta.download_link}` : null,
     // Not in the original task list but the same gap applies here: a nil-cost or
     // sub-unit price is a vesting/option event, not a market price.
     is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
