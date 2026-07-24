@@ -40,6 +40,10 @@ jobs:
         continue-on-error: true
         run: node scrapers/buybacks/belgium-buybacks.js
 
+      - name: 🇫🇷🇳🇱🇧🇪 GlobeNewswire Buybacks (FR/NL/BE press releases)
+        continue-on-error: true
+        run: node scrapers/buybacks/globenewswire-buybacks.js
+
       - name: 📋 Watchlist IR Monitor (keyword detector)
         continue-on-error: true
         run: node scrapers/buybacks/watchlist-buybacks.js
