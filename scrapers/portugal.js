@@ -66,6 +66,18 @@ function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// Defensive last-resort cleanup for the company field. The extraction below
+// (section 3's "a) Nome ... b) LEI" block) is bounded to avoid picking up
+// role/boilerplate text in the first place — this is a safety net for any
+// layout variant not covered by that bounding.
+const cleanPtCompany = (name) => {
+  if (!name) return name;
+  return name
+    .replace(/,\s*sendo.*$/i, '')
+    .replace(/^(Presidente|Administrador|Director|Gestor)\s+d[oae]\s+/i, '')
+    .trim();
+};
+
 // ─── PDF text extraction ───────────────────────────────────────────────────────
 
 function pdfBase64ToText(base64) {
@@ -98,14 +110,40 @@ function parsePdfFields(text) {
   // ── Insider name ──────────────────────────────────────────────────────────────
 
   let insiderName = null;
+  let viaEntity = null;
+
+  // Closely-related-entity notifications: the Cargo/estatuto text names a
+  // corporate entity as the closely-related party and a natural person it's
+  // linked to. Two boilerplate phrasings seen in practice:
+  //   A) "A presente notificação diz respeito à {ENTITY} enquanto Pessoa
+  //      Estreitamente Relacionada com {PERSON}." (Flexdeal's Baddon S.A.
+  //      filing, TRAN1289389.pdf)
+  //   B) "...por força do exercício de cargo(s) de administração de {PERSON}
+  //      na {ENTITY} e n[ao] emitente" (VAA's NCFTRADETUR filing,
+  //      TRAN1289951.pdf)
+  // Must run FIRST: this Cargo/estatuto text is exactly what the old company
+  // extraction below used to mistake for the issuer name, and the real
+  // person's name never appears via any of the other patterns in this
+  // function for these filings.
+  const relA = text.match(/diz respeito à\s+([\s\S]+?)\s+enquanto Pessoa\s*\n?\s*Estreitamente Relacionada com\s+([^\n.]{3,80})\./i);
+  const relB = text.match(/de cargos?\s+de administra[çc][aã]o de\s+([\s\S]{3,150}?)\s+na\s*\n?\s*([^\n]{3,80}),?\s+e n[ao]\s+emitente/i);
+  if (relA) {
+    viaEntity = relA[1].trim();
+    insiderName = relA[2].trim();
+  } else if (relB) {
+    insiderName = relB[1].trim().replace(/\s+/g, ' ');
+    viaEntity = relB[2].trim();
+  }
 
   // Format A: "Pessoas com responsabilidades de direção: Name\nSurname"
-  const ptNameMatch = text.match(
-    /Pessoas com responsabilidades de dire[çc][aã]o:\s*([\s\S]+?)(?=\n\n|A presente)/
-  );
-  if (ptNameMatch) {
-    insiderName = ptNameMatch[1]
-      .split('\n').map(l => l.trim()).filter(Boolean).join(' ');
+  if (!insiderName) {
+    const ptNameMatch = text.match(
+      /Pessoas com responsabilidades de dire[çc][aã]o:\s*([\s\S]+?)(?=\n\n|A presente)/
+    );
+    if (ptNameMatch) {
+      insiderName = ptNameMatch[1]
+        .split('\n').map(l => l.trim()).filter(Boolean).join(' ');
+    }
   }
 
   // Format B: "hereby informs on the transaction of ... shares by Name, Role"
@@ -137,15 +175,36 @@ function parsePdfFields(text) {
   // fallback below: when section 1's Nome value is blank (as in this layout),
   // that fallback isn't anchored to section 1 and happily matches section 3's
   // "a) Nome" instead — the issuer's name, not the person's.
+  // Portuguese names commonly include lowercase particles (da/de/do/dos/das)
+  // between capitalized words — e.g. "Alberto Jorge da Silva Amaral".
+  const PT_NAME_SHAPE = /^[A-ZÀ-Ý][a-zà-ÿ]+(?:\s+(?:d[aeo]s?|e|[A-ZÀ-Ý][a-zà-ÿ.]+)){1,6}$/;
+
   if (!insiderName) {
-    const sendoMatch = text.match(/([^\n]{3,80})\n\n(?:[^\n]*\n){0,3}?[^\n]*\bsendo por isso\b/i);
+    // Boilerplate wording varies: "sendo por isso" or "sendo, por isso,"
+    // (verified on Flexdeal's TRAN1289388.pdf, which uses the comma form).
+    const sendoMatch = text.match(/([^\n]{3,80})\n\n(?:[^\n]*\n){0,3}?[^\n]*\bsendo,?\s*por isso\b/i);
     if (sendoMatch) {
       const candidate = sendoMatch[1].trim();
-      // Portuguese names commonly include lowercase particles (da/de/do/dos/das)
-      // between capitalized words — e.g. "Alberto Jorge da Silva Amaral".
-      if (/^[A-ZÀ-Ý][a-zà-ÿ]+(?:\s+(?:d[ao]s?|[A-ZÀ-Ý][a-zà-ÿ.]+)){1,6}$/.test(candidate)) {
-        insiderName = candidate;
-      }
+      if (PT_NAME_SHAPE.test(candidate)) insiderName = candidate;
+    }
+  }
+
+  // Fallback: some issuers displace the person's name into section 4's block
+  // (transaction details) instead of section 1, due to the same column-
+  // scrambling — verified on Conduril's TRAN1289706.pdf (name right after the
+  // section 4 header) and Flexdeal's TRAN1289388.pdf (name right after item
+  // 4's "b)" sub-label). Take the first standalone line in that block that
+  // looks like a person's name and isn't a known field label.
+  if (!insiderName) {
+    const sec4Idx = text.search(/Dados da\(s\) transa[çc][aã]o/i);
+    if (sec4Idx !== -1) {
+      let endIdx = text.slice(sec4Idx).search(/Pre[çc]o\(s\)\s*e\s*volume\(s\)/i);
+      endIdx = endIdx === -1 ? 600 : Math.min(endIdx, 600);
+      const sec4Lines = text.slice(sec4Idx, sec4Idx + endIdx)
+        .split('\n').map(l => l.trim()).filter(Boolean);
+      const LABEL_BLOCKLIST = /^(?:[a-f]\)|\d+|Descri[çc][aã]o|C[oó]digo|Natureza|ISIN|Pre[çc]o|Volume|Informa[çc][oõ]es|Data|Local|A[çc][oõ]es|Aquisi[çc][aã]o|Aliena[çc][aã]o|Notifica[çc][aã]o)/i;
+      const candidate = sec4Lines.find(l => PT_NAME_SHAPE.test(l) && !LABEL_BLOCKLIST.test(l));
+      if (candidate) insiderName = candidate;
     }
   }
 
@@ -202,12 +261,29 @@ function parsePdfFields(text) {
 
   let company = null;
 
-  // Format A: section 3a Nome
-  const ptCompMatch = text.match(/a\)\s*Nome\s*\n([\s\S]+?)(?:\nb\)|$)/);
-  if (ptCompMatch) {
-    const comp = ptCompMatch[1].split('\n').map(l => l.trim()).filter(Boolean)
-      .find(l => l.length > 5 && /S\.A\.|SGPS|S\.A|Ltd|plc|\bSA\b|NV|SARL/i.test(l));
-    if (comp) company = comp;
+  // Format A: section 3's "a) Nome ... b) LEI" block — the issuer's own name,
+  // bounded to end right before "b) LEI" so it can't spill into a scrambled
+  // section 4. The old unbounded version (just "a) Nome" to the next "b)")
+  // routinely captured role/boilerplate text from section 2 instead, since
+  // section 1's own Nome field is reliably blank on these filers and that
+  // text happens to contain a corporate suffix too — e.g. "Presidente do
+  // Conselho de Administração da Conduril - Engenharia, S.A." (Conduril,
+  // TRAN1289706.pdf) or "SIMFE, S.A., sendo, por isso, Dirigente da
+  // Sociedade." (Flexdeal, TRAN1289388.pdf).
+  const issuerBlock = text.match(/Dados sobre o emitente[\s\S]*?\ba\)\s*\n+\s*Nome\s*\n+\s*([^\n]{3,150})\n+\s*b\)\s*\n+\s*LEI/i);
+  if (issuerBlock) company = issuerBlock[1].trim();
+
+  // Fallback: some filers bundle the "a)"/"b)" and "Nome"/"LEI" labels
+  // together BEFORE their values instead of interleaving label-value pairs
+  // (verified on Samba Digital's TRAN1289488.pdf/TRAN1289489.pdf) — in that
+  // layout the company name is simply the line immediately preceding an
+  // 18-20 char LEI code.
+  if (!company) {
+    const emitenteIdx = text.search(/Dados sobre o emitente/i);
+    if (emitenteIdx !== -1) {
+      const leiPair = text.slice(emitenteIdx, emitenteIdx + 400).match(/([^\n]{3,150})\n([A-Z0-9]{18,20})\b/);
+      if (leiPair) company = leiPair[1].trim();
+    }
   }
 
   // Format B: "Issuer Company\n\n{name}" or "Issuer Company  {name}"
@@ -226,6 +302,11 @@ function parsePdfFields(text) {
       if (lines.length) company = lines.join(' ').slice(0, 150);
     }
   }
+
+  // Defensive cleanup regardless of which path found the company — strip
+  // trailing legal boilerplate and leading role/title prefixes that could
+  // still slip through on layouts not covered above.
+  company = cleanPtCompany(company);
 
   // ── ISIN ─────────────────────────────────────────────────────────────────────
 
@@ -269,11 +350,24 @@ function parsePdfFields(text) {
   // line, no "/ação" or "(per share)" suffix (verified on Flexdeal's
   // TRAN1290486.pdf). Match "Preço" followed by the euro amount, anywhere in
   // the text — the label/value can be separated by a colon or a line break
-  // depending on how pdftotext linearized the table.
+  // depending on how pdftotext linearized the table. Requires a comma-decimal
+  // amount (e.g. "5,05") to avoid matching a bare thousands-separated share
+  // count like "13.000" that happens to follow a "Preço" label after table
+  // scrambling (verified on Conduril's TRAN1289706.pdf).
   if (pricePerShare == null) {
-    const precoMatch = text.match(/\bPre[çc]o\b\s*[:\n]\s*€?\s*(\d+(?:[,\.]\d+)*)/i);
+    const precoMatch = text.match(/\bPre[çc]o\b\s*[:\n]\s*€?\s*(\d+,\d{2,4})/i);
     if (precoMatch) {
-      pricePerShare = parseFloat(precoMatch[1].replace(/\.(\d{3})/g, '$1').replace(',', '.'));
+      pricePerShare = parseFloat(precoMatch[1].replace(',', '.'));
+    }
+  }
+
+  // Format D: narrative "...valor de referência unitário 14,90 €" sentence in
+  // the notification's intro paragraph (verified on Conduril's
+  // TRAN1289706.pdf) — reliable plain prose, unaffected by table scrambling.
+  if (pricePerShare == null) {
+    const refMatch = text.match(/valor de refer[eê]ncia unit[aá]rio\s*([\d,\.]+)\s*€/i);
+    if (refMatch) {
+      pricePerShare = parseFloat(refMatch[1].replace(/\.(\d{3})/g, '$1').replace(',', '.'));
     }
   }
 
@@ -281,10 +375,16 @@ function parsePdfFields(text) {
 
   let shares = null;
 
-  // Format A: "7029 ações" (European format, no thousands separator)
-  const ptVolMatch = text.match(/(\d[\d\s]*)\s*a[çc][õo]es\b/i);
+  // Format A: "7 029 ações" or "13.000 ações" (European format — space or
+  // period thousands separator). Previously only allowed spaces, so a
+  // period-separated count like "13.000" or "10.000" would fail to match
+  // starting from the "1", fall back to matching just the digits after the
+  // period ("000 ações"), and silently produce shares=0 (verified on
+  // Conduril's TRAN1289706.pdf and Flexdeal's Baddon S.A. filing,
+  // TRAN1289389.pdf).
+  const ptVolMatch = text.match(/(\d[\d.\s]*)\s*a[çc][õo]es\b/i);
   if (ptVolMatch) {
-    shares = parseInt(ptVolMatch[1].replace(/\s/g, ''), 10);
+    shares = parseInt(ptVolMatch[1].replace(/[.\s]/g, ''), 10);
   }
 
   // Format B: "/ 20,410 shares" (US/EN thousands separator with comma)
@@ -345,7 +445,7 @@ function parsePdfFields(text) {
   const marketMatch = text.match(/(?:Local da opera[çc][aã]o|Place of the transaction|Location)\s+([^\n\d][^\n]{2,50})/i);
   const market = marketMatch ? marketMatch[1].trim() : null;
 
-  return { insiderName, roleRaw, company, isin, lei, transactionType, pricePerShare, shares, transactionDate, market };
+  return { insiderName, viaEntity, roleRaw, company, isin, lei, transactionType, pricePerShare, shares, transactionDate, market };
 }
 
 // ─── Role translation ─────────────────────────────────────────────────────────
@@ -788,7 +888,7 @@ async function scrapePT() {
         ticker:           fields.isin ? (await isinToTicker(fields.isin, COUNTRY_CODE) || '') : '',
         company,
         insider_name:     (fields.insiderName && looksLikeCorp(fields.insiderName)) ? null : (fields.insiderName || null),
-        via_entity:       (fields.insiderName && looksLikeCorp(fields.insiderName)) ? fields.insiderName : null,
+        via_entity:       fields.viaEntity || ((fields.insiderName && looksLikeCorp(fields.insiderName)) ? fields.insiderName : null),
         insider_role:     role || null,
         transaction_type: fields.transactionType,
         transaction_date: fields.transactionDate || item.DATA_FACT,
