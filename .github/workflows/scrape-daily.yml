@@ -117,6 +117,12 @@ jobs:
         timeout-minutes: 12   # PDF downloads from LuxSE
         run: node scrapers/luxembourg.js
 
+      - name: 🇦🇹 Austria (OeKB)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AT' }}
+        continue-on-error: true
+        timeout-minutes: 12   # PDF downloads from OeKB
+        run: node scrapers/austria.js
+
       - name: 🇬🇧 United Kingdom (FCA NSM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
         continue-on-error: true

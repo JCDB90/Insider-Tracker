@@ -12,7 +12,7 @@ const CURRENCY_SYMBOLS = {
 };
 
 const COUNTRY_FLAGS = {
-  BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',
+  AT:'🇦🇹',BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',
   ES:'🇪🇸',FI:'🇫🇮',FR:'🇫🇷',GB:'🇬🇧',
   IT:'🇮🇹',KR:'🇰🇷',NL:'🇳🇱',NO:'🇳🇴',
   PL:'🇵🇱',SE:'🇸🇪',
@@ -21,7 +21,7 @@ const COUNTRY_FLAGS = {
 const COUNTRY_YAHOO_SUFFIX = {
   SE:'.ST', DK:'.CO', FI:'.HE', NO:'.OL', DE:'.DE', FR:'.PA',
   NL:'.AS', BE:'.BR', IT:'.MI', ES:'.MC',
-  CH:'.SW', GB:'.L',  PL:'.WA', PT:'.LS',
+  CH:'.SW', GB:'.L',  PL:'.WA', PT:'.LS', AT:'.VI',
 };
 
 // PL tickers where GPW symbol differs from Yahoo Finance symbol
