@@ -61,7 +61,7 @@ const MARKETS = [
   { code: 'NO', name: 'Norway',         file: 'norway',      mode: 'http' },
   { code: 'FI', name: 'Finland',        file: 'finland',     mode: 'http' },
   { code: 'CH', name: 'Switzerland',    file: 'switzerland', mode: 'http' },
-  { code: 'PT', name: 'Portugal',       file: 'portugal',    mode: 'http' },
+  { code: 'PT', name: 'Portugal',       file: 'portugal',    mode: 'puppeteer' },
   { code: 'LU', name: 'Luxembourg',     file: 'luxembourg',  mode: 'http' },
   { code: 'PL', name: 'Poland',         file: 'poland',      mode: 'http' },
   // AT, IE, CZ removed — not on platform

@@ -126,9 +126,36 @@ function parsePdfFields(text) {
     if (sec1aEn) insiderName = sec1aEn[1].trim();
   }
 
-  // Fallback: 1a Nome field if filled
+  // Fallback: some issuers' PDFs have a complex two-column table layout that
+  // pdftotext linearizes out of order, so the 1a) Nome value ends up displaced
+  // far from its label (verified on Flexdeal – SIMFE's TRAN1290486.pdf, where
+  // the name appears mid-way through section 4's table instead of under 1a).
+  // The CMVM standard boilerplate always restates the name in a sentence like
+  // "<Name> é o/a <cargo>, sendo por isso Dirigente desta sociedade" right
+  // after — that phrase is a reliable anchor regardless of where the table
+  // scrambled the actual field position. Must run BEFORE the generic 1a)/Nome
+  // fallback below: when section 1's Nome value is blank (as in this layout),
+  // that fallback isn't anchored to section 1 and happily matches section 3's
+  // "a) Nome" instead — the issuer's name, not the person's.
   if (!insiderName) {
-    const sec1a = text.match(/\ba\)\s*Nome\s*\n\s*([A-Z][^\n]{5,80})/);
+    const sendoMatch = text.match(/([^\n]{3,80})\n\n(?:[^\n]*\n){0,3}?[^\n]*\bsendo por isso\b/i);
+    if (sendoMatch) {
+      const candidate = sendoMatch[1].trim();
+      // Portuguese names commonly include lowercase particles (da/de/do/dos/das)
+      // between capitalized words — e.g. "Alberto Jorge da Silva Amaral".
+      if (/^[A-ZÀ-Ý][a-zà-ÿ]+(?:\s+(?:d[ao]s?|[A-ZÀ-Ý][a-zà-ÿ.]+)){1,6}$/.test(candidate)) {
+        insiderName = candidate;
+      }
+    }
+  }
+
+  // Fallback: 1a Nome field if filled. Bounded to before section 2's header
+  // ("Motivo da notificação") so a blank section-1 Nome field can't spill over
+  // and match a LATER section's "a) Nome" (e.g. section 3's issuer name) instead.
+  if (!insiderName) {
+    const sec2Idx = text.search(/Motivo da notifica[çc][aã]o/i);
+    const sec1Scope = sec2Idx === -1 ? text : text.slice(0, sec2Idx);
+    const sec1a = sec1Scope.match(/\ba\)\s*Nome\s*\n\s*([A-Z][^\n]{5,80})/);
     if (sec1a) insiderName = sec1a[1].trim();
   }
 
@@ -235,6 +262,18 @@ function parsePdfFields(text) {
       || text.match(/(\d+(?:[,\.]\d+)*)\s*EUR\s*per\s*share/i);
     if (enPriceMatch) {
       pricePerShare = parseFloat(enPriceMatch[1].replace(',', '.'));
+    }
+  }
+
+  // Format C: "Preço(s) e volume(s)" table cell — "Preço: € 5,00" on its own
+  // line, no "/ação" or "(per share)" suffix (verified on Flexdeal's
+  // TRAN1290486.pdf). Match "Preço" followed by the euro amount, anywhere in
+  // the text — the label/value can be separated by a colon or a line break
+  // depending on how pdftotext linearized the table.
+  if (pricePerShare == null) {
+    const precoMatch = text.match(/\bPre[çc]o\b\s*[:\n]\s*€?\s*(\d+(?:[,\.]\d+)*)/i);
+    if (precoMatch) {
+      pricePerShare = parseFloat(precoMatch[1].replace(/\.(\d{3})/g, '$1').replace(',', '.'));
     }
   }
 
@@ -388,6 +427,16 @@ async function fetchTranList(browser) {
   const page = await browser.newPage();
   const items = [];
 
+  // The portal fires DataActionGetReports more than once as the page loads and
+  // as each menu click takes effect — the initial page load alone can trigger
+  // a request for a different (non-TRAN) report section before either click
+  // below ever runs. Taking the first non-empty response by arrival order is
+  // a race condition: on unlucky timing it locks onto that earlier, wrong
+  // section and every TRAN item downstream gets silently dropped (PDF_FACT
+  // won't start with 'TRAN'), while the correct response that arrives moments
+  // later is ignored. Instead, keep the LATEST response whose items actually
+  // look like TRAN filings, so a late-arriving correct response always wins
+  // over an earlier unrelated one.
   await page.setRequestInterception(true);
   page.on('request', req => req.continue());
   page.on('response', async res => {
@@ -395,7 +444,8 @@ async function fetchTranList(browser) {
       try {
         const json = await res.json();
         const list = json?.data?.ReportsList?.List || [];
-        if (list.length > 0 && items.length === 0) {
+        if (list.some(i => i.PDF_FACT?.startsWith('TRAN'))) {
+          items.length = 0;
           items.push(...list);
         }
       } catch(e) {}
@@ -516,10 +566,24 @@ async function scrapePT() {
   const cutoffIso = isoDate(cutoffDate);
   console.log(`  Fetching transactions since ${cutoffIso}…`);
 
-  // Resolve Chromium path: env var → common Linux paths → puppeteer bundled cache
-  const { execSync: _exec } = require('child_process');
+  // Resolve Chromium path: env var → common Linux paths → puppeteer bundled cache.
+  // Every candidate is verified with fs.existsSync() before being trusted — the
+  // previous version returned process.env.PUPPETEER_EXECUTABLE_PATH and
+  // puppeteer.executablePath() unconditionally, with no check that the binary
+  // was actually still there. If a system Chromium install ever goes missing
+  // (OS update, disk cleanup, a stale env var pointing at a path that was never
+  // valid on this host), puppeteer.launch({executablePath: <ghost path>}) fails
+  // almost instantly with an opaque spawn ENOENT — which is indistinguishable
+  // from every other failure in scraper_runs (duration ~0.4-0.7s, no error text
+  // captured there). This silently broke every PT run for 7+ weeks.
+  const checked = [];
+  function existingPath(p) {
+    checked.push(p);
+    try { return p && fs.existsSync(p) ? p : null; } catch { return null; }
+  }
   function findChromium() {
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+    const envPath = existingPath(process.env.PUPPETEER_EXECUTABLE_PATH);
+    if (envPath) return envPath;
     const candidates = [
       '/usr/bin/google-chrome-stable',
       '/usr/bin/google-chrome',
@@ -528,18 +592,50 @@ async function scrapePT() {
       '/snap/bin/chromium',
     ];
     for (const p of candidates) {
-      try { _exec(`test -x ${p}`, { stdio: 'ignore' }); return p; } catch {}
+      const hit = existingPath(p);
+      if (hit) return hit;
     }
-    // Explicitly resolve puppeteer's own downloaded browser (~/.cache/puppeteer/).
-    // Returning undefined would let puppeteer auto-detect, but on some server
-    // environments that silently fails; explicit path is more reliable.
-    try { return puppeteer.executablePath(); } catch {}
-    return undefined;
+    // Puppeteer's own downloaded browser (~/.cache/puppeteer/) — verify it's
+    // actually present on disk, not just that the path computation succeeded.
+    try {
+      const bundled = existingPath(puppeteer.executablePath());
+      if (bundled) return bundled;
+    } catch {}
+    return null;
   }
-  const chromiumPath = findChromium();
-  console.log(`  Using Chromium: ${chromiumPath || '(puppeteer default)'}`);
 
-  let browser = await launchBrowser(chromiumPath);
+  let chromiumPath = findChromium();
+
+  // Self-heal: nothing found anywhere — download Puppeteer's own Chrome build
+  // on demand rather than crashing with no way to recover until someone
+  // manually re-installs it on the host.
+  if (!chromiumPath) {
+    console.log(`  ⚠  No Chromium found (checked: ${checked.filter(Boolean).join(', ') || '(no candidates)'})`);
+    console.log('  Attempting to install Chrome via puppeteer…');
+    try {
+      execSync('npx --yes puppeteer browsers install chrome', { stdio: 'inherit', timeout: 5 * 60 * 1000 });
+      chromiumPath = existingPath(puppeteer.executablePath());
+    } catch (e) {
+      console.log(`  ⚠  Install attempt failed: ${e.message}`);
+    }
+  }
+
+  if (!chromiumPath) {
+    console.error(`  ❌ Could not find or install a working Chromium. Checked: ${checked.filter(Boolean).join(', ') || '(none)'}`);
+    console.log('  ℹ  0 rows saved.');
+    return { saved: 0 };
+  }
+
+  console.log(`  Using Chromium: ${chromiumPath}`);
+
+  let browser;
+  try {
+    browser = await launchBrowser(chromiumPath);
+  } catch (e) {
+    console.error(`  ❌ Failed to launch browser at ${chromiumPath}: ${e.message}`);
+    console.log('  ℹ  0 rows saved.');
+    return { saved: 0 };
+  }
 
   try {
     // Step 1: Navigate and capture TRAN list
