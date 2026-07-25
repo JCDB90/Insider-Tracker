@@ -115,6 +115,7 @@
       <label for="message">Message</label>
       <textarea id="message" name="message" placeholder="How can we help?" required></textarea>
     </div>
+    <input type="text" id="website" name="website" style="display:none" tabindex="-1" autocomplete="off">
     <button type="submit" class="btn">Send message</button>
   </form>
   <script>
@@ -135,6 +136,7 @@
             email:   document.getElementById('email').value,
             subject: document.getElementById('subject').value,
             message: document.getElementById('message').value,
+            website: document.getElementById('website').value,
           }),
         });
         const data = await res.json();
