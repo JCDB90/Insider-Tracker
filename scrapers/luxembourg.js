@@ -7,10 +7,13 @@
  *
  * Primary source: OAM (comprehensive — ~26 filings / 2 weeks)
  *   oamSubmissionsSearch → oamSubmissionDetail → document URL
- *   NOTE: oamSubmissionDetail has been returning null for all IDs since ~2026-06-12.
- *         When this happens the scraper falls through to the FNS fallback.
- *         After LuxSE fixes the API, set LU_OAM_RECOVERY_FROM=2026-06-12 in the GitHub
- *         Actions environment to trigger a one-time backfill of missed submissions.
+ *   NOTE: oamSubmissionDetail returned null for all IDs during a LuxSE outage from
+ *         ~2026-06-12 to ~2026-07-02 (the scraper fell through to the FNS fallback for
+ *         that window). Confirmed recovered as of 2026-07-25 — the missed window was
+ *         backfilled via LU_OAM_RECOVERY_FROM=2026-06-12 (one-time, run manually; not
+ *         wired into the GitHub Actions workflow). If oamSubmissionDetail breaks again,
+ *         set LU_OAM_RECOVERY_FROM=<outage-start-date> to trigger the same backfill
+ *         once it's fixed.
  *
  * Fallback source: FNS latestFNSDocuments (partial — ~8% coverage)
  *   Only covers Luxembourg-domiciled companies that file directly through LuxSE FNS.
