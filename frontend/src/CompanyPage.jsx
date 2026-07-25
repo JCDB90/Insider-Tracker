@@ -56,6 +56,22 @@ const LU_TICKER_OVERRIDES = {
   'BREB':  'BREB.BR',   // Brederode → Euronext Brussels
 };
 
+// Company-name-keyed overrides, for rows whose stored `ticker` value can't be used
+// to derive a real Yahoo symbol at all (empty, or an ISIN, or an unrelated linked
+// instrument's own ISIN rather than the issuer's equity) — verified live against
+// Yahoo's own search API and chart endpoint (real price data, correct company
+// identity checked via shortName/longName, not just "some symbol returned data").
+// Matched case-insensitively since scrapers vary in company-name capitalization.
+const COMPANY_NAME_OVERRIDES = {
+  'arcelormittal':      'MT.AS',    // ticker stored empty — the LU_TICKER_OVERRIDES 'MT' key above never fires
+  'tonies se':          'TNIE.DE',  // ticker stored as its ISIN (LU2333563281), never a real symbol
+  'luxempart s.a.':     '9ID.F',    // ticker stored as its ISIN (LU2605908552)
+  'fotex holding s.e.': '0MCY.L',   // ticker '0MCY' is the right base symbol, just missing the .L (London) suffix
+  'cpi europe ag':      'IMO1.F',   // ticker stored per-row as a linked derivative certificate's OWN ISIN (Turbo
+                                     // Certificates on IMMOFINANZ AG — CPI Europe AG's former name), not the
+                                     // issuer's own equity; IMO1.F is CPI Europe AG's real Frankfurt listing
+};
+
 // ─── Signal icon helpers (shared with App.jsx concept, inlined here) ─────────
 
 const IcoTrendDown = () => (
@@ -172,6 +188,12 @@ function fmtDateShort(s) {
  */
 function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
   if (yahooTicker) return [yahooTicker];
+
+  // Company-name overrides take priority over anything derived from `ticker` —
+  // these exist specifically because the stored ticker can't be trusted for these
+  // rows (empty, an ISIN, or a linked instrument's own ISIN). See map above.
+  const nameOverride = company && COMPANY_NAME_OVERRIDES[company.trim().toLowerCase()];
+  if (nameOverride) return [nameOverride];
 
   // ISINs stored as tickers (12-char alphanumeric) will never resolve on Yahoo
   const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{10}$/;
