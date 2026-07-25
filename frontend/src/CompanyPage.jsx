@@ -21,7 +21,7 @@ const COUNTRY_FLAGS = {
 const COUNTRY_YAHOO_SUFFIX = {
   SE:'.ST', DK:'.CO', FI:'.HE', NO:'.OL', DE:'.DE', FR:'.PA',
   NL:'.AS', BE:'.BR', IT:'.MI', ES:'.MC',
-  CH:'.SW', GB:'.L',  PL:'.WA',
+  CH:'.SW', GB:'.L',  PL:'.WA', PT:'.LS',
 };
 
 // PL tickers where GPW symbol differs from Yahoo Finance symbol

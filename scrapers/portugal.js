@@ -149,7 +149,7 @@ function parsePdfFields(text) {
 
   // Closely-related-entity notifications: the Cargo/estatuto text names a
   // corporate entity as the closely-related party and a natural person it's
-  // linked to. Three boilerplate phrasings seen in practice:
+  // linked to. Four boilerplate phrasings seen in practice:
   //   A) "A presente notificação diz respeito à {ENTITY} enquanto Pessoa
   //      Estreitamente Relacionada com {PERSON}." (Flexdeal's Baddon S.A.
   //      filing, TRAN1289389.pdf)
@@ -165,6 +165,9 @@ function parsePdfFields(text) {
   //      with no text between them, which doesn't hold on this layout
   //      ("a)\n\nDados das pessoas...\nNome\n{entity}"), so it's resolved
   //      inline here instead of relying on that fallback.
+  //   D) English: "...that {ENTITY}, a company controlled by {PERSON},
+  //      Chairman/Member/..." (Sonae's Migracom SA filing, TRAN1288793.pdf)
+  //      — both entity and person in one sentence, unlike C.
   // Must run FIRST: this Cargo/estatuto text is exactly what the old company
   // extraction below used to mistake for the issuer name, and the real
   // person's name never appears via any of the other patterns in this
@@ -172,6 +175,7 @@ function parsePdfFields(text) {
   const relA = text.match(/diz respeito à\s+([\s\S]+?)\s+enquanto Pessoa\s*\n?\s*Estreitamente Relacionada com\s+([^\n.]{3,80})\./i);
   const relB = text.match(/de cargos?\s+de administra[çc][aã]o de\s+([\s\S]{3,150}?)\s+na\s*\n?\s*([^\n]{3,80}),?\s+e n[ao]\s+emitente/i);
   const relC = text.match(/pessoa coletiva controlada por\s+(?:D\.?\s*)?([^,]{3,80}),/i);
+  const relD = text.match(/that\s+([\s\S]{3,80}?),\s+a company controlled by\s+([\s\S]{3,80}?),\s+(?:Chairman|Member|CEO|Vice)/i);
   if (relA) {
     viaEntity = relA[1].trim();
     insiderName = relA[2].trim();
@@ -186,6 +190,9 @@ function parsePdfFields(text) {
       insiderName = relC[1].replace(/\s+/g, ' ').trim();
       viaEntity = entityMatchC[1].trim();
     }
+  } else if (relD) {
+    viaEntity = relD[1].replace(/\s+/g, ' ').trim();
+    insiderName = relD[2].replace(/\s+/g, ' ').trim();
   }
 
   // Format A: "Pessoas com responsabilidades de direção: Name\nSurname"
@@ -211,9 +218,20 @@ function parsePdfFields(text) {
     if (enNameMatch) insiderName = enNameMatch[1].trim().replace(/\s+/g, ' ');
   }
 
-  // Fallback: ESMA standard English form section 1a "a) Name"
+  // Fallback: ESMA standard English form section 1a "a) Name". Bounded to
+  // before section 2's header ("Reason for notification"/"Reason for the
+  // notification" — wording varies by filer, verified both on Galp's and
+  // Sonae's English filings) for the same reason the Portuguese sec1a
+  // fallback further below is bounded: when section 1's own Name value is
+  // blank (common on English-only documents with no Portuguese text at all),
+  // this was unbounded and matched straight through to section 3's "a) Name"
+  // instead — the issuer's own name, not the person's. Also runs BEFORE the
+  // section-4 displaced-name fallback further below, so leaving it unbounded
+  // meant that fallback's English support never got a chance to run either.
   if (!insiderName) {
-    const sec1aEn = text.match(/\ba\)\s*Name\s*\n[\s\n]*([A-Z][^\n]{2,120})/);
+    const sec2IdxEn = text.search(/Reason for (?:the )?notification/i);
+    const sec1ScopeEn = sec2IdxEn === -1 ? text : text.slice(0, sec2IdxEn);
+    const sec1aEn = sec1ScopeEn.match(/\ba\)\s*Name\s*\n[\s\n]*([A-Z][^\n]{2,120})/);
     if (sec1aEn) insiderName = sec1aEn[1].trim();
   }
 
@@ -247,18 +265,33 @@ function parsePdfFields(text) {
   // scrambling — verified on Conduril's TRAN1289706.pdf (name right after the
   // section 4 header) and Flexdeal's TRAN1289388.pdf (name right after item
   // 4's "b)" sub-label). Take the first standalone line in that block that
-  // looks like a person's name and isn't a known field label.
+  // looks like a person's name and isn't a known field label. Also matches
+  // the English-language section headers ("Transaction data" / "Price(s) and
+  // volume(s)") — verified on Galp's English-only SELL filing, TRAN "9B200C…"
+  // (Diogo de Mendonça Rodrigues Tavares), which has no Portuguese text at
+  // all, so the PT-only anchor never found this block for that filing.
   if (!insiderName) {
-    const sec4Idx = text.search(/Dados da\(s\) transa[çc][aã]o/i);
+    const sec4Idx = text.search(/Dados da\(s\) transa[çc][aã]o|Transaction data/i);
     if (sec4Idx !== -1) {
-      let endIdx = text.slice(sec4Idx).search(/Pre[çc]o\(s\)\s*e\s*volume\(s\)/i);
+      let endIdx = text.slice(sec4Idx).search(/Pre[çc]o\(s\)\s*e\s*volume\(s\)|Price\(s\)\s*and\s*volume\(s\)/i);
       endIdx = endIdx === -1 ? 600 : Math.min(endIdx, 600);
       const sec4Lines = text.slice(sec4Idx, sec4Idx + endIdx)
         .split('\n').map(l => l.trim()).filter(Boolean);
-      const LABEL_BLOCKLIST = /^(?:[a-f]\)|\d+|Descri[çc][aã]o|C[oó]digo|Natureza|ISIN|Pre[çc]o|Volume|Informa[çc][oõ]es|Data|Local|A[çc][oõ]es|Aquisi[çc][aã]o|Aliena[çc][aã]o|Notifica[çc][aã]o)/i;
+      const LABEL_BLOCKLIST = /^(?:[a-f]\)|\d+|Descri[çc][aã]o|C[oó]digo|Natureza|ISIN|Pre[çc]o|Volume|Informa[çc][oõ]es|Data|Local|A[çc][oõ]es|Aquisi[çc][aã]o|Aliena[çc][aã]o|Notifica[çc][aã]o|Description|Identification|Nature|Price|Aggregated|Date|Place|Shares|Acquisition|Disposal|Notification|Code|of the)/i;
       const candidate = sec4Lines.find(l => PT_NAME_SHAPE.test(l) && !LABEL_BLOCKLIST.test(l));
       if (candidate) insiderName = candidate;
     }
+  }
+
+  // Fallback: English narrative "The notification concerns the purchase/sale
+  // of {issuer} shares by {PERSON}, member of..." — a clean anchor sentence
+  // used when the name is displaced into section 2 (Position/Status) rather
+  // than section 1 or 4 (verified on Sonae's own Eduardo Humberto dos Santos
+  // Piedade filing, TRAN1285574.pdf — a direct PDMR purchase, distinct from
+  // the closely-related-entity Migracom filing handled by relD above).
+  if (!insiderName) {
+    const narrativeName = text.match(/notification concerns the (?:purchase|sale|disposal) of\s+[\s\S]+?\s+shares by\s+([^\n,]{3,80}),/i);
+    if (narrativeName) insiderName = narrativeName[1].trim();
   }
 
   // Fallback: 1a Nome field if filled. Bounded to before section 2's header
@@ -403,7 +436,12 @@ function parsePdfFields(text) {
   //
   // "Doação"/"Herança" (donation/inheritance) intentionally have no pattern
   // here and correctly fall through to OTHER.
-  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of|Subscri|Compras?\b/i.test(text);
+  // "Purchase\b"/"acquired\b" added: verified on Sonae's Migracom SA filing,
+  // which uses "Purchase of Sonae SGPS, SA shares" and "it acquired 244,261
+  // Sonae shares" throughout — neither "purchased" (past tense) nor
+  // "Acquisition of" (the noun form already matched) covers either wording,
+  // so this filing was misclassified as OTHER and silently dropped.
+  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of|Subscri|Compras?\b|Purchase\b|acquired\b/i.test(text);
   const isSell = /Aliena[çc][aã]o|Sale of|sold|disposal|Vendas?\b/i.test(text);
   const transactionType = isBuy ? 'BUY' : isSell ? 'SELL' : 'OTHER';
 
@@ -424,6 +462,29 @@ function parsePdfFields(text) {
   const avgPriceMatch = text.match(/Pre[çc]o\s+m[ée]dio:?\s*(\d+,\d{2,4})\s*€?/i);
   if (avgPriceMatch) {
     pricePerShare = parseFloat(avgPriceMatch[1].replace(',', '.'));
+  }
+
+  // Format 0b: English narrative "...it acquired 244,261 Sonae shares at a
+  // weighted average price of €1.9037 per share" (verified on Sonae's
+  // Migracom SA filing, TRAN1288793.pdf — a 3-day, many-execution filing
+  // whose per-execution breakdown is too scrambled to reconstruct reliably,
+  // but whose intro paragraph states the true combined total directly).
+  // Shares side is re-matched independently down in the shares section below.
+  if (pricePerShare == null) {
+    const narrativeAgg = text.match(/(?:acquired|disposed of|sold)\s+[\d,.\s]+\s+\S+\s+shares\s+at\s+a\s*\n?\s*weighted average price of\s*€?\s*([\d.]+)\s*per share/i);
+    if (narrativeAgg) pricePerShare = parseFloat(narrativeAgg[1]);
+  }
+
+  // Format 0c: English narrative "...at a reference price per share of €
+  // 1.914, ..." (verified on Sonae's own Eduardo Humberto dos Santos Piedade
+  // filing, TRAN1285574.pdf) — this filer uses period-decimal notation
+  // ("1.914" meaning 1.914 euros, not 1,914 as a thousands-separated
+  // integer), which none of the comma-decimal patterns above or below would
+  // match; the reliable prose sentence is used instead of the scrambled
+  // table, same principle as the other narrative fallbacks in this function.
+  if (pricePerShare == null) {
+    const refPriceMatch = text.match(/reference price per share of\s*€?\s*(\d+(?:[.,]\d+)*)/i);
+    if (refPriceMatch) pricePerShare = parseFloat(refPriceMatch[1].replace(',', '.'));
   }
 
   // Format A: "9,0000 EUR / ação"
@@ -479,6 +540,17 @@ function parsePdfFields(text) {
   // ── Shares (volume) ──────────────────────────────────────────────────────────
 
   let shares = null;
+
+  // Format 0: English narrative aggregate — "...it acquired 244,261 Sonae
+  // shares at a weighted average price..." (see the matching price fallback
+  // above). Checked first: for a multi-day, many-execution filing like this
+  // one, every other pattern below would just grab one scrambled
+  // per-execution number instead of the true combined total.
+  const narrativeShares = text.match(/(?:acquired|disposed of|sold)\s+([\d,.\s]+?)\s+\S+\s+shares\s+at\s+a\s*\n?\s*weighted average price/i);
+  if (narrativeShares) {
+    const n = parseInt(narrativeShares[1].replace(/[,.\s]/g, ''), 10);
+    if (n > 0) shares = n;
+  }
 
   // Format A: "7 029 ações" or "13.000 ações" (European format — space or
   // period thousands separator). Previously only allowed spaces, so a
