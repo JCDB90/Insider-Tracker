@@ -152,8 +152,15 @@ async function fetchOamSubmissions(fromDate, toDate) {
     if (subs.length < 100) break;
     page++;
   }
-  // "Managers' transactions" — submissionTypeLabel uses U+2019 right-quote
-  return all.filter(s => /transactions/i.test(s.submissionTypeLabel));
+  // "Managers' transactions" — submissionTypeLabel uses U+2019 right-quote.
+  // Must anchor on "Managers" specifically: a bare /transactions/i test also matches
+  // "Buy-back transactions" (a completely different Art. 5 buyback-program disclosure
+  // type with no PDMR name field at all) — confirmed live this accounted for 56 of 180
+  // "transaction"-labelled LU submissions over a 3.5-month sample, all silently and
+  // correctly dropped for "insider name not found", but polluting scraper output and
+  // making genuine PDMR filers (e.g. Aroundtown, which files buybacks weekly but had
+  // zero real Managers' transactions in all of 2026) look like a parsing-gap company.
+  return all.filter(s => /^Managers.\s*transactions$/i.test(s.submissionTypeLabel));
 }
 
 async function fetchOamDocumentUrl(submissionId) {
@@ -303,6 +310,14 @@ function parsePdf(text) {
       for (let j = i + 1; j < src.length; j++) {
         const nl = src[j];
         if (!nl.trim()) continue;
+        // A PDF page-break can duplicate a NEXT field's identifier code (e.g. an LEI)
+        // onto its own indented line separated only by blank lines from the label
+        // we're reading — observed live: "Name4  Group S.A." followed (after a blank
+        // line + page break) by "5493001035L29E", a fragment of the LEI belonging to
+        // the following "b) LEI5" field, silently absorbed as if it were a name
+        // continuation. Bare alphanumeric-code tokens (all caps/digits, no spaces) are
+        // never a genuine continuation of a name/prose value, so reject them here.
+        if (/^[A-Z0-9]+$/.test(nl.trim()) && /\d/.test(nl.trim())) break;
         if (/^\s{30,}/.test(nl)) val += ' ' + nl.trim();
         else break;
       }
@@ -350,6 +365,9 @@ function parsePdf(text) {
         for (let j = i + 1; j < lines.length; j++) {
           const nl = lines[j];
           if (!nl.trim()) continue;
+          // Same page-break identifier-code leak as getField() above — reject bare
+          // alphanumeric-code continuations (e.g. a stray LEI fragment).
+          if (/^[A-Z0-9]+$/.test(nl.trim()) && /\d/.test(nl.trim())) break;
           if (/^\s{15,}/.test(nl) && !/^\s*[a-f]\)/.test(nl.trim())) val += ' ' + nl.trim();
           else break;
         }
