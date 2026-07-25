@@ -59,8 +59,8 @@ jobs:
         run: npm ci
 
       - name: Install system tools
-        continue-on-error: true   # poppler failure must not block scrapers that don't need it
-        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+        continue-on-error: true   # poppler/tesseract failure must not block scrapers that don't need them
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils tesseract-ocr
 
       # ── Europe ─────────────────────────────────────────────────────────────
       - name: 🇳🇱 Netherlands (AFM)

@@ -247,6 +247,56 @@ function pdfBufToText(buf) {
   finally { try { fs.unlinkSync(tmp); } catch (_) {} }
 }
 
+// OCR fallback for scanned/photocopied LuxSE filings (no embedded text layer — confirmed
+// live for ArcelorMittal, SES, Tenaris: producers "Canon iR-ADV", "Konica Minolta bizhub",
+// "Microsoft: Print To PDF" of a scanned image). Only invoked when pdfBufToText() returns
+// empty, since it's much slower (~1-2s/page) and never needed for born-digital PDFs.
+// Renders each page at 300dpi (tesseract's recommended resolution for small form text) and
+// OCRs with --psm 4 (assumes a single column of variable-sized text — matches the HOS-2
+// form's one-table-per-page layout much better than --psm 6, which was tested and produced
+// badly scrambled table cells). Verified against real ArcelorMittal filings (Genuino
+// Christino, Geert Van Poelvoorde samples): every field — name, price, volume, aggregated
+// total, date — OCR'd correctly and round-tripped through the existing parser unmodified.
+// Not a universal fix: CSSF's own branded HOS-2 template (used by e.g. some Tenaris
+// filings) prints tiny superscript footnote digits next to each field label (Name¹,
+// Price¹¹) that tesseract reads as stray, unpredictable characters (t, *, ®, ...) instead
+// of the digit the parser's field regexes require — those rows still fail downstream and
+// get safely dropped, same as before OCR existed. French-language filings (e.g. some SES
+// notifications) have the same "OK financial numbers, no French field-label support"
+// limitation independent of OCR — the parser has no bare "Nom" fallback and OCR sometimes
+// collapses the label/value column gap the parser depends on for French forms specifically.
+function pdfOcrToText(buf) {
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tmpPdf = path.join('/tmp', `luxse-ocr-${stamp}.pdf`);
+  const tmpBase = path.join('/tmp', `luxse-ocr-${stamp}`);
+  try {
+    fs.writeFileSync(tmpPdf, buf);
+    execSync(`pdftoppm -r 300 -png -l 4 "${tmpPdf}" "${tmpBase}"`, { timeout: 60000 });
+    const pages = fs.readdirSync('/tmp')
+      .filter(f => f.startsWith(`luxse-ocr-${stamp}-`) && f.endsWith('.png'))
+      .sort();
+    if (!pages.length) return null;
+    const texts = pages.map(f => {
+      const png = path.join('/tmp', f);
+      try {
+        return execSync(`tesseract "${png}" - --psm 4 2>/dev/null`, { encoding: 'utf8', timeout: 30000 });
+      } catch { return ''; }
+      finally { try { fs.unlinkSync(png); } catch (_) {} }
+    });
+    // Tesseract renders table-cell borders as stray punctuation with only a single space
+    // of padding around them — usually "|" but confirmed live it also misreads a border
+    // stroke as "[" or "{" depending on scan angle/quality (e.g. "Name [Stephanie
+    // Werner-Dietz" — the value's own stripLabel() cleanup only strips a 3+-space gap
+    // after "Name", so a lone "[" survives straight into the saved insider_name). None of
+    // this resembles pdftotext -layout's wide, geometry-based column gaps that
+    // getField()/getEnField() key off of ("3+ spaces" / "5+ spaces"). Expand every such
+    // border character into a wide run of spaces so the existing column-gap parsing logic
+    // (built for native PDFs) works unmodified against OCR'd text too.
+    return texts.join('\n\f\n').replace(/[|[\]{}]/g, ' '.repeat(20)) || null;
+  } catch { return null; }
+  finally { try { fs.unlinkSync(tmpPdf); } catch (_) {} }
+}
+
 // ─── PDF form parsers ─────────────────────────────────────────────────────────
 
 /*
@@ -409,11 +459,14 @@ function parsePdf(text) {
       }
     }
 
-    // — Price = aggregate total value in EN format (same semantics as HOS-2 Price11)
+    // — Price = aggregate total value in EN format (same semantics as HOS-2 Price11).
+    // Some filers label this row "— Aggregated Price" instead of the more common bare
+    // "— Price" (confirmed live: ArcelorMittal filing ref LU-OAM-227188, a 5-execution
+    // multi-day aggregate) — the (?:Aggregated\s+)? tolerates both.
     // pricePerShare derived as totalValue / shares
     let totalValue = null;
     for (let i = 0; i < lines.length; i++) {
-      if (/[—–-]\s*Price\b/i.test(lines[i])) {
+      if (/[—–-]\s*(?:Aggregated\s+)?Price\b/i.test(lines[i])) {
         const mEur = lines[i].match(/EUR\s+([\d,]+\.?\d*)/i);
         const mNum = lines[i].match(/([\d,]+\.?\d*)\s*(?:EUR|USD)?\s*$/i);
         const raw = mEur ? mEur[1] : (mNum ? mNum[1] : null);
@@ -434,7 +487,38 @@ function parsePdf(text) {
     if (dmIso) txDate = dmIso[1];
     if (!txDate) {
       const dmDmy = dateTxt.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
-      if (dmDmy) txDate = `${dmDmy[3]}-${dmDmy[2].padStart(2,'0')}-${dmDmy[1].padStart(2,'0')}`;
+      if (dmDmy) {
+        let [, first, second, year] = dmDmy;
+        let day = first, month = second;
+        // When the second component is >12 it cannot be a month under a D/M/Y reading,
+        // so it must actually be the day — this filer used M/D/Y instead. Swap rather
+        // than emit an invalid date (month 13+) a DATE column would reject.
+        if (parseInt(second, 10) > 12 && parseInt(first, 10) <= 12) { day = second; month = first; }
+        else {
+          // Otherwise both readings are individually valid (e.g. "3/12/2026") — genuinely
+          // ambiguous from the digits alone. Some filers (confirmed live: an ArcelorMittal
+          // template signed by "Henk Scheffer, Company Secretary") use M/D/Y throughout,
+          // which a blind D/M/Y default gets silently wrong — e.g. "3/12/2026" read as
+          // 3 December instead of the correct 12 March, in one real case producing a
+          // transaction date months in the future relative to the filing itself.
+          // Disambiguate against the unambiguous "Date and signature" line (format
+          // "D-MMM-YY", e.g. "17-Mar-26") printed on every one of this template's filings:
+          // a transaction is always signed/notified ON OR AFTER it happens (MAR requires
+          // filing within 3 business days), so whichever reading doesn't produce a date
+          // AFTER the signature date — and is the closer of the two — wins.
+          const sigMatch = body.match(/\b(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2,4})\b/i);
+          if (sigMatch) {
+            const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+            const sigYear = sigMatch[3].length === 2 ? `20${sigMatch[3]}` : sigMatch[3];
+            const sigDate = new Date(`${sigYear}-${String(months.indexOf(sigMatch[2].toLowerCase()) + 1).padStart(2,'0')}-${sigMatch[1].padStart(2,'0')}`);
+            const asDmy = new Date(`${year}-${second.padStart(2,'0')}-${first.padStart(2,'0')}`);
+            const asMdy = new Date(`${year}-${first.padStart(2,'0')}-${second.padStart(2,'0')}`);
+            const dmyOk = asDmy <= sigDate, mdyOk = asMdy <= sigDate;
+            if (mdyOk && (!dmyOk || asMdy > asDmy)) { day = second; month = first; }
+          }
+        }
+        txDate = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+      }
     }
 
     return { insiderName, issuerName, isin, role: null,
@@ -630,7 +714,11 @@ async function scrapeLU() {
       return;
     }
 
-    const txt = pdfBufToText(buf);
+    let txt = pdfBufToText(buf);
+    if (!txt || !txt.trim()) {
+      txt = pdfOcrToText(buf);
+      if (txt && txt.trim()) console.log(`  🔎 ${sub.submissionId} — no text layer, recovered via OCR`);
+    }
     const f   = parsePdf(txt);
 
     // Strip HOS-2 label artifacts that leak into the parsed name/company fields.
@@ -712,7 +800,8 @@ async function scrapeLU() {
         continue;
       }
 
-      const txt = pdfBufToText(buf);
+      let txt = pdfBufToText(buf);
+      if (!txt || !txt.trim()) txt = pdfOcrToText(buf);
       const f   = parsePdf(txt);
       const stripLabel = s => s ? s.replace(/^Name\d*[\s\t]{3,}/i, '').trim() || null : null;
 

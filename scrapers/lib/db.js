@@ -220,25 +220,30 @@ async function saveInsiderTransactions(rows, options = {}) {
   if (error) {
     // Unique constraint violation: content-hash ID matched an existing row's natural key,
     // OR two rows in the batch share the same natural key (within-batch conflict).
-    // Retry with ignoreDuplicates skips filing_id conflicts, but if a natural-key
-    // conflict still blocks the batch, fall back to per-row upserts.
+    // NOTE: a whole-batch retry with ignoreDuplicates:true used to sit here as a middle
+    // step. It was a real bug — "ON CONFLICT (filing_id) DO NOTHING" means ANY row whose
+    // filing_id already exists gets silently skipped, not updated, even when only ONE
+    // unrelated row in the batch was the actual natural-key collision. Confirmed live: a
+    // batch containing corrected insider_name/transaction_date values for rows that were
+    // previously saved with wrong data (an unrelated OCR bug) hit this path and silently
+    // kept the stale values — while still reporting a "successful" insert count. Falling
+    // straight to per-row upserts (below) avoids this: each row gets a real update-on-
+    // conflict attempt, and ignoreDuplicates:true is used only as a last resort for the
+    // specific row that still collides after that.
     if (error.code === '23505' || /unique/i.test(error.message)) {
-      const { error: retryErr } = await supabase
-        .from('insider_transactions')
-        .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: true });
-      if (!retryErr) return { inserted: complete.length, drops };
-      if (retryErr.code !== '23505') {
-        console.error('  DB error (insider_transactions):', retryErr.message);
-        return { inserted: 0, error: retryErr, drops };
-      }
-      // Both batch attempts hit 23505 — within-batch natural-key conflict.
-      // Fall back to per-row upserts so every saveable row is persisted.
       console.log('  ℹ  Within-batch unique conflict — retrying row-by-row');
       let saved = 0;
       for (const row of upsertRows) {
-        const { error: rowErr } = await supabase
+        let { error: rowErr } = await supabase
           .from('insider_transactions')
-          .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: true });
+          .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: false });
+        if (rowErr && rowErr.code === '23505') {
+          // This row's new values collide with a DIFFERENT existing row on the natural-key
+          // index (not just its own filing_id) — skip it rather than block the batch.
+          ({ error: rowErr } = await supabase
+            .from('insider_transactions')
+            .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: true }));
+        }
         if (!rowErr) {
           saved++;
         } else if (rowErr.code !== '23505') {
