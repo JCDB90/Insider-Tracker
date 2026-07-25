@@ -348,8 +348,15 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
     const minTime = data[0]?.time;
     const maxTime = data[data.length - 1]?.time;
 
+    // Yahoo's daily candles lag "today" by a day (sometimes more over a weekend/
+    // holiday) — the most recent transaction(s) are routinely dated AFTER maxTime
+    // even though they're well within the chart's intended window. Filtering them
+    // out here silently drops exactly the newest, most-checked trades. Clamp any
+    // transaction newer than the last available candle to maxTime instead of
+    // excluding it, so it still renders (at the chart's rightmost edge) rather
+    // than disappearing until Yahoo catches up.
     const insiderMarkers = trades
-      .filter(t => t.transaction_date >= minTime && t.transaction_date <= maxTime)
+      .filter(t => t.transaction_date >= minTime)
       .map(t => {
         const isBuy = t.transaction_type === 'BUY';
         let position = isBuy ? 'belowBar' : 'aboveBar';
@@ -363,7 +370,7 @@ function StockChart({ data, trades, earningsDates, triedSymbols }) {
         }
 
         return {
-          time:  t.transaction_date,
+          time:  t.transaction_date > maxTime ? maxTime : t.transaction_date,
           position,
           color: isBuy ? '#16A34A' : '#DC2626',
           shape: 'circle',
