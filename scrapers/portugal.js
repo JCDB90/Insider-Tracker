@@ -277,11 +277,16 @@ function parsePdfFields(text) {
   // together BEFORE their values instead of interleaving label-value pairs
   // (verified on Samba Digital's TRAN1289488.pdf/TRAN1289489.pdf) — in that
   // layout the company name is simply the line immediately preceding an
-  // 18-20 char LEI code.
+  // 18-20 char LEI code. A third variant (verified on Ciagest's
+  // TRAN1289028.pdf) restates a bare "LEI" label line BETWEEN the company
+  // value and its code ("Nome\n{company}\nLEI\n{code}") — the optional
+  // non-capturing group below bridges over that label line so it isn't
+  // mistaken for the company name itself.
   if (!company) {
     const emitenteIdx = text.search(/Dados sobre o emitente/i);
     if (emitenteIdx !== -1) {
-      const leiPair = text.slice(emitenteIdx, emitenteIdx + 400).match(/([^\n]{3,150})\n([A-Z0-9]{18,20})\b/);
+      const leiPair = text.slice(emitenteIdx, emitenteIdx + 400)
+        .match(/([^\n]{3,150})\n(?:LEI(?:\s*\(\d+\))?\s*\n)?([A-Z0-9]{18,20})\b/i);
       if (leiPair) company = leiPair[1].trim();
     }
   }
@@ -323,8 +328,30 @@ function parsePdfFields(text) {
   const lei = leiMatch ? leiMatch[1] : null;
 
   // ── Transaction type ──────────────────────────────────────────────────────────
-  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of|Subscri/i.test(text);
-  const isSell = /Aliena[çc][aã]o|Sale of|sold|disposal/i.test(text);
+  // "Compra"/"Venda" (Purchase/Sale) are colloquial synonyms for the legally
+  // mandated "Aquisição"/"Alienação" terms — official ESMA-standard filings
+  // consistently use the latter, but narrative-style disclosures occasionally
+  // use the former.
+  //
+  // Deliberately NOT matching bare "Exercício" (option exercise) here: every
+  // CMVM filing includes the standard MAR Art. 19(6)(e) disclaimer sentence
+  // ("...não está associada ao exercício de programas de opções sobre
+  // ações...") regardless of whether the transaction is a BUY or a SELL, so a
+  // bare "Exercício" match would misclassify genuine SELLs as BUY (isBuy is
+  // checked first). A genuine option-exercise transaction is expected to
+  // still say "Aquisição de ações" as its Natureza da operação value (matching
+  // the ESMA standard transaction-nature taxonomy, where exercise is a form of
+  // acquisition, not a separate code) and so is already correctly classified
+  // as BUY without this pattern — matching every other market's scraper in
+  // this codebase (Australia, Canada, Denmark, Finland, Luxembourg, South
+  // Korea, UK all treat exercises as BUY; none use a separate "OPT" type,
+  // relying instead on the downstream is_unusual_price flag in
+  // flag-signals.js to distinguish nominal-price exercises from market buys).
+  //
+  // "Doação"/"Herança" (donation/inheritance) intentionally have no pattern
+  // here and correctly fall through to OTHER.
+  const isBuy  = /Aquisi[çc][aã]o|Acquisition of|purchased|Award of|Subscri|Compras?\b/i.test(text);
+  const isSell = /Aliena[çc][aã]o|Sale of|sold|disposal|Vendas?\b/i.test(text);
   const transactionType = isBuy ? 'BUY' : isSell ? 'SELL' : 'OTHER';
 
   // ── Price per share ───────────────────────────────────────────────────────────
@@ -371,6 +398,16 @@ function parsePdfFields(text) {
     }
   }
 
+  // Format E: "Preço(s)\n\nVolume(s)\n\n{price}\n\n{shares} ações" — a
+  // recurring layout where both field labels are bundled together first,
+  // then both values follow in the same order (verified on Conduril's
+  // TRAN1289706.pdf and Ciagest's TRAN1289028.pdf). Captures price and
+  // shares together since they're positionally paired in this layout.
+  const bundledPriceVol = text.match(/Pre[çc]o\(s\)\s*\n+\s*Volume\(s\)\s*\n+\s*(\d+,\d{2,4})\s*\n+\s*([\d.\s]+)\s*a[çc][õo]es/i);
+  if (pricePerShare == null && bundledPriceVol) {
+    pricePerShare = parseFloat(bundledPriceVol[1].replace(',', '.'));
+  }
+
   // ── Shares (volume) ──────────────────────────────────────────────────────────
 
   let shares = null;
@@ -381,8 +418,14 @@ function parsePdfFields(text) {
   // starting from the "1", fall back to matching just the digits after the
   // period ("000 ações"), and silently produce shares=0 (verified on
   // Conduril's TRAN1289706.pdf and Flexdeal's Baddon S.A. filing,
-  // TRAN1289389.pdf).
-  const ptVolMatch = text.match(/(\d[\d.\s]*)\s*a[çc][õo]es\b/i);
+  // TRAN1289389.pdf). The digit run is restricted to same-line characters
+  // (space, not \s) — an earlier version of this fix used \s, which also
+  // matches newlines and let the match bleed across a paragraph break from
+  // an unrelated preceding number's trailing digits (e.g. Ciagest's
+  // TRAN1289028.pdf: "2,28\n\n90.000 ações" concatenated into "2890000"
+  // instead of 90000, since the match started from the "28" tail of the
+  // price value two lines above).
+  const ptVolMatch = text.match(/(\d[\d. ]*)\s*a[çc][õo]es\b/i);
   if (ptVolMatch) {
     shares = parseInt(ptVolMatch[1].replace(/[.\s]/g, ''), 10);
   }
