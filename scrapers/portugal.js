@@ -62,6 +62,41 @@ const ALERT_EMAIL         = process.env.NOTIFY_OWNER_EMAIL || 'jcdeboer@yahoo.co
 // CMVM SDI Emitentes page (parent of Transações de dirigentes)
 const CMVM_SDI_URL = 'https://www.cmvm.pt/PInstitucional/Content?Input=2B37E09A59A0DF80BE92EC680DBABCB75C076B608267088F60A006ACD2620D69';
 
+// The generic "Transações de dirigentes" feed (fetchTranList) shows only the
+// most recent CMVM_ITEM_CAP (30) items ACROSS ALL PT issuers combined — a
+// large but infrequent filer's transactions can be pushed out of that window
+// entirely by a handful of small/mid-caps that file often (verified: VAA
+// alone occupied 13 of 30 slots on 2026-07-25). This silently dropped PSI-20
+// blue chips like Galp, EDP, and Sonae, which our DB had zero rows for despite
+// them genuinely filing on CMVM.
+//
+// Fix: the portal's "Filtros" panel has an "Entidade" dropdown that filters
+// DataActionGetReports to one issuer's OWN most-recent-30 — a completely
+// separate 30-item window per company, unaffected by other issuers' volume.
+// fetchWatchlistItems() below drives that filter for a curated list of large
+// PT issuers known to be under-represented in the generic feed, merging their
+// results into the main item list. Entity IDs (NUM_ENT) were confirmed live
+// via the portal's own DataActionGetData EntitiesList response (514 total PT
+// issuers) — hardcoded here since that full list rarely changes and re-fetching
+// it every run just to look up 10 known IDs would be wasteful.
+//
+// Verified per-company: Galp (23179) and EDP (226) had 2026 filings entirely
+// missing from our DB; Sonae (187) also had a 2026-06-02 filing missed.
+// Jerónimo Martins (320) genuinely has no PDMR activity since 2024-08-01 (not
+// a coverage bug — confirmed via its own entity-filtered history).
+const PSI_WATCHLIST = [
+  { id: '23179',  name: 'Galp Energia, SGPS, SA' },
+  { id: '226',    name: 'EDP, S.A.' },
+  { id: '320',    name: 'Jerónimo Martins - SGPS, SA' },
+  { id: '187',    name: 'Sonae - SGPS, S.A.' },
+  { id: '23002',  name: 'NOS, SGPS, S.A.' },
+  { id: '432',    name: 'Banco Comercial Português, SA' },
+  { id: '7394',   name: 'The Navigator Company, S.A.' },
+  { id: '2367',   name: 'CTT - Correios de Portugal, S.A.' },
+  { id: '174114', name: 'GREENVOLT - Energias Renováveis, S.A.' },
+  { id: '544',    name: 'Corticeira Amorim - SGPS, SA' },
+];
+
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
@@ -114,25 +149,43 @@ function parsePdfFields(text) {
 
   // Closely-related-entity notifications: the Cargo/estatuto text names a
   // corporate entity as the closely-related party and a natural person it's
-  // linked to. Two boilerplate phrasings seen in practice:
+  // linked to. Three boilerplate phrasings seen in practice:
   //   A) "A presente notificação diz respeito à {ENTITY} enquanto Pessoa
   //      Estreitamente Relacionada com {PERSON}." (Flexdeal's Baddon S.A.
   //      filing, TRAN1289389.pdf)
   //   B) "...por força do exercício de cargo(s) de administração de {PERSON}
   //      na {ENTITY} e n[ao] emitente" (VAA's NCFTRADETUR filing,
   //      TRAN1289951.pdf)
+  //   C) "Pessoa estreitamente relacionada: pessoa coletiva controlada por
+  //      D. {PERSON}, ..." (EDP's Masaveu Internacional filing,
+  //      TRAN1285150.pdf) — unlike A/B, this phrasing states only the
+  //      person, not the entity; the entity is section 1's own "Nome" value
+  //      instead, which (unlike Baddon/NCFTRADETUR) is NOT blank here — but
+  //      the generic 1a fallback further below requires "a) Nome" adjacent
+  //      with no text between them, which doesn't hold on this layout
+  //      ("a)\n\nDados das pessoas...\nNome\n{entity}"), so it's resolved
+  //      inline here instead of relying on that fallback.
   // Must run FIRST: this Cargo/estatuto text is exactly what the old company
   // extraction below used to mistake for the issuer name, and the real
   // person's name never appears via any of the other patterns in this
   // function for these filings.
   const relA = text.match(/diz respeito à\s+([\s\S]+?)\s+enquanto Pessoa\s*\n?\s*Estreitamente Relacionada com\s+([^\n.]{3,80})\./i);
   const relB = text.match(/de cargos?\s+de administra[çc][aã]o de\s+([\s\S]{3,150}?)\s+na\s*\n?\s*([^\n]{3,80}),?\s+e n[ao]\s+emitente/i);
+  const relC = text.match(/pessoa coletiva controlada por\s+(?:D\.?\s*)?([^,]{3,80}),/i);
   if (relA) {
     viaEntity = relA[1].trim();
     insiderName = relA[2].trim();
   } else if (relB) {
     insiderName = relB[1].trim().replace(/\s+/g, ' ');
     viaEntity = relB[2].trim();
+  } else if (relC) {
+    const sec2IdxC = text.search(/Motivo da notifica[çc][aã]o/i);
+    const sec1ScopeC = sec2IdxC === -1 ? text : text.slice(0, sec2IdxC);
+    const entityMatchC = sec1ScopeC.match(/\bNome\s*\n\s*([A-Z][^\n]{3,150})/i);
+    if (entityMatchC) {
+      insiderName = relC[1].replace(/\s+/g, ' ').trim();
+      viaEntity = entityMatchC[1].trim();
+    }
   }
 
   // Format A: "Pessoas com responsabilidades de direção: Name\nSurname"
@@ -358,6 +411,21 @@ function parsePdfFields(text) {
 
   let pricePerShare = null;
 
+  // Format 0 (highest priority): "Preço médio: 4,2609 €/ ação" — the explicit
+  // multi-execution weighted average, checked before any single-execution
+  // price so it always wins when present (verified on EDP's TRAN1285150.pdf,
+  // a 3-execution filing at €4.3130/€4.2013/€4.2909 individually — without
+  // this check, the tightened "Preço:" pattern further below matches a bare
+  // "Preço\n€4,3130/ação" from the per-execution breakdown instead, since
+  // "Preço médio" isn't adjacent to "Volume" here the way Baddon's/Conduril's
+  // aggregate sections are, so the combined aggBlock check later doesn't
+  // catch it either). Matched independently of what follows it — unlike
+  // aggBlock below, does not require an adjacent "Volume:" value.
+  const avgPriceMatch = text.match(/Pre[çc]o\s+m[ée]dio:?\s*(\d+,\d{2,4})\s*€?/i);
+  if (avgPriceMatch) {
+    pricePerShare = parseFloat(avgPriceMatch[1].replace(',', '.'));
+  }
+
   // Format A: "9,0000 EUR / ação"
   const ptPriceMatch = text.match(/(\d+(?:[,\.]\d+)*)\s*EUR\s*\/\s*a[çc][aã]o/i);
   if (ptPriceMatch) {
@@ -474,6 +542,37 @@ function parsePdfFields(text) {
   }
 
   if (isNaN(shares)) shares = null;
+
+  // Multi-execution override: Portuguese CMVM forms use the same EU 2016/523
+  // template as France, including an "Informações agregadas" (aggregate)
+  // section for filings with more than one execution block — analogous to
+  // France's "INFORMATIONS AGREGEES", which france.js already prefers (VWAP +
+  // aggregate volume, the LAST "VOLUME:" occurrence) over any single
+  // execution's values. Portugal previously had no equivalent: whichever
+  // execution the earlier price/shares patterns matched first (usually just
+  // the first) silently became the whole row, dropping every other execution
+  // (verified on Flexdeal's Baddon S.A. filing, TRAN1289389.pdf: two
+  // 10.000-share executions at €5.05 each were saved as a single 10.000-share
+  // row instead of the true 20.000 aggregate — same bug class as the earlier
+  // shares=0 fix, just for a different field). Prefer the aggregate values
+  // here, matching france.js's approach.
+  const aggBlock = text.match(/Pre[çc]o\s+m[ée]dio:?\s*€?\s*(\d+,\d{2,4})\s*\n+\s*Volume:?\s*(\d[\d. ]*)\s*a[çc][õo]es/i);
+  if (aggBlock) {
+    pricePerShare = parseFloat(aggBlock[1].replace(',', '.'));
+    const aggShares = parseInt(aggBlock[2].replace(/[.\s]/g, ''), 10);
+    if (aggShares > 0) shares = aggShares;
+  } else {
+    // No "Preço médio" (average price) present — single-execution filings
+    // still restate the same total under "Volume agregado" with a bare
+    // "Preço" that's often the TOTAL value in € rather than a per-share price
+    // (verified on Conduril's TRAN1289706.pdf: "193.700 €" there is
+    // price × shares, not a unit price) — so only take the shares side here.
+    const aggSharesOnly = text.match(/Volume agregado[\s\S]{0,50}?(\d[\d. ]*)\s*a[çc][õo]es/i);
+    if (aggSharesOnly) {
+      const aggShares = parseInt(aggSharesOnly[1].replace(/[.\s]/g, ''), 10);
+      if (aggShares > 0) shares = aggShares;
+    }
+  }
 
   // ── Transaction date ──────────────────────────────────────────────────────────
 
@@ -626,6 +725,121 @@ async function fetchTranList(browser) {
 
   await page.close();
   return items;
+}
+
+// Drives the "Filtros" → "Entidade" dropdown for each PSI_WATCHLIST company in
+// sequence within a single page session, capturing each one's own
+// entity-filtered DataActionGetReports response (see PSI_WATCHLIST comment for
+// why this is needed). Reuses the same page/session across companies — each
+// filter change is a genuine UI-triggered request (search, select, click
+// "Filtrar"), not a raw replay, which is required: CMVM's OutSystems backend
+// invalidates the CSRF/request-token after a single use, so a byte-identical
+// replayed request 403s even with zero parameters changed (verified directly).
+async function fetchWatchlistItems(browser) {
+  const page = await browser.newPage();
+  const results = [];
+
+  await page.setRequestInterception(true);
+  page.on('request', req => req.continue());
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto(CMVM_SDI_URL, { waitUntil: 'networkidle2', timeout: 120000 });
+      break;
+    } catch(e) {
+      if (attempt >= 3) { await page.close().catch(() => {}); return results; }
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
+  await new Promise(r => setTimeout(r, 2000));
+
+  await page.evaluate(() => {
+    const t = Array.from(document.querySelectorAll('span, a, li')).find(el => el.textContent.trim().startsWith('Participações e operações'));
+    if (t) t.click();
+  });
+  await new Promise(r => setTimeout(r, 2000));
+
+  await page.evaluate(() => {
+    const t = Array.from(document.querySelectorAll('span, a, li')).find(el => el.textContent.trim() === 'Transações de dirigentes');
+    if (t) t.click();
+  });
+  await new Promise(r => setTimeout(r, 6000));
+
+  const filtrosOpened = await page.evaluate(() => {
+    const btn = document.querySelector('#b114-b4-FiltersBtn')
+      || Array.from(document.querySelectorAll('div, button')).find(el => el.textContent.trim() === 'Filtros');
+    if (btn) { btn.click(); return true; }
+    return false;
+  });
+  if (!filtrosOpened) {
+    console.log('  ⚠  Watchlist: could not open Filtros panel — skipping entity-specific fetch');
+    await page.close().catch(() => {});
+    return results;
+  }
+  await new Promise(r => setTimeout(r, 1500));
+
+  for (const { id, name } of PSI_WATCHLIST) {
+    let list = null;
+    const onResponse = async (res) => {
+      if (res.url().includes('Relatorio_NewFileLink/DataActionGetReports')) {
+        try {
+          const json = await res.json();
+          const body = JSON.parse(res.request().postData());
+          if (body.screenData.variables.EntitiesList === `'${id}'`) {
+            list = json?.data?.ReportsList?.List || [];
+          }
+        } catch(e) {}
+      }
+    };
+    page.on('response', onResponse);
+
+    try {
+      await page.click('.vscomp-ele-wrapper');
+      await new Promise(r => setTimeout(r, 500));
+      await page.evaluate(() => { const el = document.querySelector('.vscomp-search-input'); if (el) el.value = ''; });
+      // Search on a distinctive prefix rather than the full name — some
+      // entries have trailing legal-form variants ("SGPS, SA" vs "SGPS, S.A.")
+      // that a full-string match could miss.
+      await page.type('.vscomp-search-input', name.split(',')[0], { delay: 60 });
+      await new Promise(r => setTimeout(r, 1200));
+
+      const optionClicked = await page.evaluate((targetId) => {
+        const opt = Array.from(document.querySelectorAll('.vscomp-option')).find(el => el.getAttribute('data-value') === targetId);
+        if (opt) { opt.click(); return true; }
+        return false;
+      }, id);
+      if (!optionClicked) {
+        console.log(`  ⚠  Watchlist: "${name}" (${id}) not found in Entidade dropdown — skipping`);
+        continue;
+      }
+      await new Promise(r => setTimeout(r, 500));
+
+      const filtrarClicked = await page.evaluate(() => {
+        const btn = Array.from(document.querySelectorAll('button')).find(el => el.textContent.trim() === 'Filtrar');
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      if (!filtrarClicked) {
+        console.log(`  ⚠  Watchlist: "Filtrar" button not found for "${name}" — skipping`);
+        continue;
+      }
+      await new Promise(r => setTimeout(r, 4000));
+
+      if (list && list.length) {
+        console.log(`  ℹ  Watchlist: ${name} — ${list.length} items (most recent: ${list[0]?.DATA_FACT})`);
+        results.push(...list);
+      } else {
+        console.log(`  ℹ  Watchlist: ${name} — no items returned`);
+      }
+    } catch(e) {
+      console.log(`  ⚠  Watchlist fetch failed for "${name}": ${e.message}`);
+    } finally {
+      page.off('response', onResponse);
+    }
+  }
+
+  await page.close().catch(() => {});
+  return results;
 }
 
 async function fetchPdfBase64(browser, encryptedURL) {
@@ -797,6 +1011,10 @@ async function scrapePT() {
     // The CMVM portal hard-limits responses to CMVM_ITEM_CAP (30) most recent items.
     // If we're AT the cap, check how old the oldest item is. If it's very recent,
     // higher-volume periods may be truncating older filings we need.
+    // Must run on the generic feed BEFORE merging the PSI watchlist below —
+    // watchlist companies are deliberately fetched regardless of age (Galp's
+    // own history goes back to 2018), which would make this check's "oldest
+    // item" wildly misleading about the generic feed's actual cap pressure.
     if (allItems.length >= CMVM_ITEM_CAP) {
       const tranOnly = allItems.filter(i => i.PDF_FACT?.startsWith('TRAN') && i.DATA_FACT);
       if (tranOnly.length > 0) {
@@ -813,6 +1031,26 @@ async function scrapePT() {
           console.log(`  ✓  Cap OK: ${daysOld} days of coverage visible`);
         }
       }
+    }
+
+    // Fetch each PSI_WATCHLIST company's own entity-filtered list — see the
+    // comment above PSI_WATCHLIST for why the generic feed alone misses them.
+    // Merge into allItems, deduping on PDF_FACT (the same key filing_id is
+    // later derived from) since a watchlist company's items may legitimately
+    // also appear in the generic feed when they're recent enough.
+    console.log('  Checking PSI watchlist companies (Galp, EDP, Sonae, etc.)…');
+    const watchlistItems = await fetchWatchlistItems(browser);
+    const seenPdf = new Set(allItems.map(i => i.PDF_FACT));
+    let addedFromWatchlist = 0;
+    for (const item of watchlistItems) {
+      if (item.PDF_FACT && !seenPdf.has(item.PDF_FACT)) {
+        seenPdf.add(item.PDF_FACT);
+        allItems.push(item);
+        addedFromWatchlist++;
+      }
+    }
+    if (addedFromWatchlist > 0) {
+      console.log(`  ✓  Watchlist added ${addedFromWatchlist} new items not in the generic feed`);
     }
 
     // Step 2: Filter to TRAN items within date range.
