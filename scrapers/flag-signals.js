@@ -82,6 +82,28 @@ async function loadAllBuys() {
   return rows;
 }
 
+// ── Chart-data availability (ticker_metadata.yahoo_symbol) ────────────────────
+// Whether we have an independent, verifiable market price for a ticker at all.
+// Loaded once and used to gate how aggressively the unusual-price rules below
+// are allowed to fire — see the "no chart data" branch in computeSignals().
+async function loadChartDataSet() {
+  const set = new Set();
+  let from = 0;
+  while (true) {
+    const { data, error } = await sb
+      .from('ticker_metadata')
+      .select('ticker, country_code, yahoo_symbol')
+      .not('yahoo_symbol', 'is', null)
+      .range(from, from + 999);
+    if (error) return set; // table missing/unreachable — treat as "no chart data anywhere"
+    if (!data || data.length === 0) break;
+    for (const r of data) set.add(`${(r.ticker || '').toLowerCase()}|${r.country_code || ''}`);
+    if (data.length < 1000) break;
+    from += 1000;
+  }
+  return set;
+}
+
 // ── Broader price reference (all transaction types, any date) ─────────────────
 // Used only by the unusual-price rules below. A same-day cluster of option
 // exercises often has no OTHER *BUY* in the 90-day window (see rule 2's
@@ -95,7 +117,7 @@ async function loadPriceReference() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('company, transaction_date, price_per_share, currency, is_unusual_price')
+      .select('company, ticker, transaction_date, price_per_share, currency, is_unusual_price')
       .gt('price_per_share', 1)
       .not('transaction_date', 'is', null)
       .order('transaction_date', { ascending: false })
@@ -106,24 +128,27 @@ async function loadPriceReference() {
     if (data.length < 1000) break;
     from += 1000;
   }
-  // Keep {price, date} pairs (not just price) — the caller must exclude the exact
-  // same-day/same-price cluster it is currently evaluating from its own reference,
-  // otherwise a company whose ONLY nearby activity IS the suspect cluster (e.g. LPP
-  // SA: every price>1 row in the DB is the same PLN 2 exercise) would have that
-  // cluster's own repeated price dominate the "reference" median and mask itself.
+  // Keep {price, date, ticker} tuples (not just price) — the caller must exclude the
+  // exact same-day/same-price cluster it is currently evaluating from its own
+  // reference, otherwise a company whose ONLY nearby activity IS the suspect cluster
+  // (e.g. LPP SA: every price>1 row in the DB is the same PLN 2 exercise) would have
+  // that cluster's own repeated price dominate the "reference" median and mask itself.
+  // `ticker` is kept so multi-share-class companies (e.g. Fastpartner AB: FPAR-A
+  // trades ~SEK 41, FPAR-D trades ~SEK 72 — both real, both legitimate) don't get
+  // cross-compared as if they were the same instrument (see computeSignals()).
   const byCompany = {};
   for (const r of rows) {
     if (r.is_unusual_price) continue; // never trust a prior unusual flag as a reference either
     const key = (r.company || '').toLowerCase();
     if (!byCompany[key]) byCompany[key] = [];
-    byCompany[key].push({ price: Number(r.price_per_share), date: r.transaction_date, currency: r.currency });
+    byCompany[key].push({ price: Number(r.price_per_share), date: r.transaction_date, currency: r.currency, ticker: r.ticker });
   }
   return byCompany;
 }
 
 // ── Signal computation ────────────────────────────────────────────────────────
 
-function computeSignals(buys, priceReference) {
+function computeSignals(buys, priceReference, chartDataSet = new Set()) {
   const results = {};   // id → { is_cluster_buy, is_repetitive_buy, is_pre_blackout_buy, is_price_dip, is_unusual_price }
 
   // Index by company (for cluster / repetitive detection)
@@ -145,7 +170,7 @@ function computeSignals(buys, priceReference) {
     // could never recover and the flag could never clear).
     //
     //   1. price = 0 → free grant (RSU / LTIP vesting), always unusual — no
-    //      peer comparison needed.
+    //      peer comparison needed. Applies regardless of chart-data availability.
     //   2. price <60% of same-company median from the last 90 days of KNOWN
     //      market-price peers → option exercise / deep-discount plan.
     //   3. ≥2 different insiders bought at the exact same price on the exact
@@ -177,9 +202,37 @@ function computeSignals(buys, priceReference) {
 
     const tEUR = toEUR(t.price_per_share, t.currency);
 
-    if (!isUnusualPrice && t.price_per_share > 0) {
+    // "Benefit of the doubt" gate: rules 2/2.5/3 below build their reference price
+    // entirely from OTHER insider-transaction rows for the same company — never
+    // from an independently-verified market price. That self-referential median
+    // silently breaks for multi-share-class companies (e.g. Fastpartner AB: FPAR-A
+    // trades ~SEK 41, FPAR-D trades ~SEK 72 — both real, both legitimate, but
+    // rule 2 happily computes a "peer median" across both classes and flags the
+    // cheaper class as a ~60%+ discount off the pricier one's median). Once we
+    // have an independently-verified Yahoo chart symbol for this exact ticker
+    // (ticker_metadata.yahoo_symbol), same-ticker peer filtering below (see
+    // `sameTicker`) prevents that cross-class contamination. But when we have NO
+    // chart data at all for the ticker, we can't even verify the comparison is
+    // apples-to-apples, so — per the "benefit of the doubt" principle — only the
+    // narrowest, most-defensible cases get flagged: an absolute zero price, or an
+    // overwhelming coordinated-exercise signature (3+ distinct insiders, same
+    // exact price, same exact day, priced under 20% of ANY other reference point).
+    // Everything rule 2/2.5 would otherwise catch (a partial, threshold-based
+    // discount with no external corroboration) is left unflagged rather than risk
+    // a permanent false positive we have no way to independently verify.
+    const hasChartData = chartDataSet.has(`${(t.ticker || '').toLowerCase()}|${t.country_code || ''}`);
+
+    // Restrict peer comparisons to the SAME instrument when both sides have a
+    // known ticker — prevents exactly the Fastpartner-style cross-share-class
+    // contamination described above. Falls back to "same company" when either
+    // side's ticker is missing (most of the DB, historically), preserving prior
+    // behavior for companies where per-row ticker data isn't reliably split by
+    // share class.
+    const sameTicker = (p) => !t.ticker || !p.ticker || p.ticker.toLowerCase() === t.ticker.toLowerCase();
+
+    if (!isUnusualPrice && t.price_per_share > 0 && hasChartData) {
       const recentPrices = peers
-        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && sameTicker(p) && daysBetween(p.transaction_date, t.transaction_date) <= 90)
         .map(p => toEUR(p.price_per_share, p.currency))
         .sort((a, b) => a - b);
       const recentMedian = recentPrices.length >= 2
@@ -199,7 +252,8 @@ function computeSignals(buys, priceReference) {
     // SEK 138–144 while selling the same day at the real SEK 197.5 market
     // price). Real same-day trades in a single liquid stock essentially never
     // diverge by >20% — a gap this size on the same day means one side isn't
-    // a market price.
+    // a market price. Requires chart data — see the "benefit of the doubt" note
+    // above; this rule doesn't apply at all without it.
     //
     // Requires ≥2 same-day reference points and uses their MEDIAN, not max/1
     // point: a single same-day reference is not enough, because that lone
@@ -213,9 +267,9 @@ function computeSignals(buys, priceReference) {
     // max()-based comparison wrongly flagged the genuinely-market-price EUR 20
     // trade as unusual. Requiring 2+ points before trusting a same-day
     // reference avoids a single unverified same-day print deciding the flag.
-    if (!isUnusualPrice && t.price_per_share > 0) {
+    if (!isUnusualPrice && t.price_per_share > 0 && hasChartData) {
       const sameDayRefs = (priceReference[companyKey] || [])
-        .filter(p => p.date === t.transaction_date && !(p.currency === t.currency && Number(p.price) === Number(t.price_per_share)))
+        .filter(p => p.date === t.transaction_date && sameTicker(p) && !(p.currency === t.currency && Number(p.price) === Number(t.price_per_share)))
         .map(p => toEUR(p.price, p.currency))
         .sort((a, b) => a - b);
       if (sameDayRefs.length >= 2) {
@@ -237,15 +291,22 @@ function computeSignals(buys, priceReference) {
       // Same currency required too — an exact numeric match across two DIFFERENT
       // currencies (e.g. SEK 90 and NOK 90) is coincidental, not evidence of a
       // shared fixed plan price the way an exact match in the SAME currency is.
+      //
+      // Without chart data, this rule still applies but tightened to the
+      // narrowest, most-defensible shape only: SAME calendar day (not the full
+      // SAME_PRICE_WINDOW) and 3+ distinct insiders (not just 2) — see the
+      // "benefit of the doubt" note above.
+      const samePriceWindow = hasChartData ? SAME_PRICE_WINDOW : 0;
       const samePricePeers = peers.filter(p =>
         p.id !== t.id &&
         p.currency === t.currency &&
         Number(p.price_per_share) === Number(t.price_per_share) &&
         p.insider_name && t.insider_name &&
         (p.insider_name || '').toLowerCase() !== (t.insider_name || '').toLowerCase() &&
-        daysBetween(p.transaction_date, t.transaction_date) <= SAME_PRICE_WINDOW
+        daysBetween(p.transaction_date, t.transaction_date) <= samePriceWindow
       );
-      if (samePricePeers.length >= 1) {
+      const minCoordinated = hasChartData ? 1 : 2; // no chart data → require 3+ total insiders (t + 2 peers)
+      if (samePricePeers.length >= minCoordinated) {
         // Exclude ANY reference row at this exact suspect price (same currency),
         // regardless of its date — the same incentive-plan price is often
         // exercised by different people on different days (not just clustered on
@@ -269,7 +330,10 @@ function computeSignals(buys, priceReference) {
           // peer-discount classification — this is what catches SOBI's ~50%
           // discount (SEK 235.15 vs a 5-point real reference median ~SEK 431),
           // which the stricter 20% bar (tuned for near-zero nominal prices) missed.
-          const threshold = refPrices.length >= 2 ? 0.60 : 0.20;
+          // Without chart data, stay at the strict 20% bar regardless of how many
+          // internal reference points exist — with no external verification at
+          // all, a 60% bar is too permissive to trust.
+          const threshold = hasChartData && refPrices.length >= 2 ? 0.60 : 0.20;
           if (tEUR < refMedian * threshold) isUnusualPrice = true;
           // Symmetric high-side check: the same "≥2 different insiders, exact
           // identical price" signature is just as suspicious when the shared
@@ -391,8 +455,12 @@ async function main() {
   console.log('  Loading broader price reference (all transaction types)…');
   const priceReference = await loadPriceReference();
 
+  console.log('  Loading chart-data availability (ticker_metadata.yahoo_symbol)…');
+  const chartDataSet = await loadChartDataSet();
+  console.log(`  ${chartDataSet.size} ticker|country combos have a verified Yahoo symbol`);
+
   console.log('  Computing signals (pre-blackout: 7-day windows before quarterly blackout)…');
-  const results = computeSignals(buys, priceReference);
+  const results = computeSignals(buys, priceReference, chartDataSet);
 
   const cluster      = Object.values(results).filter(r => r.is_cluster_buy).length;
   const repetitive   = Object.values(results).filter(r => r.is_repetitive_buy).length;
@@ -440,5 +508,5 @@ async function main() {
 if (require.main === module) {
   main().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
 } else {
-  module.exports = { loadAllBuys, loadPriceReference, computeSignals };
+  module.exports = { loadAllBuys, loadPriceReference, loadChartDataSet, computeSignals };
 }
