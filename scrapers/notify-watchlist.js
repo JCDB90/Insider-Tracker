@@ -47,11 +47,54 @@ const FROM_ADDRESS  = 'InsidersAlpha Alerts <alerts@insidersalpha.com>';
 const APP_URL       = 'https://www.insidersalpha.com';
 const DRY_RUN       = process.argv.includes('--dry-run');
 const OWNER_EMAIL   = process.env.NOTIFY_OWNER_EMAIL || null;
+const RUN_LABEL     = 'watchlist-notify'; // pseudo country_code for scraper_runs history
+const FALLBACK_LOOKBACK_HOURS = 48; // used only when no prior run is on record
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// ── New-transaction cutoff (high-water mark via scraper_runs) ────────────────
+// Root cause of missed alerts: the query used to filter on `transaction_date ===
+// today`, but MAR Article 19 filings are routinely disclosed 1-3 days AFTER the
+// actual trade date (confirmed live: a Vidrala BUY dated 2026-06-23 wasn't saved
+// to the DB until 2026-06-25; a Vidrala SELL dated 2026-07-07 wasn't saved until
+// 2026-07-08). By the time `created_at` happens, "today" has already moved past
+// `transaction_date`, so the row can NEVER match and the alert is silently lost
+// forever — not delayed, lost. Even same-day filings aren't safe: run-daily.sh's
+// cron fires at 22:00 UTC, and a row saved at 22:55 UTC (after that day's notifier
+// already ran) has the same problem the very next day.
+//
+// Fixed by filtering on `created_at` (when we actually found out about the row)
+// against a high-water mark: the timestamp of this script's own last successful
+// run, read back from scraper_runs. This also makes the notifier self-healing —
+// if the cron fails to run for several days, the next successful run picks up
+// everything saved since the last one actually completed, instead of only ever
+// checking "today".
+async function getCreatedAtCutoff() {
+  const { data, error } = await sb
+    .from('scraper_runs')
+    .select('ran_at')
+    .eq('country_code', RUN_LABEL)
+    .eq('status', 'success')
+    .order('ran_at', { ascending: false })
+    .limit(1);
+  if (!error && data?.length) return data[0].ran_at;
+  // First run ever (or scraper_runs unreachable) — bound the catch-up window
+  // rather than blasting out the entire transaction history's worth of alerts.
+  return new Date(Date.now() - FALLBACK_LOOKBACK_HOURS * 3600 * 1000).toISOString();
+}
+
+async function logRun(rowsSaved, durationS, status = 'success') {
+  // A --dry-run test must NEVER advance the real high-water mark — doing so
+  // would silently suppress whatever transactions a real run should have caught
+  // between the actual last real run and whenever the test happened to execute.
+  if (DRY_RUN) return;
+  try {
+    await sb.from('scraper_runs').insert({ country_code: RUN_LABEL, rows_saved: rowsSaved ?? 0, duration_s: durationS, status });
+  } catch { /* non-fatal — a missing/unreachable scraper_runs table shouldn't crash the notifier */ }
 }
 
 function fmtValue(val, currency = 'EUR') {
@@ -160,7 +203,9 @@ function buildEmailHtml(userEmail, groups) {
 async function notifyWatchlist() {
   console.log('📬  Watchlist Email Notifier');
   const today = todayIso();
+  const cutoff = await getCreatedAtCutoff();
   console.log(`  Date: ${today}${DRY_RUN ? ' [DRY RUN]' : ''}`);
+  console.log(`  New-transaction cutoff: ${cutoff} (created_at >= this)`);
   console.log(`  Key:  ${SERVICE_KEY ? 'service_role (RLS bypassed ✓)' : 'anon (RLS active — will see 0 user profiles)'}`);
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -175,7 +220,7 @@ async function notifyWatchlist() {
     console.log('  ⚠  watchlist.user_id column missing — run migration 002 in Supabase SQL editor');
     console.log('     File: scrapers/migrations/002_watchlist_user_notifications.sql');
     console.log('     Falling back to global-watchlist mode…\n');
-    return notifyGlobal(today);
+    return notifyGlobal(cutoff);
   }
 
   // 2. Get users eligible for notification
@@ -189,7 +234,7 @@ async function notifyWatchlist() {
 
   if (profilesErr) {
     console.error('  ❌ user_profiles query:', profilesErr.message);
-    return { sent: 0 };
+    return { sent: 0, ok: false };
   }
 
   if (!profiles?.length) {
@@ -210,7 +255,7 @@ async function notifyWatchlist() {
     .select('user_id, ticker, company, country_code')
     .in('user_id', userIds);
 
-  if (wlErr) { console.error('  ❌ watchlist query:', wlErr.message); return { sent: 0 }; }
+  if (wlErr) { console.error('  ❌ watchlist query:', wlErr.message); return { sent: 0, ok: false }; }
 
   const userWatchlists = {};
   for (const row of (wlRows || [])) {
@@ -225,33 +270,34 @@ async function notifyWatchlist() {
     return { sent: 0 };
   }
 
-  // 4. Today's transactions for all relevant tickers
+  // 4. Newly-saved transactions (by created_at, NOT transaction_date — see
+  // getCreatedAtCutoff() for why) for all relevant tickers.
   const allTickers = [...new Set(wlRows.map(w => w.ticker).filter(Boolean))];
-  const { data: todayTrades, error: tradesErr } = await sb
+  const { data: newTrades, error: tradesErr } = await sb
     .from('insider_transactions')
-    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
+    .select('ticker, country_code, company, insider_name, transaction_type, transaction_date, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
     .in('ticker', allTickers)
-    .eq('transaction_date', today)
+    .gte('created_at', cutoff)
     .in('transaction_type', ['BUY', 'SELL']);
 
-  if (tradesErr) { console.error('  ❌ trades query:', tradesErr.message); return { sent: 0 }; }
+  if (tradesErr) { console.error('  ❌ trades query:', tradesErr.message); return { sent: 0, ok: false }; }
 
-  if (!todayTrades?.length) {
-    console.log('  ℹ  No watchlist transactions today — no emails sent');
+  if (!newTrades?.length) {
+    console.log('  ℹ  No new watchlist transactions since last check — no emails sent');
     return { sent: 0 };
   }
 
-  console.log(`  ${todayTrades.length} transaction(s) across ${allTickers.length} tickers`);
+  console.log(`  ${newTrades.length} new transaction(s) across ${allTickers.length} tickers`);
 
   // 5. Send per-user emails
-  return sendToUsers(usersWithStocks, userWatchlists, todayTrades, today);
+  return sendToUsers(usersWithStocks, userWatchlists, newTrades, today);
 }
 
 // ── Global-watchlist fallback ─────────────────────────────────────────────────
 // Used when migration 002 hasn't been run yet.
-// Sends to NOTIFY_OWNER_EMAIL if today's trades match any watchlist ticker.
+// Sends to NOTIFY_OWNER_EMAIL if any new trades match a watchlist ticker.
 
-async function notifyGlobal(today) {
+async function notifyGlobal(cutoff) {
   if (!OWNER_EMAIL) {
     console.log('  ℹ  Set NOTIFY_OWNER_EMAIL=your@email.com in .env to receive global-watchlist alerts');
     return { sent: 0 };
@@ -261,27 +307,27 @@ async function notifyGlobal(today) {
   if (!wlRows?.length) { console.log('  ℹ  Watchlist is empty'); return { sent: 0 }; }
 
   const tickers = [...new Set(wlRows.map(w => w.ticker))];
-  console.log(`  Global watchlist: ${tickers.length} tickers — checking for today's transactions`);
+  console.log(`  Global watchlist: ${tickers.length} tickers — checking for new transactions since last check`);
 
-  const { data: todayTrades, error } = await sb
+  const { data: newTrades, error } = await sb
     .from('insider_transactions')
-    .select('ticker, country_code, company, insider_name, transaction_type, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
+    .select('ticker, country_code, company, insider_name, transaction_type, transaction_date, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
     .in('ticker', tickers)
-    .eq('transaction_date', today)
+    .gte('created_at', cutoff)
     .in('transaction_type', ['BUY', 'SELL']);
 
-  if (error) { console.error('  ❌ trades query:', error.message); return { sent: 0 }; }
+  if (error) { console.error('  ❌ trades query:', error.message); return { sent: 0, ok: false }; }
 
-  if (!todayTrades?.length) {
-    console.log('  ℹ  No watchlist transactions today — no email sent');
+  if (!newTrades?.length) {
+    console.log('  ℹ  No new watchlist transactions since last check — no email sent');
     return { sent: 0 };
   }
 
   const fakeProfile = { id: 'owner', email: OWNER_EMAIL, last_notified_at: null };
   const fakeWatchlist = { owner: wlRows };
-  console.log(`  ${todayTrades.length} transaction(s) found — sending to ${OWNER_EMAIL}`);
+  console.log(`  ${newTrades.length} transaction(s) found — sending to ${OWNER_EMAIL}`);
 
-  return sendToUsers([fakeProfile], fakeWatchlist, todayTrades, today);
+  return sendToUsers([fakeProfile], fakeWatchlist, newTrades, todayIso());
 }
 
 // ── Shared send logic ─────────────────────────────────────────────────────────
@@ -336,4 +382,15 @@ async function sendToUsers(profiles, userWatchlists, todayTrades, today) {
   return { sent };
 }
 
-notifyWatchlist().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+// Records this run's completion time to scraper_runs (country_code='watchlist-notify')
+// so the NEXT run's getCreatedAtCutoff() advances the high-water mark — but only on
+// a genuinely clean run (ok !== false). A query error logs 'failed' and does NOT
+// advance the mark, so the next run retries the same window instead of silently
+// skipping whatever it failed to check this time.
+const t0 = Date.now();
+notifyWatchlist()
+  .then(result => logRun(result?.sent ?? 0, (Date.now() - t0) / 1000, result?.ok === false ? 'failed' : 'success'))
+  .catch(err => {
+    console.error('❌ Fatal:', err.message);
+    return logRun(0, (Date.now() - t0) / 1000, 'failed').finally(() => process.exit(1));
+  });
