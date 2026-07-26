@@ -106,6 +106,18 @@ function Footer() {
 
 // ─── Access control ───────────────────────────────────────────────────────────
 
+// Personal watchlist stock limit per plan — 'visitor' is the actual value
+// user_profiles.plan defaults to for a free/not-signed-up-for-Pro account
+// (there is no literal 'free' plan value in the DB; kept here too in case
+// that ever changes). Pro/Elite/Admin are uncapped.
+const WATCHLIST_LIMITS = {
+  free:    3,
+  visitor: 3,
+  pro:     Infinity,
+  elite:   Infinity,
+  admin:   Infinity,
+};
+
 function useAccess(plan) {
   const isAdmin = plan === 'admin';
   const isPro   = ['pro', 'elite', 'admin'].includes(plan);
@@ -115,7 +127,8 @@ function useAccess(plan) {
     dashboardPageLimit:  isPro ? null : 1,   // null = no limit
     companyHistoryLimit: isPro ? null : 3,
     insidersLimit:       isPro ? null : 5,
-    canEditWatchlist:    isPro,
+    watchlistLimit:      WATCHLIST_LIMITS[plan] ?? 3,
+    canEditWatchlist:    true, // all plans can add stocks now — capped by watchlistLimit instead
     canSeeAlerts:        isPro,
     canExport:           isElite,
   };
@@ -217,7 +230,7 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
         </h2>
         {mode === 'signup' && (
           <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 18, lineHeight: 1.6 }}>
-            ✓ Personal watchlist (up to 5 stocks)<br />
+            ✓ Personal watchlist (up to 3 stocks)<br />
             ✓ Daily email alerts when insiders buy your stocks<br />
             ✓ No credit card required
           </div>
@@ -2080,16 +2093,18 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
     if (!newStock.ticker.trim() || !newStock.company.trim()) return;
     setSaving(true);
     setSaveError('');
-    const success = await addToWatchlist({
+    const result = await addToWatchlist({
       ticker: newStock.ticker.trim().toUpperCase(),
       company: newStock.company.trim(),
       country_code: newStock.country_code,
       yahoo_ticker: newStock.yahoo_ticker.trim() || null,
     });
     setSaving(false);
-    if (success) {
+    if (result.ok) {
       setShowAddModal(false);
       setNewStock({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
+    } else if (result.reason === 'limit') {
+      setSaveError(`Watchlist limit reached (${access.watchlistLimit} stocks). Upgrade to Pro for unlimited stocks.`);
     } else {
       setSaveError('Failed to save — ticker may already exist.');
     }
@@ -2224,32 +2239,42 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
             </button>
           ))}
         </div>
-        {tab === 'stocks' && (
-          access && !access.canEditWatchlist ? (
-            <button onClick={onUpgrade} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '8px 14px', background: '#fff', color: ACCENT,
-              border: '1px solid ' + ACCENT, borderRadius: 8, cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
-            }}>🔒 Add own stocks — Pro →</button>
-          ) : (
-            <button
-              onClick={() => setShowAddModal(true)}
-              title="Add stock to watchlist"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '8px 14px', background: ACCENT, color: '#fff',
-                border: 'none', borderRadius: 8, cursor: 'pointer',
-                fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1v10M1 6h10" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              Add stock
-            </button>
-          )
-        )}
+        {tab === 'stocks' && (() => {
+          const limit   = access?.watchlistLimit ?? 3;
+          const count   = watchlist.length;
+          const atLimit = limit !== Infinity && count >= limit;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: "'Inter', sans-serif" }}>
+                {limit === Infinity ? `${count} stock${count === 1 ? '' : 's'} (unlimited)` : `${count}/${limit} stocks`}
+              </span>
+              {atLimit ? (
+                <button onClick={onUpgrade} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 14px', background: '#fff', color: ACCENT,
+                  border: '1px solid ' + ACCENT, borderRadius: 8, cursor: 'pointer',
+                  fontSize: 12, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
+                }}>🔒 Upgrade to Pro for unlimited watchlist</button>
+              ) : (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  title="Add stock to watchlist"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '8px 14px', background: ACCENT, color: '#fff',
+                    border: 'none', borderRadius: 8, cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M6 1v10M1 6h10" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  Add stock
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Alerts tab ── */}
@@ -5353,7 +5378,7 @@ const PLAN_FEATURES_GRID = [
   { category: 'Tools & Research', rows: [
     { label: 'Top Insiders leaderboard', analyst: 'Top 10',      strategist: 'Full',           terminal: 'Full' },
     { label: 'Insider performance profiles', analyst: false,     strategist: true,             terminal: true },
-    { label: 'Personal watchlist',      analyst: '5 stocks',     strategist: 'Unlimited',      terminal: 'Unlimited' },
+    { label: 'Personal watchlist',      analyst: '3 stocks',     strategist: 'Unlimited',      terminal: 'Unlimited' },
     { label: 'Buyback program tracking', analyst: true,          strategist: true,             terminal: true },
     { label: 'Tax calculators',         analyst: true,           strategist: true,             terminal: true },
   ]},
@@ -5454,7 +5479,7 @@ function PricingPage({ session, onLogin }) {
         'First 50 insider trades with full data',
         'Last 3 transactions on company pages',
         'Top 10 insiders on leaderboard',
-        'Personal watchlist (up to 5 stocks)',
+        'Personal watchlist (up to 3 stocks)',
         'Daily email alerts when insiders buy your stocks',
         'Stock charts with trade markers',
         'All tax calculators & education',
@@ -5890,12 +5915,27 @@ export default function App() {
 
   async function addToWatchlist(stock) {
     const userId = session?.user?.id;
+
+    // Enforce the per-plan watchlist limit with a fresh count from the DB rather
+    // than trusting client-side `watchlist.length` — that state can be stale
+    // across multiple open tabs/devices, which would otherwise let a user add
+    // past their limit by racing two tabs against the same cached count.
+    if (userId && access.watchlistLimit !== Infinity) {
+      const { count, error: countErr } = await supabase
+        .from('watchlist')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (!countErr && (count ?? 0) >= access.watchlistLimit) {
+        return { ok: false, reason: 'limit' };
+      }
+    }
+
     const row = userId ? { ...stock, user_id: userId } : stock;
     const { error } = await supabase.from('watchlist').insert([row]);
-    if (error) return false;
+    if (error) return { ok: false, reason: 'error' };
     setWatchlist(prev => [...prev, stock]);
     track('add_to_watchlist', { ticker: stock.ticker, company: stock.company });
-    return true;
+    return { ok: true };
   }
 
   const watchlistTickers = useMemo(() => new Set(watchlist.map(w => w.ticker)), [watchlist]);
