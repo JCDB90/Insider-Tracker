@@ -70,6 +70,23 @@ const COMPANY_NAME_OVERRIDES = {
   'cpi europe ag':      'IMO1.F',   // ticker stored per-row as a linked derivative certificate's OWN ISIN (Turbo
                                      // Certificates on IMMOFINANZ AG — CPI Europe AG's former name), not the
                                      // issuer's own equity; IMO1.F is CPI Europe AG's real Frankfurt listing
+  'cementir holding n.v.': 'CEM.MI', // NL's default candidate order tries '.PA' first, which collides with an
+                                      // unrelated ETF ("Amundi MSCI Europe Small Cap ES", CEM.PA) — real listing
+                                      // is Borsa Milan (CEM.MI, confirmed via chart API shortName match)
+  'austriacard holdings ag': 'ACAG.AT', // AT-country default suffix is '.VI' (Vienna), but this one only
+                                         // resolves on Yahoo under '.AT' (Athens Stock Exchange)
+  'allwyn ag':          'ALWN.AT',  // LU-registered but only lists on Athens; LU's candidate-suffix block
+                                     // (.AS/.PA/.BR/.DE/.MI/.F/.WA) doesn't include '.AT'
+  'capita plc':         'CTA0.F',   // delisted from LSE — GB default '.L' has no listing; only surviving
+                                     // quote is the Frankfurt one (real data, confirmed via shortName)
+  'canal+ sa':          'CAN.L',    // FR-filed (AMF) but primary listing is LSE post-Vivendi split — FR
+                                     // default '.PA' has no listing (confirmed NO DATA on Yahoo chart API)
+  // Chinese GDR issuers disclosing under CH (Swiss GDR listing rules) — CH's default '.SW' suffix doesn't
+  // apply since PDMR tracking follows the underlying China A-share, not the Swiss GDR itself.
+  'kunshan dongwei technology co., ltd.': '688700.SS',
+  'jiangsu eastern shenghong co., ltd.':  '000301.SZ',
+  'zhejiang huayou cobalt co., ltd.':     '603799.SS',
+  'keda industrial group co., ltd.':      '600499.SS',
 };
 
 // ─── Signal icon helpers (shared with App.jsx concept, inlined here) ─────────
@@ -266,8 +283,20 @@ function buildYahooSymbolCandidates(ticker, countryCode, yahooTicker, company) {
       base + '.BR', bare + '.BR',
       base + '.DE', bare + '.DE',
       base + '.MI', bare + '.MI',
+      // '.F' = Frankfurter Wertpapierbörse (distinct from Xetra's '.DE' above) —
+      // confirmed live: SOCFINASIA S.A. and tonies SE (both LU-registered) only
+      // resolve on Yahoo under this suffix, not '.DE'.
+      base + '.F', bare + '.F',
+      base + '.WA', bare + '.WA', // confirmed live: Zabka Group (LU-registered, Warsaw-listed)
       base,
     );
+  }
+
+  // GB-registered micro-caps sometimes list on Aquis Stock Exchange rather than
+  // the LSE — confirmed live: Zentra Group PLC (ZNT.AQ), Newbury Racecourse PLC
+  // (NYR.AQ), Vaultz Capital PLC (V3TC.AQ), none of which resolve under '.L'.
+  if (countryCode === 'GB') {
+    candidates.push(base + '.AQ', bare + '.AQ');
   }
 
   // No bare (no-suffix) fallback when exchange suffix is known — prevents

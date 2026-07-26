@@ -251,11 +251,43 @@ function parseFrPdf(text) {
   let isin   = null;
   let ticker = null;
   const codeLine = flat.match(/CODE D.IDENTIFICATION[^\n]*/im)?.[0] || '';
-  const isinM    = codeLine.match(/:\s*([A-Z]{2}[0-9]{10})\b/);    // ISIN: CC + 10 digits (strict)
+  // ISIN body (after the 2-letter country prefix) is alphanumeric per the ISO 6166
+  // spec, not digits-only — newer French ISINs use letters in it too (confirmed
+  // live: ODYSSEE TECHNOLOGIES, FR001400U4P9). A digit-only requirement here
+  // silently rejected these exactly like the missing-header-line issue below.
+  const isinM    = codeLine.match(/:\s*([A-Z]{2}[A-Z0-9]{10})\b/);
   const tickerM  = codeLine.match(/\/\s*([A-Z][A-Z0-9]{1,7})\b/);  // exchange ticker after /
-  if (isinM) {
+  // Every AMF filing carries the issuer's OWN equity ISIN on the document's own
+  // header line, right below the doc reference number — "FR0000073272 - DD191759"
+  // (confirmed live on SAFRAN, CARREFOUR, SOCIETE GENERALE, KERING, PUBLICIS
+  // GROUPE — none of which have a "CODE D'IDENTIFICATION" line at all, a
+  // different AMF filing template than the "CODE D'IDENTIFICATION ... : ISIN"
+  // one this parser was originally built against). This header ISIN is checked
+  // FIRST and wins over the "CODE D'IDENTIFICATION" line's ISIN, because that
+  // line describes the TRANSACTED INSTRUMENT, which for employee savings-fund
+  // trades ("Parts de fonds d'épargne salariale" / FCPE) is a fund-unit code
+  // prefixed "QS" (AMF's internal quasi-security marker, not a real ISO 6166
+  // country code) rather than the issuer's own share ISIN — confirmed live on
+  // TOTALENERGIES SE, SANOFI, and GOLD BY GOLD, where trusting the code line
+  // instead of the header silently attached an unresolvable fund-code "ISIN"
+  // to what is really an ordinary insider trade in the issuer's own stock.
+  const headerM = flat.match(/^([A-Z]{2}[A-Z0-9]{10})\s*-\s*DD\d+/m);
+  if (headerM) {
+    isin = headerM[1];
+    // Only trust the code line's ticker suffix ("ISIN / TICKER") when its own
+    // ISIN agrees with the header — otherwise it belongs to a different
+    // instrument (the FCPE fund unit, not the issuer's equity) and must not be
+    // attached here.
+    if (isinM && isinM[1] === isin) ticker = tickerM ? tickerM[1] : null;
+  } else if (isinM) {
+    // No header ISIN at all (rare — confirmed live: some CANAL+ SA FCPE-only
+    // filings ship a blank header, "- DDnnnnnn" with nothing before the dash).
+    // Falling back to the code line's ISIN here is still better than nothing,
+    // even though for FCPE trades it may itself be the QS-prefixed fund code
+    // rather than the issuer's equity ISIN — isinToTicker() simply returns
+    // null for those and the row is left tickerless rather than mismatched.
     isin   = isinM[1];
-    ticker = tickerM ? tickerM[1] : null; // only set if explicit exchange ticker present in PDF
+    ticker = tickerM ? tickerM[1] : null;
   }
 
   // For free share attributions (RSU/LTIP) the price is legitimately 0.

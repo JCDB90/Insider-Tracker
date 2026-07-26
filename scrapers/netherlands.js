@@ -130,6 +130,28 @@ const TICKER_MAP = {
   'qiagen':             'QGEN',
   'ebusco':             'EBUS',
   'envipco':            'ENVI',
+  // Added during the ticker-resolution audit — this scraper has no ISIN field to fall
+  // back on (AFM's export doesn't provide one), so any company missing from this map
+  // gets NO ticker at all, silently. Each verified live via Yahoo search + chart identity.
+  'banijay group':      'BNJ',    // Euronext Amsterdam (BNJ.AS)
+  'wereldhave':         'WHA',    // Euronext Amsterdam (WHA.AS) — search API surfaces
+                                   // "Wereldhave Belgium SCA" more prominently, but the
+                                   // NV's own symbol resolves fine once queried directly
+  'ariston holding':    'ARIS',   // Borsa Milan (ARIS.MI) — buildYahooSymbolCandidates tries .MI for NL
+  'stellantis':         'STLA',   // bare NYSE listing (buildYahooSymbolCandidates tries bare for NL)
+  'nsi n.v':            'NSI',    // Euronext Amsterdam (NSI.AS)
+  'sligro':             'SLIGR',  // Euronext Amsterdam (SLIGR.AS)
+  'heijmans':           'HEIJM',  // Euronext Amsterdam (HEIJM.AS)
+  'cm.com':             'CMCOM',  // Euronext Amsterdam (CMCOM.AS)
+  'csg n.v':            'CSG',    // Euronext Amsterdam (CSG.AS)
+  'pluxee':             'PLX',    // Euronext Paris (PLX.PA) — buildYahooSymbolCandidates tries .PA for NL
+  'nedap':              'NEDAP',  // Euronext Amsterdam (NEDAP.AS)
+  'eurocommercial properties': 'ECMPA', // Euronext Amsterdam (ECMPA.AS)
+  'tkh group':          'TWEKA',  // Euronext Amsterdam (TWEKA.AS)
+  'van lanschot kempen': 'VLK',   // Euronext Amsterdam (VLK.AS)
+  'green earth group':  'EARTH',  // Euronext Amsterdam (EARTH.AS)
+  'technip energies':   'TE',     // Euronext Paris (TE.PA) — buildYahooSymbolCandidates tries .PA for NL
+  'sif holding':        'SIFG',   // Euronext Amsterdam (SIFG.AS)
 };
 
 function getTicker(companyName) {

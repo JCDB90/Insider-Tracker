@@ -96,6 +96,19 @@ function fetchJson(urlStr) {
   });
 }
 
+// Yahoo's /v1/finance/search endpoint doesn't index these ISINs at all (confirmed
+// live: searching by the ISIN itself returns zero equity quotes, while searching by
+// the company's NAME finds the real listing without trouble) — a gap in Yahoo's own
+// ISIN database, not a rate-limiting or suffix-stripping issue. Without this override,
+// every scraper backfill/daily-run re-resolves these to null and falls back to storing
+// the raw ISIN as the ticker, silently undoing any manual fix on the next run.
+const ISIN_OVERRIDES = {
+  'LU2605908552': '9ID',   // Luxempart S.A. — real listing is Frankfurt (9ID.F)
+  'LU2290522684': 'INPST', // InPost S.A. — real listing is Euronext Amsterdam (INPST.AS)
+  'US37733W2044': 'GSK',   // GSK plc — this is the CUSIP-style ADR identifier some UK
+                            // filings cite instead of GSK's own LSE ISIN (GB0009252882)
+};
+
 /**
  * Look up a ticker symbol for an ISIN using Yahoo Finance search.
  * Returns base ticker without exchange suffix (e.g. "ABI" not "ABI.BR"),
@@ -109,6 +122,7 @@ function fetchJson(urlStr) {
  */
 async function isinToTicker(isin, countryCode) {
   if (!isin) return null;
+  if (ISIN_OVERRIDES[isin]) return ISIN_OVERRIDES[isin];
 
   // Load Supabase cache on first call
   await _loadDbCache();
@@ -139,7 +153,23 @@ async function isinToTicker(isin, countryCode) {
     // Strip exchange suffix to get base ticker
     const symbol = match.symbol;
     let base = symbol;
-    const allSuffixes = [...Object.values(COUNTRY_SUFFIX), '.SG', '.NZ', '.AX', '.BK', '.JK', '.NS', '.BO', '.SR'];
+    // Extra Yahoo exchange suffixes not already covered by a COUNTRY_SUFFIX value —
+    // needed when a company's ISIN-registered country differs from where Yahoo
+    // actually lists it (e.g. a secondary/dual listing). Confirmed live: Austrian
+    // AUSTRIACARD HOLDINGS AG (AT0000A325L0) resolves on Yahoo to "ACAG.AT" — Athens
+    // Stock Exchange, NOT Vienna (.VI) — so "AT" as a Yahoo suffix means Athens here,
+    // a different thing entirely from "AT" the ISO country code used as this file's
+    // COUNTRY_SUFFIX key for Austria. Without ".AT" in this list, the un-stripped
+    // "ACAG.AT" still contains a dot and gets rejected by the `base.includes('.')`
+    // guard below, silently discarding an otherwise-valid resolution.
+    // '.F' = Frankfurter Wertpapierbörse (Yahoo's short Frankfurt suffix, distinct
+    // from Xetra's '.DE' already in COUNTRY_SUFFIX) — confirmed live: SOCFINASIA
+    // S.A. and tonies SE (both LU-registered) only turn up on Yahoo as "Y1T.F" /
+    // "TNIE.F", never under a '.LU' symbol. Same missing-suffix bug as '.AT' above.
+    // '.AQ' = Aquis Stock Exchange (a real UK alternative market, distinct from
+    // LSE's '.L') — confirmed live: Zentra Group PLC, Newbury Racecourse PLC,
+    // Vaultz Capital PLC (all GB-registered) only resolve under this suffix.
+    const allSuffixes = [...Object.values(COUNTRY_SUFFIX), '.SG', '.NZ', '.AX', '.BK', '.JK', '.NS', '.BO', '.SR', '.AT', '.F', '.AQ'];
     for (const sfx of allSuffixes) {
       if (symbol.endsWith(sfx)) { base = symbol.slice(0, -sfx.length); break; }
     }

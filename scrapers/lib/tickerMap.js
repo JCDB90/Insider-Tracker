@@ -49,8 +49,30 @@ const SPECIFIC_OVERRIDES = {
   'APAM|LU':   'APAM.AS',   // Aperam S.A. (Amsterdam)
   'BREB|LU':   'BREB.BR',   // Brederode S.A. (Brussels)
   'ALWN|LU':   'ALWN.AT',   // Allwyn AG (Euronext Athens)
+  'MT|LU':     'MT.AS',     // ArcelorMittal (Amsterdam)
+  'ALE|LU':    'ALE.WA',    // Allegro.eu (Warsaw)
+  'LRND|LU':   'LRND.DE',   // learnd SE (Xetra — Yahoo's Frankfurt listing still shows the old name AnchorCore SE)
+  'TNIE|LU':   'TNIE.DE',   // tonies SE (Xetra)
+  'Y1T|LU':    'Y1T.F',     // Socfinasia S.A. (Frankfurt)
+  'ICD|LU':    'ICD.F',     // Socfinaf S.A. (Frankfurt)
+  '9ID|LU':    '9ID.F',     // Luxempart S.A. (Frankfurt)
+  'INPST|LU':  'INPST.AS',  // InPost S.A. (Amsterdam)
+  // AT-registered but not on Vienna
+  'ACAG|AT':   'ACAG.AT',   // Austriacard Holdings AG (Athens, not Vienna's .VI default)
   // GB-filed companies primarily listed on other exchanges
   'FLUT|GB':   'FLUT',      // Flutter Entertainment (NYSE, migrated from LSE)
+  'CTA0|GB':   'CTA0.F',    // Capita plc (delisted from LSE; only surviving quote is Frankfurt)
+  // FR-filed but not on Euronext Paris
+  'CAN|FR':    'CAN.L',     // Canal+ SA (LSE, post-Vivendi split)
+  // NL-registered but not on Amsterdam/Paris/Milan (the NL default suffix set)
+  'STLA|NL':   'STLA',      // Stellantis N.V. (bare NYSE)
+  'ARIS|NL':   'ARIS.MI',   // Ariston Holding N.V. (Milan)
+  // CH-filed Chinese GDR issuers — PDMR tracking follows the underlying China A-share,
+  // not the Swiss GDR itself (CH's default '.SW' suffix doesn't apply)
+  '688700|CH':  '688700.SS', // Kunshan Dongwei Technology Co., Ltd.
+  '000301|CH':  '000301.SZ', // Jiangsu Eastern Shenghong Co., Ltd.
+  '603799|CH':  '603799.SS', // Zhejiang Huayou Cobalt Co., Ltd.
+  '600499|CH':  '600499.SS', // Keda Industrial Group Co., Ltd.
   // PL tickers where GPW symbol differs from Yahoo Finance symbol
   'BNPPPL|PL':    'BNP.WA',
   'HANDLOWY|PL':  'BHW.WA',
