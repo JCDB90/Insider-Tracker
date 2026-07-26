@@ -2566,39 +2566,26 @@ function DashboardPage({
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
   useEffect(() => { setTradePage(1); }, [filteredTrades]);
 
-  // Avg 30d return across ALL signals (wins + losses), deduplicated by ticker+date.
-  // One stock event counts once regardless of how many insiders bought the same day.
-  // Capped at 100% per signal to prevent extreme outliers (e.g. +190% on LRND)
-  // from inflating the headline — uncapped mean is +15%, capped is +8.4%.
+  // Avg 30d return on all tracked insider buys — fetched from /api/performance-stats
+  // (stats_all), the SAME properly-filtered dataset the Performance tab uses
+  // (BUY only, is_unusual_price=false, total_value>€1,000, excludes CH, requires
+  // a named insider). This used to be a separate client-side query straight
+  // against insider_performance with none of those filters and no transaction-
+  // type check at all — it computed a real but misleading 8.4% (15% uncapped)
+  // by including option-exercise prices, dust trades, and possibly SELLs, while
+  // the properly-filtered number is +1.0%. Reusing the vetted endpoint instead
+  // of maintaining a second, looser query keeps this KPI, the Performance tab,
+  // and the pricing page's stat all sourced from one place going forward.
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      const all = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabase
-          .from('insider_performance')
-          .select('ticker, transaction_date, return_30d')
-          .not('return_30d', 'is', null)
-          .gt('transaction_price', 0)
-          .range(from, from + 999);
-        if (!data || data.length === 0) break;
-        all.push(...data);
-        if (data.length < 1000) break;
-        from += 1000;
-      }
-      const seen = new Set();
-      let sum = 0, count = 0;
-      for (const r of all) {
-        const key = `${r.ticker}|${r.transaction_date}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        sum += Math.min(Number(r.return_30d), 1.0); // cap at 100% per signal
-        count++;
-      }
-      if (!cancelled) setAvgReturn30d(count > 0 ? sum / count : null);
-    }
-    load();
+    fetch('/api/performance-stats')
+      .then(res => res.json())
+      .then(body => {
+        if (!cancelled && body?.stats_all?.['30d']?.avg != null) {
+          setAvgReturn30d(body.stats_all['30d'].avg); // already a percentage, e.g. 1.0 = +1.0%
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -2656,8 +2643,8 @@ function DashboardPage({
     {
       icon: '📈',
       label: 'Avg 30d Return',
-      value: avgReturn30d === null ? '…' : '+' + (avgReturn30d * 100).toFixed(1) + '%',
-      sub: 'avg across all tracked signals',
+      value: avgReturn30d === null ? '…' : (avgReturn30d >= 0 ? '+' : '') + avgReturn30d.toFixed(1) + '%',
+      sub: 'avg 30d return, all tracked insider buys',
       color: '#15803D',
       action: () => onNavigate && onNavigate('insiders'),
     },
@@ -5501,9 +5488,15 @@ function PricingPage({ session, onLogin }) {
         'Insider performance profiles & track records',
         'Buyback program tracking',
       ],
+      // Kept in sync with /api/performance-stats' stats_all['30d'] manually — check
+      // that endpoint before changing this number. Verified live 2026-07-26: avg
+      // +1.0%, n=3,917 (BUY only, is_unusual_price=false, total_value>€1,000,
+      // excludes CH, named insider required — see frontend/api/performance-stats.js).
+      // A prior "+8.4%" here came from a since-fixed dashboard KPI that queried
+      // insider_performance directly with none of those filters.
       perfNote: {
-        stat: 'Avg. 30d return on tracked insider buys: +8.4%*',
-        disclaimer: '*Based on 1,092 signals. Past performance does not guarantee future results.',
+        stat: 'Avg. 30d return on tracked insider buys: +1.0%*',
+        disclaimer: '*Based on 3,917 tracked insider buys. Past performance does not guarantee future results.',
       },
     },
     {
@@ -5522,7 +5515,9 @@ function PricingPage({ session, onLogin }) {
   const annualSave = 17; // ~17% saving: €9.99/mo vs €12/mo
 
   const proofItems = [
-    { label: 'Avg 30d return', value: '+8.4%', sub: 'across 1,092 tracked signals', color: '#16A34A' },
+    // Kept in sync with /api/performance-stats' stats_all['30d'] — see the
+    // same note on the Pro plan's perfNote above.
+    { label: 'Avg 30d return', value: '+1.0%', sub: 'across 3,917 tracked insider buys', color: '#16A34A' },
     { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
     { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
     { label: 'Markets covered',                   value: '17',    sub: '17 markets across Europe and Asia', color: '#6B7280' },
