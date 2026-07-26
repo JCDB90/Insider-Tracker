@@ -247,6 +247,9 @@ async function notifyWatchlist() {
   }
 
   console.log(`  ${profiles.length} user(s) eligible`);
+  // [DEBUG] remove once the "0 transactions despite matching SQL" report is root-caused
+  console.log('  [DEBUG] eligible user ids:', profiles.map(p => p.id).join(', '));
+  console.log('  [DEBUG] eligible user emails:', profiles.map(p => p.email).join(', '));
 
   // 3. Get personal watchlist tickers per user
   const userIds = profiles.map(p => p.id);
@@ -256,6 +259,10 @@ async function notifyWatchlist() {
     .in('user_id', userIds);
 
   if (wlErr) { console.error('  ❌ watchlist query:', wlErr.message); return { sent: 0, ok: false }; }
+
+  // [DEBUG] remove once root-caused
+  console.log('  [DEBUG] wlRows count:', wlRows?.length ?? 0);
+  console.log('  [DEBUG] wlRows sample:', JSON.stringify((wlRows || []).slice(0, 10)));
 
   const userWatchlists = {};
   for (const row of (wlRows || [])) {
@@ -273,14 +280,28 @@ async function notifyWatchlist() {
   // 4. Newly-saved transactions (by created_at, NOT transaction_date — see
   // getCreatedAtCutoff() for why) for all relevant tickers.
   const allTickers = [...new Set(wlRows.map(w => w.ticker).filter(Boolean))];
+  // [DEBUG] remove once root-caused
+  console.log('  [DEBUG] cutoff value:', cutoff, '| typeof:', typeof cutoff, '| Date.parse:', Date.parse(cutoff));
+  console.log('  [DEBUG] allTickers:', JSON.stringify(allTickers));
   const { data: newTrades, error: tradesErr } = await sb
     .from('insider_transactions')
-    .select('ticker, country_code, company, insider_name, transaction_type, transaction_date, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
+    .select('ticker, country_code, company, insider_name, transaction_type, transaction_date, created_at, total_value, price_per_share, currency, is_cluster_buy, is_repetitive_buy, is_price_dip, is_pre_earnings')
     .in('ticker', allTickers)
     .gte('created_at', cutoff)
     .in('transaction_type', ['BUY', 'SELL']);
 
   if (tradesErr) { console.error('  ❌ trades query:', tradesErr.message); return { sent: 0, ok: false }; }
+
+  // [DEBUG] remove once root-caused — check without the created_at filter at all,
+  // to isolate whether the cutoff comparison itself is the problem vs. ticker/type filters
+  const { data: unfilteredCheck } = await sb
+    .from('insider_transactions')
+    .select('ticker, country_code, transaction_type, created_at')
+    .in('ticker', allTickers)
+    .in('transaction_type', ['BUY', 'SELL']);
+  console.log('  [DEBUG] same query WITHOUT created_at filter:', unfilteredCheck?.length ?? 0, 'rows');
+  console.log('  [DEBUG] their ticker/country/type/created_at:', JSON.stringify(unfilteredCheck));
+  console.log('  [DEBUG] newTrades (WITH created_at filter):', newTrades?.length ?? 0);
 
   if (!newTrades?.length) {
     console.log('  ℹ  No new watchlist transactions since last check — no emails sent');
