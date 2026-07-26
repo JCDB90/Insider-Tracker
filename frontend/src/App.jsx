@@ -2561,28 +2561,28 @@ function DashboardPage({
   const [activeTab, setActiveTab] = useState('trades');
   const [hoveredKpi, setHoveredKpi] = useState(null);
   const [tradePage, setTradePage] = useState(1);
-  const [avgReturn30d, setAvgReturn30d] = useState(null);
+  const [avgReturn90d, setAvgReturn90d] = useState(null);
 
   // Reset to page 1 whenever the filtered set changes (search, country, sort)
   useEffect(() => { setTradePage(1); }, [filteredTrades]);
 
-  // Avg 30d return on all tracked insider buys — fetched from /api/performance-stats
-  // (stats_all), the SAME properly-filtered dataset the Performance tab uses
-  // (BUY only, is_unusual_price=false, total_value>€1,000, excludes CH, requires
-  // a named insider). This used to be a separate client-side query straight
-  // against insider_performance with none of those filters and no transaction-
-  // type check at all — it computed a real but misleading 8.4% (15% uncapped)
-  // by including option-exercise prices, dust trades, and possibly SELLs, while
-  // the properly-filtered number is +1.0%. Reusing the vetted endpoint instead
-  // of maintaining a second, looser query keeps this KPI, the Performance tab,
-  // and the pricing page's stat all sourced from one place going forward.
+  // Avg 90d return on insider buys WITH a signal (cluster/price-dip/pre-blackout/
+  // repetitive) — fetched from /api/performance-stats (stats_with_signals), the
+  // SAME properly-filtered dataset the Performance tab uses (BUY only,
+  // is_unusual_price=false, total_value>€1,000, excludes CH, requires a named
+  // insider). See the git history on this block for the prior "+8.4% (30d, all
+  // buys, unfiltered query)" and "+1.0% (30d, all buys, stats_all)" versions of
+  // this KPI — this is now stats_with_signals['90d'], verified live against
+  // production before wiring up: avg +3.2%, n=1,452 (not 2,943 — that's
+  // stats_with_signals' 30d sample size; the 90d cohort is naturally smaller
+  // since fewer trades have 90 days of price history yet).
   useEffect(() => {
     let cancelled = false;
     fetch('/api/performance-stats')
       .then(res => res.json())
       .then(body => {
-        if (!cancelled && body?.stats_all?.['30d']?.avg != null) {
-          setAvgReturn30d(body.stats_all['30d'].avg); // already a percentage, e.g. 1.0 = +1.0%
+        if (!cancelled && body?.stats_with_signals?.['90d']?.avg != null) {
+          setAvgReturn90d(body.stats_with_signals['90d'].avg); // already a percentage, e.g. 3.2 = +3.2%
         }
       })
       .catch(() => {});
@@ -2642,9 +2642,9 @@ function DashboardPage({
     },
     {
       icon: '📈',
-      label: 'Avg 30d Return',
-      value: avgReturn30d === null ? '…' : (avgReturn30d >= 0 ? '+' : '') + avgReturn30d.toFixed(1) + '%',
-      sub: 'avg 30d return, all tracked insider buys',
+      label: 'Avg 90d Return',
+      value: avgReturn90d === null ? '…' : (avgReturn90d >= 0 ? '+' : '') + avgReturn90d.toFixed(1) + '%',
+      sub: 'avg across signalled insider buys',
       color: '#15803D',
       action: () => onNavigate && onNavigate('insiders'),
     },
@@ -5488,15 +5488,16 @@ function PricingPage({ session, onLogin }) {
         'Insider performance profiles & track records',
         'Buyback program tracking',
       ],
-      // Kept in sync with /api/performance-stats' stats_all['30d'] manually — check
-      // that endpoint before changing this number. Verified live 2026-07-26: avg
-      // +1.0%, n=3,917 (BUY only, is_unusual_price=false, total_value>€1,000,
-      // excludes CH, named insider required — see frontend/api/performance-stats.js).
-      // A prior "+8.4%" here came from a since-fixed dashboard KPI that queried
-      // insider_performance directly with none of those filters.
+      // Kept in sync with /api/performance-stats' stats_with_signals['90d'] manually
+      // — check that endpoint before changing this number. Verified live 2026-07-26:
+      // avg +3.2%, n=1,452 (BUY only, is_unusual_price=false, total_value>€1,000,
+      // excludes CH, named insider required, has ≥1 signal flag — see
+      // frontend/api/performance-stats.js). Note: 1,452 is the 90d sample size —
+      // stats_with_signals' 30d sample size is 2,943, a different cohort's day-count,
+      // not interchangeable with this 90d figure.
       perfNote: {
-        stat: 'Avg. 30d return on tracked insider buys: +1.0%*',
-        disclaimer: '*Based on 3,917 tracked insider buys. Past performance does not guarantee future results.',
+        stat: 'Avg. 90d return on insider signals: +3.2%*',
+        disclaimer: '*Based on 1,452 signals across 17 markets. Past performance does not guarantee future results.',
       },
     },
     {
@@ -5515,9 +5516,11 @@ function PricingPage({ session, onLogin }) {
   const annualSave = 17; // ~17% saving: €9.99/mo vs €12/mo
 
   const proofItems = [
-    // Kept in sync with /api/performance-stats' stats_all['30d'] — see the
-    // same note on the Pro plan's perfNote above.
-    { label: 'Avg 30d return', value: '+1.0%', sub: 'across 3,917 tracked insider buys', color: '#16A34A' },
+    // Kept in sync with /api/performance-stats' stats_with_signals['90d'] — see
+    // the same note on the Pro plan's perfNote above. Updated alongside it so
+    // this bar and the Pro plan card never show two different numbers for the
+    // same underlying stat on the same page.
+    { label: 'Avg 90d return', value: '+3.2%', sub: 'across 1,452 signalled insider buys', color: '#16A34A' },
     { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
     { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
     { label: 'Markets covered',                   value: '17',    sub: '17 markets across Europe and Asia', color: '#6B7280' },
