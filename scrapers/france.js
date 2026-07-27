@@ -314,12 +314,33 @@ function parseFrPdf(text) {
     if (isNilGrant) parsedPrice = 0;
   }
 
+  let parsedShares = parseNum(sharesRaw);
+
+  // Some filers transpose PRIX UNITAIRE and VOLUME entirely — confirmed live
+  // on two unrelated companies (Unibail-Rodamco-Westfield / Rock Investment
+  // SAS: "PRIX UNITAIRE: 5 000 000.0000" / "VOLUME: 103.4100", the filing's
+  // OWN narrative confirming the real trade was 5,000,000 shares @ EUR
+  // 103.41; Tikehau Capital / Tikehau Capital Advisors: "PRIX UNITAIRE:
+  // 9 100.0000" / "VOLUME: 19.7500", where EUR ~19-20 matches Tikehau's real
+  // share price and ~9,100 is a plausible share count). A share COUNT is
+  // never genuinely fractional in a real disclosed trade — unlike a price,
+  // which almost always carries cents — so a VOLUME value with a real
+  // (non-floating-point-noise) fractional remainder, paired with a whole-
+  // number PRIX UNITAIRE, reliably signals the two fields were swapped.
+  // Confirmed this does NOT misfire on Hermès/Compagnie de l'Odet, both
+  // genuinely >EUR 1,000/share but always with whole-number volumes.
+  if (parsedShares != null && parsedPrice != null &&
+      Math.abs(parsedShares - Math.round(parsedShares)) > 0.001 &&
+      Math.abs(parsedPrice - Math.round(parsedPrice)) < 0.001) {
+    [parsedPrice, parsedShares] = [parsedShares, parsedPrice];
+  }
+
   return {
     txType,
     insiderName: insiderName || null,
     viaEntity:   viaEntity   || null,
     role:        roleRaw     || null,
-    shares:      parseNum(sharesRaw),
+    shares:      parsedShares,
     price:       parsedPrice,
     ticker:      ticker      || null,
     isin:        isin        || null,
