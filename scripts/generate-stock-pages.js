@@ -396,6 +396,25 @@ function generateHTML(co, txns) {
     ],
   });
 
+  // JSON-LD: Dataset — describes the transaction history itself as a queryable
+  // dataset, distinct from the FAQ/BreadcrumbList schemas above which describe
+  // the page's navigation/content structure.
+  const datasetLd = JSON.stringify({
+    '@context': 'https://schema.org', '@type': 'Dataset',
+    name: `${co.company} Insider Transactions & MAR Article 19 Disclosures`,
+    description: `Real-time insider buying and selling history for ${co.company}, including Cluster Buy and Price Dip signals. Data sourced from official regulatory filings.`,
+    url: canonUrl,
+    provider: { '@type': 'Organization', name: 'InsidersAlpha', url: BASE_URL },
+    license: 'https://creativecommons.org/licenses/by/4.0/',
+    isAccessibleForFree: true,
+    keywords: [
+      `${co.company} insider transactions`,
+      `${co.company} director dealings`,
+      `${co.company} insider buying`,
+      'MAR Article 19',
+    ],
+  });
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -417,6 +436,7 @@ function generateHTML(co, txns) {
   <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-RPT36NKE74');</script>
   <script type="application/ld+json">${breadcrumbLd}</script>
   <script type="application/ld+json">${faqLd}</script>
+  <script type="application/ld+json">${datasetLd}</script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',-apple-system,sans-serif;background:#fff;color:#111318;line-height:1.6;font-size:15px}
@@ -455,6 +475,17 @@ function generateHTML(co, txns) {
     .cta-box strong{display:block;color:#fff;font-size:15px;font-weight:700;margin-bottom:3px}
     .cta-btn{display:inline-block;background:#fff;color:#0f1117;border-radius:7px;padding:9px 20px;font-size:13px;font-weight:700;white-space:nowrap}
     .cta-btn:hover{background:#f0f0f0;text-decoration:none}
+    .wl-cta{border:2px solid #0f1117;border-radius:10px;padding:20px 24px;margin:24px 0}
+    .wl-cta h3{font-size:15px;font-weight:700;margin-bottom:6px}
+    .wl-cta p{font-size:13px;color:#6B7280;margin-bottom:14px}
+    .wl-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+    .wl-primary{display:inline-block;background:#0f1117;color:#fff;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:700;white-space:nowrap}
+    .wl-primary:hover{background:#2b2e3d;text-decoration:none}
+    .wl-secondary{font-size:12px;color:#6B7280}
+    .wl-secondary a{color:#6B7280;text-decoration:underline}
+    .wl-cta.on-list{border-color:#16A34A;background:#F0FDF4}
+    .wl-cta.on-list h3{color:#15803D;margin-bottom:4px}
+    .wl-cta.on-list p{margin-bottom:0}
     .txn-table-wrap{overflow-x:auto;margin-bottom:4px;border:1px solid #f0f0f0;border-radius:9px}
     table{width:100%;border-collapse:collapse;font-size:13px}
     th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#9CA3AF;border-bottom:1px solid #f0f0f0;background:#fafafa;white-space:nowrap}
@@ -542,6 +573,55 @@ function generateHTML(co, txns) {
   </div>
 
   ${sigBadges ? `<div class="signal-row">\n        ${sigBadges}\n      </div>` : ''}
+
+  <div class="wl-cta" id="wl-cta">
+    <h3>🔔 Get alerts for ${esc(co.company)}</h3>
+    <p>Be notified when insiders buy or sell ${esc(co.company)}. Free for up to 3 stocks.</p>
+    <div class="wl-actions">
+      <a href="/signup?ticker=${esc(co.ticker)}&country=${cc}" class="wl-primary">Sign up free →</a>
+      <span class="wl-secondary">Already a member? <a href="/#watchlist">Log in</a></span>
+    </div>
+  </div>
+  <script>
+  (function(){
+    // If this visitor has an active Supabase session (found via its localStorage
+    // token — same key supabase-js itself uses), check whether THIS company is
+    // already on their watchlist and swap the CTA to a confirmation state. Uses
+    // a plain fetch to the REST API, not the full supabase-js SDK, to keep these
+    // static SEO pages from taking on a real JS bundle dependency for one check.
+    try {
+      var authKey = Object.keys(localStorage).find(function(k){ return k.indexOf('sb-') === 0 && k.indexOf('-auth-token') > -1; });
+      if (!authKey) return;
+      var session = JSON.parse(localStorage.getItem(authKey) || 'null');
+      var token = session && session.access_token;
+      if (!token) return;
+      // Decode the JWT payload to get the user id — RLS on watchlist also
+      // permits user_id IS NULL demo rows, so without pinning to this exact
+      // user id a logged-in visitor could wrongly see "on your watchlist" for
+      // one of the shared demo tickers they never personally added.
+      var payload = JSON.parse(decodeURIComponent(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')).split('').map(function(c){
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('')));
+      var uid = payload && payload.sub;
+      if (!uid) return;
+      var url = 'https://loqmxllfjvdwamwicoow.supabase.co/rest/v1/watchlist?select=ticker'
+        + '&ticker=eq.' + encodeURIComponent(${JSON.stringify(co.ticker)})
+        + '&country_code=eq.' + encodeURIComponent(${JSON.stringify(cc)})
+        + '&user_id=eq.' + encodeURIComponent(uid);
+      fetch(url, { headers: { apikey: 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt', Authorization: 'Bearer ' + token } })
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .then(function(rows){
+          if (!rows || !rows.length) return;
+          var el = document.getElementById('wl-cta');
+          if (!el) return;
+          el.classList.add('on-list');
+          el.innerHTML = '<h3>✅ ' + ${JSON.stringify(co.company)} + ' is on your watchlist</h3>'
+            + '<p>You\\'ll be notified of new insider transactions.</p>';
+        })
+        .catch(function(){});
+    } catch (e) {}
+  })();
+  </script>
 
   ${recent5.length > 0 ? `
   <h2>Recent Insider Transactions at ${esc(co.company)}</h2>

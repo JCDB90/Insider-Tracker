@@ -5780,11 +5780,18 @@ export default function App() {
   });
   const [alertInitialFilter, setAlertInitialFilter] = useState(null);
   const [search, setSearch] = useState('');
+  // Tracks whether the country filter reflects an explicit choice (a ?country=
+  // URL param, or the user toggling something themselves) rather than still
+  // being at its untouched initial state — the GEO auto-select effect below
+  // must never override either of those, only fill in a default for a visitor
+  // who hasn't expressed a preference at all yet.
+  const userTouchedFilter = useRef(false);
   const [selectedCountries, setSelectedCountries] = useState(() => {
     // Pre-select country if ?country=XX is in the URL (e.g. from SEO landing pages)
     try {
       const cc = new URLSearchParams(window.location.search).get('country');
-      return cc ? new Set([cc.toUpperCase()]) : new Set();
+      if (cc) { userTouchedFilter.current = true; return new Set([cc.toUpperCase()]); }
+      return new Set();
     } catch { return new Set(); }
   });
 
@@ -6055,6 +6062,7 @@ export default function App() {
   }
 
   function toggleCountry(code) {
+    userTouchedFilter.current = true;
     setSelectedCountries(prev => {
       const next = new Set(prev);
       const adding = !next.has(code);
@@ -6063,7 +6071,25 @@ export default function App() {
       return next;
     });
   }
-  function clearCountries() { setSelectedCountries(new Set()); }
+  function clearCountries() { userTouchedFilter.current = true; setSelectedCountries(new Set()); }
+
+  // GEO routing: default first-time visitors to their home market's filter,
+  // without ever overriding an explicit choice (a ?country= URL param, or the
+  // user having touched the filter themselves — checked via userTouchedFilter,
+  // since selectedCountries being an empty Set doesn't distinguish "untouched"
+  // from "user explicitly cleared it").
+  useEffect(() => {
+    fetch('/api/geo')
+      .then(r => r.json())
+      .then(({ country }) => {
+        if (userTouchedFilter.current || selectedCountries.size > 0) return;
+        if (TRACKED_MARKETS.includes(country)) {
+          setSelectedCountries(new Set([country]));
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>
