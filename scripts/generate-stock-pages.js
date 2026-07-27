@@ -226,7 +226,7 @@ function aggregateCompanies(rows, limit) {
 
   const priorities = all.filter(c => c.isPriority);
   // New markets get all companies included regardless of transaction count
-  const NEW_MARKETS = new Set(['PL']);
+  const NEW_MARKETS = new Set(['PL', 'SG']);
   const rest = all
     .filter(c => !c.isPriority && (c.total >= 3 || NEW_MARKETS.has(c.country_code)))
     .sort((a, b) => b.total - a.total)
