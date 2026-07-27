@@ -7,6 +7,7 @@ require('dotenv').config();
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const { makeNameSlug, makeCompanySlug } = require('./generate-insider-pages');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -245,8 +246,26 @@ function aggregateCompanies(rows, limit) {
 
 // ── HTML generator ────────────────────────────────────────────────────────────
 
-function generateHTML(co, txns) {
+function generateHTML(co, txns, insiderNameCompanyCount) {
   const cc    = co.country_code;
+  // Real insider profile pages live at /insiders/{slug} (plural, no suffix) —
+  // bare name-slug when the name maps to exactly one company among insider
+  // pages actually generated, else disambiguated with the company slug (see
+  // generate-insider-pages.js's own identical rule). Confirmed live: every
+  // stock page previously linked to a nonexistent /insider/{slug}-insider-
+  // trading (singular, bogus suffix) — Google crawled these, hit the SPA's
+  // catch-all rewrite (200 + generic content), and flagged them as duplicate-
+  // without-canonical. insiderNameCompanyCount is built from ALL transactions
+  // (not just insiders who clear generate-insider-pages.js's 3+ transaction
+  // bar), so it may occasionally disambiguate a name that generator wouldn't
+  // bother to — but for a name below that bar there's no real page to link
+  // to either way, so this is strictly safer than the pre-fix state, never worse.
+  const resolveInsiderSlug = (insiderName) => {
+    if (!insiderName) return null;
+    const nameSlug = makeNameSlug(insiderName);
+    const companies = insiderNameCompanyCount.get(insiderName.toLowerCase());
+    return companies && companies.size > 1 ? `${nameSlug}-${makeCompanySlug(co.company)}` : nameSlug;
+  };
   const ctry  = COUNTRY[cc] || { name: cc, flag: '', exchange: cc, regulator: cc, mktSlug: cc.toLowerCase() };
 
   const sorted   = [...txns].sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''));
@@ -303,9 +322,7 @@ function generateHTML(co, txns) {
     const tp    = (t.transaction_type || '').toUpperCase();
     const isBuy = tp === 'BUY' || tp === 'PURCHASE';
     const insName = t.insider_name || (t.via_entity ? `Via ${t.via_entity}` : 'Undisclosed');
-    const insSlug = t.insider_name
-      ? t.insider_name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
-      : null;
+    const insSlug = resolveInsiderSlug(t.insider_name);
     const badges = [
       t.is_cluster_buy    ? '<span title="Cluster buy">🔄</span>'    : '',
       t.is_price_dip      ? '<span title="Price dip buy">📉</span>'  : '',
@@ -314,7 +331,7 @@ function generateHTML(co, txns) {
     ].filter(Boolean).join(' ');
     return `<tr>
           <td>${esc(t.transaction_date || '—')}</td>
-          <td class="truncate" title="${esc(insName)}">${insSlug ? `<a href="/insider/${insSlug}-insider-trading" style="color:#111318;text-decoration:none">${esc(insName.slice(0,28))}</a>` : esc(insName.slice(0,28))}</td>
+          <td class="truncate" title="${esc(insName)}">${insSlug ? `<a href="/insiders/${insSlug}" style="color:#111318;text-decoration:none">${esc(insName.slice(0,28))}</a>` : esc(insName.slice(0,28))}</td>
           <td class="role-cell truncate" style="color:#6B7280">${esc((t.insider_role || '').slice(0,24))}</td>
           <td><span class="${isBuy ? 'type-buy' : 'type-sell'}">${isBuy ? 'BUY' : 'SELL'}</span></td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${t.shares ? Number(t.shares).toLocaleString('en') : '—'}</td>
@@ -327,7 +344,7 @@ function generateHTML(co, txns) {
   // Key insiders list
   const insiderRows = namedInsiders.map(ins => {
     const initials = ins.name.split(' ').map(n=>n[0]).filter(Boolean).join('').slice(0,2).toUpperCase();
-    const slug = ins.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    const slug = resolveInsiderSlug(ins.name);
     return `<div class="insider-row">
           <div class="insider-avatar">${esc(initials)}</div>
           <div class="insider-info" style="flex:1">
@@ -335,7 +352,7 @@ function generateHTML(co, txns) {
             ${ins.role ? `<div class="insider-role">${esc(ins.role)}</div>` : ''}
             <div class="insider-stats">${ins.total} filing${ins.total!==1?'s':''} · ${ins.buys} buy${ins.buys!==1?'s':''}</div>
           </div>
-          <a href="/insider/${slug}-insider-trading" class="view-link">View profile →</a>
+          <a href="/insiders/${slug}" class="view-link">View profile →</a>
         </div>`;
   }).join('\n');
 
@@ -789,6 +806,17 @@ async function main() {
   const allTxns = await fetchAllTransactions();
   console.log(`${allTxns.length} rows`);
 
+  // Which insider names appear at more than one company — used to decide
+  // whether a stock page's insider links need the disambiguating company
+  // slug generate-insider-pages.js's own pages use (see resolveInsiderSlug).
+  const insiderNameCompanyCount = new Map();
+  for (const t of allTxns) {
+    if (!t.insider_name) continue;
+    const key = t.insider_name.toLowerCase();
+    if (!insiderNameCompanyCount.has(key)) insiderNameCompanyCount.set(key, new Set());
+    insiderNameCompanyCount.get(key).add(`${t.company}|${t.country_code}`);
+  }
+
   const companies = aggregateCompanies(allTxns, LIMIT);
   console.log(`  ${companies.length} companies identified (${companies.filter(c=>c.isPriority).length} priority)\n`);
 
@@ -826,7 +854,7 @@ async function main() {
   for (const co of companies) {
     const key  = `${co.ticker}|${co.country_code}`;
     const txns = txnMap.get(key) || [];
-    const html = generateHTML(co, txns);
+    const html = generateHTML(co, txns, insiderNameCompanyCount);
     const file = path.join(OUT_DIR, `${co.slug}-insider-transactions.html`);
     fs.writeFileSync(file, html, 'utf8');
     generated++;

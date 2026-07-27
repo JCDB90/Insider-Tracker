@@ -745,4 +745,8 @@ async function main() {
   console.log(`\n── Done ───────────────────────────────────────────────────\n`);
 }
 
-main().catch(e => { console.error('Fatal:', e.message, e.stack); process.exit(1); });
+module.exports = { makeNameSlug, makeCompanySlug };
+
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e.message, e.stack); process.exit(1); });
+}

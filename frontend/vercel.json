@@ -167,6 +167,16 @@
       "source": "/signals/pre-earnings-insider-buying",
       "destination": "/signals/pre-blackout",
       "permanent": true
+    },
+    {
+      "source": "/insider/:slug(.*)-insider-trading",
+      "destination": "/insiders/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/insider/:slug",
+      "destination": "/insiders/:slug",
+      "permanent": true
     }
   ]
 }
