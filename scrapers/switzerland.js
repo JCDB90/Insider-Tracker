@@ -128,18 +128,76 @@ async function scrapeCH() {
     return { saved: 0 };
   }
 
+  // transactionSize is sometimes NOT a real share count — it's a fixed "1"
+  // used as an administrative placeholder for share-based compensation or
+  // scrip-dividend elections where the actual number of shares to be
+  // delivered isn't known yet, because it depends on a FUTURE price
+  // (a volume-weighted average, or a specific future closing price) not yet
+  // observed at filing time. Confirmed live across many companies — Adecco's
+  // scrip dividend "die effektive Anzahl der neuen Aktien wird errechnet..."
+  // over 9 future trading days; UBS board comp "Durchschnittspreis...
+  // Stichtag wird im Dezember/Januar festgelegt"; Roche Connect's plan
+  // literally states "the number of future ROP can not be calculated in
+  // advance and is set as 1"; Alcon/Sandoz "will be calculated by dividing
+  // the awarded amount by the closing share price on [future date]";
+  // explicitly spelled out on Banque Cantonale de Genève: "le nombre total
+  // des actions n'est pas connu à ce jour". In every one of these,
+  // transactionAmountPerSecurityCHF is really the CASH VALUE of the
+  // entitlement (transactionAmountCHF always equals it exactly, since
+  // total = price × 1), not a genuine per-share price — there is no real
+  // share count anywhere to recover, unlike the France PRIX/VOLUME swap bug,
+  // so the row is skipped rather than corrected.
+  //
+  // Wording varies enough (BELIMO's own phrasing, "in diskontierten
+  // gesperrten Aktien ausbezahlt", mentions none of the above keywords at
+  // all) that a keyword list alone misses real cases. A second, language-
+  // independent signal catches the rest: build a per-ISIN reference price
+  // from this batch's OWN genuine transactionSize > 1 entries (a real,
+  // unambiguous per-share price) and flag any transactionSize === 1 entry
+  // whose price is wildly off that reference (confirmed: BELIMO's other
+  // filings in the same window show CHF 760-846/share; several of its
+  // transactionSize=1 rows show CHF 16,571-325,714 — 20-390x off). A
+  // genuine transactionSize=1 trade (Chocoladefabriken Lindt & Sprüngli,
+  // ~CHF 90,000+/share; Zuger Kantonalbank, ~CHF 10,650/share — both
+  // confirmed live, among the most expensive stocks on the exchange) has no
+  // such same-batch reference to contradict it, or its price falls right in
+  // line with one.
+  const referencePrices = new Map(); // ISIN -> [prices from genuine multi-share trades]
+  for (const r of allItems) {
+    const size = r.transactionSize != null ? Math.abs(Number(r.transactionSize)) : null;
+    const price = r.transactionAmountPerSecurityCHF != null ? Number(r.transactionAmountPerSecurityCHF) : null;
+    if (r.ISIN && size > 1 && price > 0) {
+      if (!referencePrices.has(r.ISIN)) referencePrices.set(r.ISIN, []);
+      referencePrices.get(r.ISIN).push(price);
+    }
+  }
+  function referenceMedian(isin) {
+    const arr = referencePrices.get(isin);
+    if (!arr || !arr.length) return null;
+    const sorted = [...arr].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  }
+
   const seen = new Set();
   const dbRows = [];
+  let skippedPending = 0;
 
   for (const r of allItems) {
     const txIso   = r.transactionDate ? intDateToIso(r.transactionDate) : from;
-    const shares  = r.transactionSize != null ? Math.round(Math.abs(Number(r.transactionSize))) : null;
+    let shares    = r.transactionSize != null ? Math.round(Math.abs(Number(r.transactionSize))) : null;
     const price   = r.transactionAmountPerSecurityCHF != null ? Number(r.transactionAmountPerSecurityCHF) : null;
     const total   = r.transactionAmountCHF != null ? Math.round(Math.abs(Number(r.transactionAmountCHF))) : null;
     const fid     = `CH-${r.notificationId || r.ISIN + '-' + r.transactionDate + '-' + String(shares||0)}`;
 
     if (seen.has(fid)) continue;
     seen.add(fid);
+
+    const narrative = `${r.transactionConditions || ''} ${r.securityDescription || ''}`.replace(/\s+/g, ' ');
+    const keywordMatch = /durchschnitt|festgelegt|stichtag|VWAP|volume.weighted|schlusskurs|closing.{0,30}(?:share\s+)?price|corresponds?\s+to\s+the\s+transaction\s+value|n.est\s+pas\s+connu|d.pendra\s+du\s+cours|not\s+yet\s+(?:known|determined)|to\s+be\s+determined|can(?:not|\s+not)\s+be\s+calculated|will\s+be\s+calculated\s+by\s+dividing|is\s+set\s+as\s+1\b/i.test(narrative);
+    const refMedian = shares === 1 && price ? referenceMedian(r.ISIN) : null;
+    const priceOffReference = refMedian != null && (price > refMedian * 5 || price < refMedian / 5);
+    const isPendingShareCount = shares === 1 && (keywordMatch || priceOffReference);
+    if (isPendingShareCount) { skippedPending++; shares = null; }
 
     const ticker = r.ISIN ? (await isinToTicker(r.ISIN, COUNTRY_CODE) || '') : '';
 
@@ -169,7 +227,7 @@ async function scrapeCH() {
   const buys  = dbRows.filter(r => r.transaction_type === 'BUY').length;
   const sells = dbRows.filter(r => r.transaction_type === 'SELL').length;
   const other = dbRows.filter(r => r.transaction_type === 'OTHER').length;
-  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL, ${other} OTHER)`);
+  console.log(`  ✅ ${((Date.now()-t0)/1000).toFixed(1)}s — ${dbRows.length} saved (${buys} BUY, ${sells} SELL, ${other} OTHER) | pending-share-count skipped: ${skippedPending}`);
   return { saved: dbRows.length };
 }
 
