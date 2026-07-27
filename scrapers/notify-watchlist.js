@@ -144,6 +144,7 @@ function buildEmailHtml(userEmail, groups) {
   const flagMap = {
     BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',ES:'🇪🇸',FI:'🇫🇮',
     FR:'🇫🇷',GB:'🇬🇧',IT:'🇮🇹',KR:'🇰🇷',NL:'🇳🇱',NO:'🇳🇴',SE:'🇸🇪',
+    AT:'🇦🇹',LU:'🇱🇺',PL:'🇵🇱',PT:'🇵🇹',SG:'🇸🇬',
   };
 
   const companyBlocks = groups.map(({ company, ticker, country_code, transactions }) => {

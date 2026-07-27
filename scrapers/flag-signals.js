@@ -66,7 +66,7 @@ async function loadAllBuys() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, currency, is_unusual_price')
+      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, shares, currency, is_unusual_price')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
       .not('insider_name', 'is', null)
@@ -306,7 +306,24 @@ function computeSignals(buys, priceReference, chartDataSet = new Set()) {
         daysBetween(p.transaction_date, t.transaction_date) <= samePriceWindow
       );
       const minCoordinated = hasChartData ? 1 : 2; // no chart data → require 3+ total insiders (t + 2 peers)
-      if (samePricePeers.length >= minCoordinated) {
+
+      // A pro-rata rights issue produces the exact same signature this rule
+      // otherwise treats as suspicious — many distinct insiders, identical
+      // fixed subscription price — but with share counts that scatter widely
+      // (each subscribes proportional to their own existing stake), unlike a
+      // coordinated incentive-plan exercise where grants are typically
+      // similar/round amounts (confirmed live: Singapore Institute of
+      // Advanced Medicine's June 2026 rights issue — 6 distinct insiders at
+      // an identical SGD 0.031, share counts ranging 280 to 26,300,000 — was
+      // flagged unusual and suppressed from signals on all 13 rows before
+      // this check existed). A >10x spread between the smallest and largest
+      // share count in the cluster is treated as corroborating evidence for
+      // a uniform-price corporate action rather than a fixed exercise price.
+      const clusterShares = [t, ...samePricePeers].map(p => Number(p.shares)).filter(n => Number.isFinite(n) && n > 0);
+      const sharesScatterWidely = clusterShares.length >= 3 &&
+        Math.max(...clusterShares) / Math.min(...clusterShares) > 10;
+
+      if (samePricePeers.length >= minCoordinated && !sharesScatterWidely) {
         // Exclude ANY reference row at this exact suspect price (same currency),
         // regardless of its date — the same incentive-plan price is often
         // exercised by different people on different days (not just clustered on

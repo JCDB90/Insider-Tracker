@@ -632,7 +632,7 @@ function generateHTML(ins) {
   <div class="cta-box">
     <div>
       <strong>Track ${esc(ins.name)} and every other insider free</strong>
-      <p>Live filings with conviction scores, signal badges, and post-trade return tracking across 16 markets.</p>
+      <p>Live filings with conviction scores, signal badges, and post-trade return tracking across 18 markets.</p>
     </div>
     <a href="/" class="cta-btn">View live data →</a>
   </div>
