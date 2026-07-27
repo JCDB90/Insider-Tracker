@@ -219,6 +219,22 @@ function parseFrPdf(text) {
              lo.includes('remise')   || lo.includes('octroi')) txType = 'BUY';
   }
 
+  // An "avenant réitératif" is a formal RENEWAL of a pre-existing multi-year
+  // financing/hedging contract (share-acquisition facility, collar, pledge,
+  // etc.) — not a fresh purchase decision. Its "PRIX UNITAIRE" is the
+  // contract's ORIGINAL reference price from years earlier, carried forward
+  // unchanged by the renewal (confirmed live: Ubisoft/Christian Guillemot,
+  // 2026DD1116703 — "avenant réitératif au contrat d'acquisition d'actions
+  // ... conclu le 1er septembre 2017", "Le prix de référence initial demeure
+  // 56,8848 euros par action", the SAME 2017 figure just restated in 2026).
+  // The word "acquisition" in that phrase would otherwise classify this BUY
+  // like a real one, pairing a years-stale reference price with the current
+  // date and producing a wildly wrong performance/return comparison. Nothing
+  // is "wrong" about the extracted price — it's a real number from a real
+  // filing — but it isn't a 2026 market transaction, so it's skipped rather
+  // than saved as one.
+  const isContractReiteration = /avenant\s+r[eé]it[eé]ratif/i.test(flat);
+
   // ── Price ─────────────────────────────────────────────────────────────────
   // Prefer PRIX UNITAIRE; fall back to PRIX in the aggregated section.
   // French numbers use a non-breaking space (U+00A0) or regular space as thousands
@@ -307,6 +323,7 @@ function parseFrPdf(text) {
     price:       parsedPrice,
     ticker:      ticker      || null,
     isin:        isin        || null,
+    isContractReiteration,
   };
 }
 
@@ -373,7 +390,7 @@ async function scrapeFR() {
   const seen   = new Set();
   const dbRows = [];
   let nPdf = 0, nParsed = 0, nSkipped = 0;
-  const pdfDrops = { no_doc_path: 0, pdf_download_fail: 0, pdf_text_fail: 0, unknown_type: 0, missing_price: 0, missing_shares: 0 };
+  const pdfDrops = { no_doc_path: 0, pdf_download_fail: 0, pdf_text_fail: 0, unknown_type: 0, missing_price: 0, missing_shares: 0, contract_reiteration: 0 };
 
   for (const r of allItems) {
     const numero  = r.numero || r.numeroConcatene || String(r.id || '');
@@ -398,6 +415,9 @@ async function scrapeFR() {
     const parsed = parseFrPdf(text);
 
     if (parsed.txType === 'UNKNOWN') { nSkipped++; pdfDrops.unknown_type++; continue; }
+    // Contract renewal, not a fresh purchase — its price is a years-old
+    // reference figure, not a 2026 market price (see parseFrPdf comment).
+    if (parsed.isContractReiteration) { nSkipped++; pdfDrops.contract_reiteration++; continue; }
     // Use ?? (not ||) so price=0 (confirmed free grant) is preserved as 0, not null.
     // || would coerce 0 to null, losing the information that this is a nil-price RSU.
     const price  = parsed.price  ?? null;
@@ -441,7 +461,7 @@ async function scrapeFR() {
   }
 
   console.log(`  PDFs downloaded: ${nPdf} | Parsed BUY/SELL: ${nParsed} | Skipped: ${nSkipped}`);
-  console.log(`  PDF drop reasons: no_path=${pdfDrops.no_doc_path} dl_fail=${pdfDrops.pdf_download_fail} text_fail=${pdfDrops.pdf_text_fail} unknown_type=${pdfDrops.unknown_type} | Of BUY/SELL: missing_price=${pdfDrops.missing_price} missing_shares=${pdfDrops.missing_shares}`);
+  console.log(`  PDF drop reasons: no_path=${pdfDrops.no_doc_path} dl_fail=${pdfDrops.pdf_download_fail} text_fail=${pdfDrops.pdf_text_fail} unknown_type=${pdfDrops.unknown_type} contract_reiteration=${pdfDrops.contract_reiteration} | Of BUY/SELL: missing_price=${pdfDrops.missing_price} missing_shares=${pdfDrops.missing_shares}`);
 
   if (!dbRows.length) {
     console.log('  No BUY/SELL transactions found in PDFs.');
