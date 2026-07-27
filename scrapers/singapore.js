@@ -410,7 +410,7 @@ async function scrapeSG() {
     const company = issuer.security_name || issuer.issuer_name || item.issuer_name || null;
     // Bare SGX code, no Yahoo suffix — CompanyPage.jsx appends .SI itself
     // (COUNTRY_YAHOO_SUFFIX['SG']), matching every other market's convention.
-    const ticker = issuer.stock_code || null;
+    const ticker = issuer.stock_code || '';
 
     const html = await fetchDetailHtml(item.url);
     if (!html) { console.log(`  ⚠  ${item.id} (${company}) — detail page fetch failed`); continue; }
