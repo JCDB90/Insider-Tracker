@@ -380,16 +380,6 @@ const ACCENT = '#0f1117';
 
 // ─── Watchlist (personal stocks) ─────────────────────────────────────────────
 
-// Hardcoded fallback — used only until the DB watchlist loads
-const WATCHLIST_FALLBACK = [
-  { ticker: 'VID',  company: 'Vidrala',       country_code: 'ES', yahoo_ticker: 'VID.MC'   },
-  { ticker: 'THEP', company: 'Thermador',      country_code: 'FR', yahoo_ticker: 'THEP.PA'  },
-  { ticker: 'PRX',  company: 'Prosus',         country_code: 'NL', yahoo_ticker: 'PRX.AS'   },
-  { ticker: 'ASML', company: 'ASML',           country_code: 'NL', yahoo_ticker: 'ASML.AS'  },
-  { ticker: 'FLOW', company: 'Flow Traders',   country_code: 'NL', yahoo_ticker: 'FLOW.AS'  },
-  { ticker: 'JEN',  company: 'Jensen Group',   country_code: 'BE', yahoo_ticker: 'JEN.BR'   },
-];
-
 // Match a transaction to a watchlist entry — requires both ticker AND country_code
 function matchesWatchlist(watchlist, t) {
   return watchlist.some(w => w.ticker === t.ticker && w.country_code === t.country_code);
@@ -2081,7 +2071,7 @@ function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
 
 // ─── WatchlistPage ────────────────────────────────────────────────────────────
 
-function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab, initialAlertFilter, access, onUpgrade, onLogin }) {
+function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTickers, addToWatchlist, onInsiderClick, onCompanyClick, alertCount, initialTab, initialAlertFilter, access, isLoggedIn, onUpgrade, onLogin }) {
   const [tab, setTab] = useState(initialTab || 'stocks');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStock, setNewStock] = useState({ ticker: '', company: '', country_code: 'SE', yahoo_ticker: '' });
@@ -2240,6 +2230,21 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           ))}
         </div>
         {tab === 'stocks' && (() => {
+          if (!isLoggedIn) {
+            return (
+              <button
+                onClick={onUpgrade}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 14px', background: ACCENT, color: '#fff',
+                  border: 'none', borderRadius: 8, cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif", flexShrink: 0,
+                }}
+              >
+                Sign up free →
+              </button>
+            );
+          }
           const limit   = access?.watchlistLimit ?? 3;
           const count   = watchlist.length;
           const atLimit = limit !== Infinity && count >= limit;
@@ -2300,7 +2305,34 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
         </div>
       </div>
 
-      {/* Stock summary cards */}
+      {watchlist.length === 0 ? (
+        <div style={{
+          textAlign: 'center', padding: '56px 24px', marginBottom: 32,
+          border: '1px dashed #e0e0e0', borderRadius: 12, background: '#fafafa',
+        }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#111318', marginBottom: 8 }}>
+            {isLoggedIn ? 'Your watchlist is empty' : 'Your Watchlist'}
+          </h2>
+          <p style={{ fontSize: 13, color: '#6B7280', maxWidth: 420, margin: '0 auto 20px', lineHeight: 1.6 }}>
+            {isLoggedIn
+              ? 'Add stocks to track insider activity and get email alerts when insiders buy or sell.'
+              : 'Track insider activity on your favourite stocks. Get email alerts when insiders buy or sell.'}
+          </p>
+          {!isLoggedIn && (
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button onClick={onUpgrade} style={{
+                padding: '10px 20px', background: ACCENT, color: '#fff', border: 'none',
+                borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
+              }}>Sign up free — 3 stocks included</button>
+              <button onClick={onLogin} style={{
+                padding: '10px 20px', background: '#fff', color: '#374151', border: '1px solid #D1D5DB',
+                borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
+              }}>Already have an account? Log in</button>
+            </div>
+          )}
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 32 }}>
         {watchlistTrades.map(w => {
           const latestBuy = w.buys[0];
@@ -2368,6 +2400,7 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
           );
         })}
       </div>
+      )}
 
       {/* Buyback signals for watchlist stocks */}
       {watchlistBuybacks.length > 0 && (
@@ -5808,7 +5841,7 @@ export default function App() {
 
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
-  const [watchlist, setWatchlist] = useState(WATCHLIST_FALLBACK);
+  const [watchlist, setWatchlist] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
   const [tickerMeta, setTickerMeta] = useState([]);
 
@@ -5875,6 +5908,25 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load the CURRENT user's own watchlist rows only — never every row RLS
+  // happens to expose. The previous version ran an unscoped
+  // `supabase.from('watchlist').select('*')` with no user_id filter at all,
+  // which under RLS (`user_id = auth.uid() OR user_id IS NULL`) returns a
+  // logged-in user's own rows mixed with any null-user_id rows, and — worse —
+  // only ever called setWatchlist() when that combined result was non-empty,
+  // so a visitor or new user with a genuinely empty watchlist silently kept
+  // showing the hardcoded 6-item WATCHLIST_FALLBACK demo array forever
+  // (explaining the reported "6/3 stocks" — 6 is that fallback's length, not
+  // real data). Logged-out visitors now get [] directly, no query at all.
+  useEffect(() => {
+    if (!session?.user?.id) { setWatchlist([]); return; }
+    supabase.from('watchlist')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => setWatchlist(data || []));
+  }, [session]);
+
   function handleSignOut() {
     supabase.auth.signOut();
     setUserPlan('visitor');
@@ -5907,10 +5959,6 @@ export default function App() {
     fetchAll('buyback_programs', 'announced_date').then(data => {
       setBuybacks(data);
       setBuybacksLoading(false);
-    });
-    // Load watchlist from Supabase (overrides hardcoded fallback when DB has entries)
-    supabase.from('watchlist').select('*').order('created_at', { ascending: true }).then(({ data }) => {
-      if (data && data.length > 0) setWatchlist(data);
     });
     // Load sector/industry metadata for all tickers
     supabase.from('ticker_metadata').select('ticker, country_code, sector, industry').then(({ data }) => {
@@ -6162,6 +6210,7 @@ export default function App() {
             initialTab={alertInitialFilter ? 'alerts' : undefined}
             initialAlertFilter={alertInitialFilter}
             access={access}
+            isLoggedIn={!!session}
             onUpgrade={() => setPage('pricing')}
             onLogin={() => setShowLoginModal(true)}
           />
