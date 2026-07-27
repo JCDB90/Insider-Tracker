@@ -44,10 +44,11 @@ const COUNTRY = {
   LU: { name: 'Luxembourg',     flag: '🇱🇺', regulator: 'CSSF',               mktSlug: 'luxembourg' },
   PL: { name: 'Poland',         flag: '🇵🇱', regulator: 'GPW/KNF',            mktSlug: 'poland' },
   KR: { name: 'South Korea',    flag: '🇰🇷', regulator: 'FSC/FSS',            mktSlug: 'south-korea' },
+  AT: { name: 'Austria',        flag: '🇦🇹', regulator: 'OeKB',               mktSlug: 'austria' },
 };
 
 const CURRENCY_BY_COUNTRY = {
-  IT:'EUR', FR:'EUR', DE:'EUR', ES:'EUR', BE:'EUR', NL:'EUR', FI:'EUR', PT:'EUR', LU:'EUR',
+  IT:'EUR', FR:'EUR', DE:'EUR', ES:'EUR', BE:'EUR', NL:'EUR', FI:'EUR', PT:'EUR', LU:'EUR', AT:'EUR',
   NO:'NOK', SE:'SEK', DK:'DKK', CH:'CHF', GB:'GBP', KR:'KRW', PL:'PLN',
 };
 
