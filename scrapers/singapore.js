@@ -73,6 +73,25 @@
  * ONE transaction — the first non-corporate name is used as insider_name,
  * the first corporate name as via_entity (same convention as Austria's
  * closely-associated-entity handling).
+ *
+ * Two more `amtConsideration`/`numShares` quirks found auditing the first
+ * 180-day backfill (confirmed live across Vin's Holdings, GSH Corp, Intraco,
+ * Heeton, Moneymax, Capital World, Venture Corp, Golden Agri, ComfortDelgro —
+ * see extractConsideration/isNonEquityInstrument for the fixes):
+ *   1. Some filers write both the total AND the per-share price in one
+ *      string — "Total consideration S$2,634,054.65 (being S$18.1659 per
+ *      share)" — which a naive "first number + does 'per share' appear
+ *      anywhere" parse corrupts into price_per_share = the TOTAL, producing
+ *      an impossible total_value = total × shares. The per-share figure
+ *      inside the parenthetical is authoritative when present; a few filers
+ *      also drop the space before "per" ("S$0.3408per share").
+ *   2. The same ANNC14 category also carries debt/commercial-paper
+ *      instruments — "Subscription of 8 tokens with aggregate principal
+ *      amount of S$80,000" / "$8,400,000 of Series 6 Notes due 2026" — which
+ *      reuse numShares/amtConsideration for a token/note count and its
+ *      principal, not equity shares and price. typeSecurity's own `ord` flag
+ *      is 0 for these (1 for genuine ordinary-share filings) and is checked
+ *      per block before parsing a transaction at all.
  */
 'use strict';
 
@@ -195,10 +214,18 @@ async function fetchListings(cutoff) {
 
 // ─── Document fetch + XFA decrypt/extract (plain HTTP — no browser needed) ──
 
+// Both fetch helpers swallow errors and return null on ANY failure (thrown
+// exception or non-ok status) rather than letting it propagate — a single
+// transient network blip among ~1,000 per-filing requests must not crash
+// the whole run and lose every row accumulated so far (confirmed live: one
+// bare "fetch failed" mid-backfill did exactly that before this fix, since
+// dbRows is only saved once at the very end of the loop).
 async function fetchDetailHtml(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!res.ok) return null;
-  return res.text();
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch { return null; }
 }
 
 function findFirstPdfPath(html) {
@@ -207,10 +234,12 @@ function findFirstPdfPath(html) {
 }
 
 async function downloadPdf(pdfUrl, refererUrl) {
-  const res = await fetch(pdfUrl, { headers: { 'User-Agent': UA, Referer: refererUrl } });
-  if (!res.ok) return null;
-  const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+  try {
+    const res = await fetch(pdfUrl, { headers: { 'User-Agent': UA, Referer: refererUrl } });
+    if (!res.ok) return null;
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  } catch { return null; }
 }
 
 // Decrypt (empty-password AES) and pull the XFA `datasets` packet as flat text.
@@ -265,8 +294,30 @@ function extractShareCount(text) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Some filers write BOTH the total and the per-share price in one string,
+// e.g. "Total consideration S$2,634,054.65 (being S$18.1659 per share)" or
+// "S$36,030 (S$0.001 per share)" — confirmed live (Venture Corp, Golden
+// Agri, ComfortDelgro, Capital World) to corrupt price_per_share into the
+// TOTAL (the first, leading number) while still setting perShare=true
+// (since "per share" appears later in the same string), producing an
+// impossibly large total_value = total × shares. The per-share figure
+// inside the "(...per share/unit...)" parenthetical is authoritative
+// whenever it's present — check for it before falling back to "first
+// number in the string".
 function extractConsideration(text) {
   if (!text) return { amount: null, perShare: false };
+  // No `\b` before "per": confirmed live (Golden Agri, ComfortDelgro) filers
+  // sometimes drop the space — "S$0.3408per share" — which a leading \b would
+  // reject since a digit and letter are both \w characters with no boundary
+  // between them.
+  const paren = text.match(/\(([^)]*per\s*(?:unit|share)\b[^)]*)\)/i);
+  if (paren) {
+    const pm = paren[1].match(/([\d]{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+)/);
+    if (pm) {
+      const amount = parseFloat(pm[1].replace(/,/g, ''));
+      if (Number.isFinite(amount)) return { amount, perShare: true };
+    }
+  }
   const m = text.match(/([\d]{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+)/);
   if (!m) return { amount: null, perShare: false };
   const amount = parseFloat(m[1].replace(/,/g, ''));
@@ -327,6 +378,24 @@ function extractBeforeAfterShares(block) {
   return { delta: after - before, shares: Math.abs(after - before), txType: after > before ? 'BUY' : 'SELL' };
 }
 
+// The same "Disclosure of Interest" category also carries debt/commercial-
+// paper instruments (confirmed live: Vin's Holdings, GSH Corp, Intraco —
+// "Subscription/Redemption of N tokens..."; Heeton — "$X of Series N Notes
+// due <year>..."), which reuse the numShares/amtConsideration fields for a
+// token/note count and its principal value — not equity shares and price.
+// Left unfiltered, these produce nonsense-looking rows like "40 shares @
+// S$10,000" (the real per-token principal, not a share price). typeSecurity's
+// own `ord` flag is 0 for these and 1 for genuine ordinary-share filings
+// (confirmed across both categories) — only actively exclude on an explicit
+// '0', since some template variants omit the flag and a false negative there
+// is the safer failure mode than dropping a real equity trade. The keyword
+// check is a backstop for whichever variant that turns out to be.
+function isNonEquityInstrument(block, shareText) {
+  const ord = (getTags('ord', block) || [])[0];
+  if (ord === '0') return true;
+  return /\btokens?\b|\bnotes?\b|\bdebentures?\b/i.test(shareText || '');
+}
+
 function parseFiling(xml) {
   const directors = getTags('nameDirector', xml);
   const shareholders = getTags('nameSubstantialShareholder', xml);
@@ -348,6 +417,8 @@ function parseFiling(xml) {
     const shareText = (getTags('numShares', block) || [])[0] || '';
     const considText = (getTags('amtConsideration', block) || [])[0] || '';
     const dateAcq = (getTags('dateAquisition', block) || [])[0];
+
+    if (isNonEquityInstrument(block, shareText)) continue;
 
     const beforeAfter = extractBeforeAfterShares(block);
     const textShares = extractShareCount(shareText);
@@ -412,51 +483,62 @@ async function scrapeSG() {
     // (COUNTRY_YAHOO_SUFFIX['SG']), matching every other market's convention.
     const ticker = issuer.stock_code || '';
 
-    const html = await fetchDetailHtml(item.url);
-    if (!html) { console.log(`  ⚠  ${item.id} (${company}) — detail page fetch failed`); continue; }
-    const pdfPath = findFirstPdfPath(html);
-    if (!pdfPath) { console.log(`  ⚠  ${item.id} (${company}) — no PDF attachment found`); continue; }
-    const pdfUrl = `https://links.sgx.com${pdfPath}`;
+    // A single item throwing (qpdf edge case, unexpected regex failure, etc.)
+    // must not abort the whole run — dbRows only gets saved once, at the very
+    // end, so losing the loop partway through means losing everything
+    // accumulated so far (confirmed live: an uncaught "fetch failed" mid-
+    // backfill did exactly that). fetchDetailHtml/downloadPdf already catch
+    // their own errors and return null; this is a blanket backstop for
+    // anything else in the per-item pipeline.
+    try {
+      const html = await fetchDetailHtml(item.url);
+      if (!html) { console.log(`  ⚠  ${item.id} (${company}) — detail page fetch failed`); continue; }
+      const pdfPath = findFirstPdfPath(html);
+      if (!pdfPath) { console.log(`  ⚠  ${item.id} (${company}) — no PDF attachment found`); continue; }
+      const pdfUrl = `https://links.sgx.com${pdfPath}`;
 
-    const buf = await downloadPdf(pdfUrl, item.url);
-    if (!buf) { console.log(`  ⚠  ${item.id} (${company}) — PDF download failed`); continue; }
+      const buf = await downloadPdf(pdfUrl, item.url);
+      if (!buf) { console.log(`  ⚠  ${item.id} (${company}) — PDF download failed`); continue; }
 
-    const xml = extractXfaDataset(buf);
-    if (!xml) { console.log(`  ⚠  ${item.id} (${company}) — XFA extraction failed`); continue; }
+      const xml = extractXfaDataset(buf);
+      if (!xml) { console.log(`  ⚠  ${item.id} (${company}) — XFA extraction failed`); continue; }
 
-    const f = parseFiling(xml);
-    if (!f.transactions.length) {
-      // Initial/holding-only disclosure with no reported change — not a transaction.
-      continue;
-    }
-    if (!f.insiderName && !f.viaEntity) {
-      console.log(`  ⚠  ${item.id} (${company}) — no insider identity found; rows will be dropped`);
-    }
+      const f = parseFiling(xml);
+      if (!f.transactions.length) {
+        // Initial/holding-only disclosure with no reported change — not a transaction.
+        continue;
+      }
+      if (!f.insiderName && !f.viaEntity) {
+        console.log(`  ⚠  ${item.id} (${company}) — no insider identity found; rows will be dropped`);
+      }
 
-    for (let i = 0; i < f.transactions.length; i++) {
-      const tx = f.transactions[i];
-      const rowFid = i === 0 ? fid : `${fid}-${i + 1}`;
-      const txDate = tx.txDate || `${String(cutoff).slice(0,4)}-${String(cutoff).slice(4,6)}-${String(cutoff).slice(6,8)}`;
+      for (let i = 0; i < f.transactions.length; i++) {
+        const tx = f.transactions[i];
+        const rowFid = i === 0 ? fid : `${fid}-${i + 1}`;
+        const txDate = tx.txDate || `${String(cutoff).slice(0,4)}-${String(cutoff).slice(4,6)}-${String(cutoff).slice(6,8)}`;
 
-      process.stdout.write(`  → ${item.id}${i > 0 ? `.${i + 1}` : ''} ${(company || '?').slice(0, 28).padEnd(28)} ${tx.txType.padEnd(7)} ${tx.shares} @ ${tx.pricePerShare} SGD  ${txDate}\n`);
+        process.stdout.write(`  → ${item.id}${i > 0 ? `.${i + 1}` : ''} ${(company || '?').slice(0, 28).padEnd(28)} ${tx.txType.padEnd(7)} ${tx.shares} @ ${tx.pricePerShare} SGD  ${txDate}\n`);
 
-      dbRows.push({
-        filing_id: rowFid,
-        country_code: COUNTRY_CODE,
-        ticker,
-        company,
-        insider_name: f.insiderName || null,
-        via_entity: f.viaEntity || null,
-        insider_role: f.role,
-        transaction_type: tx.txType,
-        transaction_date: txDate,
-        shares: tx.shares,
-        price_per_share: tx.pricePerShare,
-        total_value: tx.totalValue,
-        currency: CURRENCY,
-        filing_url: item.url,
-        source: SOURCE,
-      });
+        dbRows.push({
+          filing_id: rowFid,
+          country_code: COUNTRY_CODE,
+          ticker,
+          company,
+          insider_name: f.insiderName || null,
+          via_entity: f.viaEntity || null,
+          insider_role: f.role,
+          transaction_type: tx.txType,
+          transaction_date: txDate,
+          shares: tx.shares,
+          price_per_share: tx.pricePerShare,
+          total_value: tx.totalValue,
+          currency: CURRENCY,
+          filing_url: item.url,
+          source: SOURCE,
+        });
+      }
+    } catch (e) {
+      console.log(`  ⚠  ${item.id} (${company}) — unexpected error: ${e.message}`);
     }
 
     await new Promise((r) => setTimeout(r, 300)); // be polite to links.sgx.com

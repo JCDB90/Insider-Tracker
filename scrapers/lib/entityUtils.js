@@ -6,7 +6,10 @@
 // match too — observed live: "Analytical Bioventures S.C.A" wasn't caught by a
 // bare "SCA" literal, letting the whole entity name fall through as if it were a
 // person (EUROFINS SCIENTIFIC SE / LU-OAM-260297 filing).
-const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|S\.?C\.?A\.?|S\.?C\.?S\.?|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|ehf\.?|slf\.?|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
+// Sdn\.?\s*Bhd\.? / Berhad: Malaysian entity suffixes — several SGX-listed
+// issuers have Malaysian parent/nominee entities in their substantial-
+// shareholder chains (e.g. Top Glove Corporation Bhd, TSH Resources Berhad).
+const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|S\.?C\.?A\.?|S\.?C\.?S\.?|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Berhad|ehf\.?|slf\.?|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
 
 // Corporate keywords appearing anywhere in the name
 const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Participations?|Beteiligungen?|Beteiligungsgesellschaft|Vermögensverwaltung|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA))\b/i;
