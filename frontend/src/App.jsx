@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
@@ -41,7 +41,7 @@ if (typeof window !== 'undefined') storeUTMs();
 function useMetaTags(page, selectedCompany, selectedInsider) {
   useEffect(() => {
     let title = 'InsidersAlpha — European Insider Trading Tracker';
-    let desc  = 'Track MAR Article 19 insider transactions across 17 markets. Conviction scoring, cluster signals, and performance data.';
+    let desc  = 'Track MAR Article 19 insider transactions across 18 markets. Conviction scoring, cluster signals, and performance data.';
 
     if (page === 'company' && selectedCompany?.company) {
       title = `${selectedCompany.company} Insider Transactions | InsidersAlpha`;
@@ -379,7 +379,7 @@ const COUNTRY_FLAGS = {
   AT: '🇦🇹', BE: '🇧🇪', CH: '🇨🇭', DE: '🇩🇪', DK: '🇩🇰',
   ES: '🇪🇸', FI: '🇫🇮', FR: '🇫🇷', GB: '🇬🇧',
   IT: '🇮🇹', KR: '🇰🇷', LU: '🇱🇺', NL: '🇳🇱',
-  NO: '🇳🇴', PL: '🇵🇱', PT: '🇵🇹', SE: '🇸🇪',
+  NO: '🇳🇴', PL: '🇵🇱', PT: '🇵🇹', SE: '🇸🇪', SG: '🇸🇬',
 };
 
 const COUNTRY_NAMES = {
@@ -388,7 +388,7 @@ const COUNTRY_NAMES = {
   FR: 'France',         GB: 'United Kingdom', IT: 'Italy',
   KR: 'South Korea',    LU: 'Luxembourg',   NL: 'Netherlands',
   NO: 'Norway',         PL: 'Poland',       PT: 'Portugal',
-  SE: 'Sweden',
+  SE: 'Sweden',         SG: 'Singapore',
 };
 
 const TRACKED_MARKETS = Object.keys(COUNTRY_FLAGS).sort();
@@ -4640,7 +4640,7 @@ function PerformanceTab() {
         background: '#f8f8f8', border: '1px solid #f0f0f0', borderRadius: 8,
       }}>
         Past performance does not guarantee future results. Returns are calculated from
-        open-market insider purchases across 17 markets, excluding option exercises and
+        open-market insider purchases across 18 markets, excluding option exercises and
         grants. Outliers above ±50% (30d), ±75% (90d), ±100% (6m) are excluded.
       </div>
     </div>
@@ -5400,7 +5400,7 @@ function AdminPage({ session }) {
 
 const PLAN_FEATURES_GRID = [
   { category: 'Data Access', rows: [
-    { label: 'Markets covered',         analyst: '17 markets',   strategist: '17 markets',     terminal: '17 markets' },
+    { label: 'Markets covered',         analyst: '18 markets',   strategist: '18 markets',     terminal: '18 markets' },
     { label: 'Transaction history',     analyst: 'First 50 rows', strategist: 'Full 180 days', terminal: 'Full 180 days' },
     { label: 'Company page history',    analyst: 'Last 3 trades', strategist: 'Unlimited',      terminal: 'Unlimited' },
     { label: 'Data updates',            analyst: 'Daily',         strategist: 'Daily',          terminal: 'Daily' },
@@ -5520,7 +5520,7 @@ function PricingPage({ session, onLogin }) {
         'Daily email alerts when insiders buy your stocks',
         'Stock charts with trade markers',
         'All tax calculators & education',
-        '17 markets',
+        '18 markets',
       ],
     },
     {
@@ -5573,7 +5573,7 @@ function PricingPage({ session, onLogin }) {
     { label: 'Avg 90d return', value: '+3.2%', sub: 'across 1,452 signalled insider buys', color: '#16A34A' },
     { label: 'High conviction buys tracked',      value: '157',   sub: 'in the last 14 days', color: ACCENT },
     { label: 'Insider transactions',              value: '7,000+',sub: '180-day rolling window', color: '#6B7280' },
-    { label: 'Markets covered',                   value: '17',    sub: '17 markets across Europe and Asia', color: '#6B7280' },
+    { label: 'Markets covered',                   value: '18',    sub: '18 markets across Europe and Asia', color: '#6B7280' },
   ];
 
   return (
@@ -5799,7 +5799,7 @@ function PricingPage({ session, onLogin }) {
           <h3 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 20, color: '#0C0F1A', textAlign: 'center' }}>Common questions</h3>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {[
-              { q: 'How many markets do you cover?', a: '17 markets: Austria, Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, Luxembourg, Poland, Portugal, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CMVM, CNMV, CSSF, Finanstilsynet, FCA, FSMA, GPW/KNF, OeKB, SKAT, etc.).' },
+              { q: 'How many markets do you cover?', a: '18 markets: Austria, Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, Luxembourg, Poland, Portugal, Singapore, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CMVM, CNMV, CSSF, Finanstilsynet, FCA, FSMA, GPW/KNF, MAS/SGX, OeKB, SKAT, etc.).' },
               { q: 'How far back does data go?', a: 'We maintain a 180-day rolling window of insider transactions across all covered markets. Data is refreshed daily via automated scrapers.' },
               { q: 'How often is data updated?', a: 'Daily — automated scrapers run every night via GitHub Actions, processing filings published by regulators within the previous 24 hours.' },
               { q: 'What signals do you track?', a: 'Four signals: Conviction score (trade size × role seniority × timing), Cluster buying (2+ insiders at the same company within 14 days), Repetitive buying (same insider buying multiple times within 14 days), and Price dip (insider bought after a significant drawdown).' },
@@ -5830,17 +5830,11 @@ export default function App() {
   });
   const [alertInitialFilter, setAlertInitialFilter] = useState(null);
   const [search, setSearch] = useState('');
-  // Tracks whether the country filter reflects an explicit choice (a ?country=
-  // URL param, or the user toggling something themselves) rather than still
-  // being at its untouched initial state — the GEO auto-select effect below
-  // must never override either of those, only fill in a default for a visitor
-  // who hasn't expressed a preference at all yet.
-  const userTouchedFilter = useRef(false);
   const [selectedCountries, setSelectedCountries] = useState(() => {
     // Pre-select country if ?country=XX is in the URL (e.g. from SEO landing pages)
     try {
       const cc = new URLSearchParams(window.location.search).get('country');
-      if (cc) { userTouchedFilter.current = true; return new Set([cc.toUpperCase()]); }
+      if (cc) { return new Set([cc.toUpperCase()]); }
       return new Set();
     } catch { return new Set(); }
   });
@@ -6127,7 +6121,6 @@ export default function App() {
   }
 
   function toggleCountry(code) {
-    userTouchedFilter.current = true;
     setSelectedCountries(prev => {
       const next = new Set(prev);
       const adding = !next.has(code);
@@ -6136,25 +6129,7 @@ export default function App() {
       return next;
     });
   }
-  function clearCountries() { userTouchedFilter.current = true; setSelectedCountries(new Set()); }
-
-  // GEO routing: default first-time visitors to their home market's filter,
-  // without ever overriding an explicit choice (a ?country= URL param, or the
-  // user having touched the filter themselves — checked via userTouchedFilter,
-  // since selectedCountries being an empty Set doesn't distinguish "untouched"
-  // from "user explicitly cleared it").
-  useEffect(() => {
-    fetch('/api/geo')
-      .then(r => r.json())
-      .then(({ country }) => {
-        if (userTouchedFilter.current || selectedCountries.size > 0) return;
-        if (TRACKED_MARKETS.includes(country)) {
-          setSelectedCountries(new Set([country]));
-        }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  function clearCountries() { setSelectedCountries(new Set()); }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#ffffff' }}>

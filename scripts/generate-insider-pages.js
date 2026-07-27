@@ -45,19 +45,20 @@ const COUNTRY = {
   PL: { name: 'Poland',         flag: '🇵🇱', regulator: 'GPW/KNF',            mktSlug: 'poland' },
   KR: { name: 'South Korea',    flag: '🇰🇷', regulator: 'FSC/FSS',            mktSlug: 'south-korea' },
   AT: { name: 'Austria',        flag: '🇦🇹', regulator: 'OeKB',               mktSlug: 'austria' },
+  SG: { name: 'Singapore',      flag: '🇸🇬', regulator: 'MAS/SGX',            mktSlug: 'singapore' },
 };
 
 const CURRENCY_BY_COUNTRY = {
   IT:'EUR', FR:'EUR', DE:'EUR', ES:'EUR', BE:'EUR', NL:'EUR', FI:'EUR', PT:'EUR', LU:'EUR', AT:'EUR',
-  NO:'NOK', SE:'SEK', DK:'DKK', CH:'CHF', GB:'GBP', KR:'KRW', PL:'PLN',
+  NO:'NOK', SE:'SEK', DK:'DKK', CH:'CHF', GB:'GBP', KR:'KRW', PL:'PLN', SG:'SGD',
 };
 
 const FX_TO_EUR = {
   EUR: 1, GBP: 1.17, SEK: 0.088, NOK: 0.086,
-  DKK: 0.134, PLN: 0.235, KRW: 0.00068, CHF: 1.04,
+  DKK: 0.134, PLN: 0.235, KRW: 0.00068, CHF: 1.04, SGD: 0.68,
 };
 
-const CURRENCY_SYMBOL = { EUR:'€', GBP:'£', SEK:'SEK ', NOK:'NOK ', DKK:'DKK ', PLN:'PLN ', KRW:'₩', CHF:'CHF ' };
+const CURRENCY_SYMBOL = { EUR:'€', GBP:'£', SEK:'SEK ', NOK:'NOK ', DKK:'DKK ', PLN:'PLN ', KRW:'₩', CHF:'CHF ', SGD:'S$' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

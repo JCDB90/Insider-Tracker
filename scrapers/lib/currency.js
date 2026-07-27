@@ -22,6 +22,7 @@ const EUR_RATE = { // 1 unit of currency → EUR
   EUR: 1,
   SEK: 0.0903, NOK: 0.0914, DKK: 0.1338, GBP: 1.1718, CHF: 1.0790,
   PLN: 0.2310, KRW: 0.000592, USD: 0.8766, ZAR: 0.0532, CAD: 0.6222,
+  SGD: 0.6800,
 };
 
 function toEUR(price, currency) {

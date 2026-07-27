@@ -73,7 +73,8 @@ const MARKETS = [
   // ── Asia-Pacific ─────────────────────────────────────────────────────────
   // AU disabled: ASX Appendix 3Y metadata has no price/shares/name data (all null)
   { code: 'KR', name: 'South Korea',    file: 'southkorea',  mode: 'http' },
-  // HK, JP, SG, CA, ZA removed — not on platform
+  { code: 'SG', name: 'Singapore',      file: 'singapore',   mode: 'puppeteer', timeoutMs: 12 * 60 * 1000 },
+  // HK, JP, CA, ZA removed — not on platform
 ];
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@ async function getClosePrice(ticker, dateStr, exchange = '') {
     CH: ['.SW', ''],
     PL: ['.WA', ''],
     LU: ['.LU', ''],
+    SG: ['.SI', ''],
   };
 
   const suffixes = EXCHANGE_SUFFIXES[exchange] || ['', '.AS', '.PA', '.DE', '.L', '.ST'];

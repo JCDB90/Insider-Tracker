@@ -15,7 +15,7 @@ const supabase = createClient(
 const SUFFIX = {
   SE: '.ST', GB: '.L', CH: '.SW', FR: '.PA', KR: '',  BE: '.BR',
   NO: '.OL', DE: '.DE', ES: '.MC', IT: '.MI', DK: '.CO', NL: '.AS',
-  FI: '.HE', PT: '.LS', LU: '.LU', PL: '.WA',
+  FI: '.HE', PT: '.LS', LU: '.LU', PL: '.WA', AT: '.VI', SG: '.SI',
 };
 
 function yahooSearch(yahooSymbol) {

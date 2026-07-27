@@ -8,20 +8,20 @@ const ACCENT = '#0f1117';
 
 const CURRENCY_SYMBOLS = {
   EUR: '€', USD: '$', GBP: '£', KRW: '₩',
-  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ', PLN: 'PLN ',
+  CHF: 'CHF ', SEK: 'SEK ', DKK: 'DKK ', NOK: 'NOK ', PLN: 'PLN ', SGD: 'S$',
 };
 
 const COUNTRY_FLAGS = {
   AT:'🇦🇹',BE:'🇧🇪',CH:'🇨🇭',DE:'🇩🇪',DK:'🇩🇰',
   ES:'🇪🇸',FI:'🇫🇮',FR:'🇫🇷',GB:'🇬🇧',
   IT:'🇮🇹',KR:'🇰🇷',NL:'🇳🇱',NO:'🇳🇴',
-  PL:'🇵🇱',SE:'🇸🇪',
+  PL:'🇵🇱',SE:'🇸🇪',SG:'🇸🇬',
 };
 
 const COUNTRY_YAHOO_SUFFIX = {
   SE:'.ST', DK:'.CO', FI:'.HE', NO:'.OL', DE:'.DE', FR:'.PA',
   NL:'.AS', BE:'.BR', IT:'.MI', ES:'.MC',
-  CH:'.SW', GB:'.L',  PL:'.WA', PT:'.LS', AT:'.VI',
+  CH:'.SW', GB:'.L',  PL:'.WA', PT:'.LS', AT:'.VI', SG:'.SI',
 };
 
 // PL tickers where GPW symbol differs from Yahoo Finance symbol

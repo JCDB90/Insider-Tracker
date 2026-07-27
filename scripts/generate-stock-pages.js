@@ -70,12 +70,13 @@ const COUNTRY = {
   PL: { name: 'Poland',         flag: '🇵🇱', exchange: 'Warsaw Stock Exchange',  regulator: 'GPW/KNF',            mktSlug: 'poland' },
   KR: { name: 'South Korea',    flag: '🇰🇷', exchange: 'Korea Exchange',         regulator: 'FSC/FSS',            mktSlug: 'south-korea' },
   AT: { name: 'Austria',        flag: '🇦🇹', exchange: 'Vienna Stock Exchange',  regulator: 'OeKB',               mktSlug: 'austria' },
+  SG: { name: 'Singapore',      flag: '🇸🇬', exchange: 'Singapore Exchange (SGX)', regulator: 'MAS/SGX',          mktSlug: 'singapore' },
 };
 
 const CURRENCY = {
   IT:'EUR', FR:'EUR', DE:'EUR', ES:'EUR', BE:'EUR',
   NL:'EUR', FI:'EUR', PT:'EUR', LU:'EUR', AT:'EUR',
-  NO:'NOK', SE:'SEK', DK:'DKK', CH:'CHF', GB:'GBP', KR:'KRW', PL:'PLN',
+  NO:'NOK', SE:'SEK', DK:'DKK', CH:'CHF', GB:'GBP', KR:'KRW', PL:'PLN', SG:'SGD',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ function formatValue(val, cc) {
   const v = Math.abs(Number(val || 0));
   if (!v) return '—';
   const cur = CURRENCY[cc] || 'EUR';
-  const sym = { EUR:'€', GBP:'£', CHF:'CHF ', SEK:'SEK ', NOK:'NOK ', DKK:'DKK ', KRW:'₩', PLN:'PLN ' }[cur] || '';
+  const sym = { EUR:'€', GBP:'£', CHF:'CHF ', SEK:'SEK ', NOK:'NOK ', DKK:'DKK ', KRW:'₩', PLN:'PLN ', SGD:'S$' }[cur] || '';
   if (cur === 'KRW') {
     if (v >= 1e12) return `₩${(v/1e12).toFixed(1)}T`;
     if (v >= 1e9)  return `₩${(v/1e9).toFixed(1)}B`;

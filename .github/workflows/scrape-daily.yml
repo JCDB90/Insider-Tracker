@@ -59,8 +59,8 @@ jobs:
         run: npm ci
 
       - name: Install system tools
-        continue-on-error: true   # poppler/tesseract failure must not block scrapers that don't need them
-        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils tesseract-ocr
+        continue-on-error: true   # poppler/tesseract/qpdf failure must not block scrapers that don't need them
+        run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils tesseract-ocr qpdf
 
       # ── Europe ─────────────────────────────────────────────────────────────
       - name: 🇳🇱 Netherlands (AFM)
@@ -150,6 +150,12 @@ jobs:
         continue-on-error: true
         timeout-minutes: 15   # DART API + ZIP downloads
         run: node scrapers/southkorea.js
+
+      - name: 🇸🇬 Singapore (SGX)
+        if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SG' }}
+        continue-on-error: true
+        timeout-minutes: 15   # Puppeteer listing + per-filing PDF downloads
+        run: node scrapers/singapore.js
 
       # ── Maintenance ─────────────────────────────────────────────────────────
       - name: 🧹 Cleanup records older than 90 days
