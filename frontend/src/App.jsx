@@ -139,6 +139,10 @@ function useAccess(plan) {
 const BLOCKED_DOMAINS = [
   'mailinator.com', 'maildrop.cc', 'guerrillamail.com', 'guerrillamailblock.com',
   'tempmail.com', 'yopmail.com', 'throwam.com', 'sharklasers.com',
+  // Guerrilla Mail's other domains + related disposable-mail providers
+  'guerrillamail.info', 'guerrillamail.biz', 'guerrillamail.de',
+  'guerrillamail.net', 'guerrillamail.org', 'grr.la', 'spam4.me',
+  'trashmail.com', 'trashmail.me', 'trashmail.net', 'dispostable.com',
   // RFC-reserved / placeholder domains — no real user would have these
   'example.com', 'example.org', 'example.net',
   'test.com', 'fake.com', 'invalid.com',
@@ -147,7 +151,12 @@ const BLOCKED_DOMAINS = [
 ];
 
 // Pattern-based block: catches bot probes that use non-disposable domains
-// but follow recognisable automated naming conventions.
+// but follow recognisable automated naming conventions. Tested against the
+// whole email string (not just the local part) — anchoring with ^ still
+// means "starts the email", i.e. "starts the username", so this catches
+// bot naming conventions on ANY domain, including otherwise-trusted ones
+// like Gmail (confirmed live: sec.review.1785085457@gmail.com — a real
+// domain, blocked by username shape, not domain).
 const BLOCKED_PATTERNS = [
   /security[.\-_]review/i,  // security.review@, security-review@, etc.
   /security\d+/i,            // security123@, security99@, etc.
@@ -156,6 +165,14 @@ const BLOCKED_PATTERNS = [
   /^appsec/i,                // appsec@, appsec-review@, etc.
   /appsec[-.]review/i,       // *appsec-review*, *appsec.review*
   /appsec\d+/i,              // appsec1@, appsec99@, etc.
+  /^sec[.\-]review/i,        // sec.review@, sec-review@, sec.review.<id>@ — same
+                              // scanner as security.review/appsec-review above,
+                              // shortened; the existing security[.\-_]review
+                              // pattern requires the full word "security" and
+                              // doesn't match this shorter "sec." variant.
+  /^probe\d+/i,              // probe1@, probe42@, etc.
+  /^test\d{5,}/i,             // test12345@ — bare digits, no separator (the
+                              // existing test[.\-_]\d+ pattern requires one)
 ];
 
 const isBlockedEmail = (email) => {
