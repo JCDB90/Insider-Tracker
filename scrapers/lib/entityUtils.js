@@ -9,10 +9,23 @@
 // Sdn\.?\s*Bhd\.? / Berhad: Malaysian entity suffixes — several SGX-listed
 // issuers have Malaysian parent/nominee entities in their substantial-
 // shareholder chains (e.g. Top Glove Corporation Bhd, TSH Resources Berhad).
-const CORP_SUFFIX_RE = /\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|S\.?C\.?A\.?|S\.?C\.?S\.?|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Berhad|ehf\.?|slf\.?|Corporation|Incorporated)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
+// "& Co." trailing: classic Anglo-American bank/brokerage naming (confirmed
+// live: "JPMorgan Chase & Co." named as an SGX substantial shareholder,
+// slipping through as if it were a person — none of the other suffixes
+// above match a bare "Co."). Matches the literal "&" (now decoded at parse
+// time in singapore.js's getTags) as well as a raw un-decoded "&amp;" HTML
+// entity, since historical rows were saved before that decoding fix existed.
+// Note: the "&/&amp; Co." alternative sits outside the leading \b — "&" is a
+// non-word char abutting another non-word char (a space), so no \w/\W
+// boundary exists there for \b to anchor on.
+const CORP_SUFFIX_RE = /(?:\b(?:A\.?S\.?A?\.?|N\.?V\.?|B\.?V\.?|S\.?R\.?L\.?|S\.?p\.?A\.?|S\.?A\.?S?\.?|S\.?L\.?U?\.?|S\.?A\.?U?\.?|Ltd\.?|Limited|L\.?L\.?C\.?|L\.?L\.?P\.?|GmbH|mbH|A\.?G\.?|Aktiengesellschaft|Aktiebolag|Inc\.?|Corp\.?|P\.?L\.?C\.?|A\/S|Oy|A\.?B\.?|S\.?E\.?|KGaA|SPRL|BVBA|S\.?C\.?A\.?|S\.?C\.?S\.?|SARL|SASU|CVA|SNC|ApS|UG|GbR|OHG|KG|Pte\.?\s*Ltd\.?|Sdn\.?\s*Bhd\.?|Berhad|ehf\.?|slf\.?|Corporation|Incorporated)|(?:&|&amp;)\s*Co\.?)\s*[.,)]*(?:\s*\([^)]*\))?\s*$/i;
 
-// Corporate keywords appearing anywhere in the name
-const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Participations?|Beteiligungen?|Beteiligungsgesellschaft|Vermögensverwaltung|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA))\b/i;
+// Corporate keywords appearing anywhere in the name. Fund(s)/Trust/ETF added
+// after confirming live SGX substantial-shareholder filings naming "Ginko-
+// AGT Global Growth Fund" and "American Century ETF Trust - Avantis
+// International Small Cap Value ETF" as the disclosing party — fund/trust
+// vehicles, not individuals, but caught by none of the suffix patterns above.
+const CORP_KEYWORD_RE = /\b(?:Holdings?|Investments?|Participations?|Beteiligungen?|Beteiligungsgesellschaft|Vermögensverwaltung|Capital\s+(?:Management|Partners|Advisors)|Partners?(?:\s+LP|\s+LLP)?|(?:Asset\s+)?Management\s+(?:Ltd|LLC|GmbH|AG|SA|BV|AS)|Ventures?(?:\s+Ltd)?|Enterprises?|Industries|Solutions|Properties|Family\s+Office|Advisors?\s+(?:Ltd|LLC|GmbH|SA)|Consulting\s+(?:Ltd|LLC|GmbH|SA)|Funds?|Trust|ETF)\b/i;
 
 // Full-form French/Italian/Spanish corporate entity names written out in the filing
 const CORP_FULLFORM_RE = /\b(?:soci[eé]t[eé]\s+(?:civile|anonyme|par\s+actions|en\s+commandite|d.investissement|de\s+gestion)|soci[eé]t[eé]\s+[àa]\s+responsabilit[eé]|s\.?a\.?s\.?\b|s\.?c\.?i\.?\b|soci[eé]dad\s+(?:an[oó]nima|limitada|de\s+inversi[oó]n)|societ[àa]\s+(?:per\s+azioni|semplice|a\s+responsabilit[àa])|gmbh\s*&\s*co|kommanditgesellschaft|stiftung|genossenschaft)\b/i;

@@ -278,7 +278,11 @@ function getTags(name, text) {
   const out = [];
   let m;
   while ((m = re.exec(text))) {
-    const v = m[1].replace(/&#xD;/g, ' ').replace(/\s+/g, ' ').trim();
+    const v = m[1]
+      .replace(/&#xD;/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/\s+/g, ' ').trim();
     if (v) out.push(v);
   }
   return out;
@@ -506,6 +510,20 @@ async function scrapeSG() {
       const f = parseFiling(xml);
       if (!f.transactions.length) {
         // Initial/holding-only disclosure with no reported change — not a transaction.
+        continue;
+      }
+      // SGX files two distinct disclosures under the same ANNC14 "Disclosure
+      // of Interest" category: Form 1 (an individual director/officer) and
+      // Form 3 (any 5%+ substantial shareholder, which is very often a pure
+      // institution — OCBC, Temasek, GIC, a PE fund's holding vehicle — with
+      // no natural person involved at all). These are ownership-threshold
+      // crossings, not insider trading signals, and were being captured
+      // wholesale. Only exclude when NO real individual was found among the
+      // XFA name candidates (insiderName null after looksLikeCorp filtering)
+      // — a substantial shareholder who is also a named director/officer
+      // still has insiderName set and is kept.
+      if (f.role === 'Substantial Shareholder' && !f.insiderName) {
+        console.log(`  ⏭  ${item.id} (${company}) — institutional substantial shareholder, no named individual; skipped`);
         continue;
       }
       if (!f.insiderName && !f.viaEntity) {
