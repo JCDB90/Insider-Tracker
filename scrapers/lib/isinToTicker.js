@@ -107,6 +107,22 @@ const ISIN_OVERRIDES = {
   'LU2290522684': 'INPST', // InPost S.A. — real listing is Euronext Amsterdam (INPST.AS)
   'US37733W2044': 'GSK',   // GSK plc — this is the CUSIP-style ADR identifier some UK
                             // filings cite instead of GSK's own LSE ISIN (GB0009252882)
+
+  // Unlike the ISINs above, Yahoo's search resolves these two just fine
+  // (confirmed live: FR0000120321 -> OR.PA, FR0000120073 -> AI.PA) — the
+  // gap here isn't in Yahoo's index. L'Oréal and L'Air Liquide both ended
+  // up permanently stuck with ticker = "" in insider_transactions: a
+  // transient Yahoo failure at the original scrape time returned null,
+  // france.js's `parsed.ticker || isinToTicker(...) || ''` fallback wrote
+  // the empty string straight to the row, and — since isinToTicker()
+  // deliberately never persists a null resolution to isin_ticker_cache
+  // (to avoid making a transient rate-limit permanent) — a plain retry
+  // would have fixed it, but nothing ever retries an already-saved row.
+  // Hardcoding these two blue-chip ISINs (high transaction volume, high
+  // per-trade value) trades a rare repeat of that same transient failure
+  // for zero risk of it recurring.
+  'FR0000120321': 'OR', // L'Oréal S.A.
+  'FR0000120073': 'AI', // L'Air Liquide S.A.
 };
 
 /**

@@ -97,11 +97,13 @@ const US_LISTED = new Map([
   ['MOWI|NO',  { us: 'MOWI',  exchange: 'OTC (ADR)' }],
   ['EXPN|GB',  { us: 'EXPGY', exchange: 'OTC (ADR)' }],
 
-  // NOTE: L'Oréal and L'Air Liquide are NOT included — both have a real,
-  // separate bug in france.js where every stored row has ticker = "" (empty
-  // string, not null) instead of their real tickers (OR, AI). Matching on
-  // an empty string here would risk matching every unresolved-ticker row in
-  // the DB, not just these two companies. Left out until that's fixed.
+  // L'Oréal and L'Air Liquide — previously excluded because every row had
+  // ticker = "" (a transient Yahoo-lookup failure at scrape time baked
+  // permanently into the DB, since nothing retries an already-saved row).
+  // Fixed: isinToTicker.js now hardcodes both ISINs, and the 6 existing
+  // affected rows were backfilled to their real tickers (OR, AI).
+  ['OR|FR',    { us: 'LRLCY', exchange: 'OTC (ADR)' }],
+  ['AI|FR',    { us: 'AIQUY', exchange: 'OTC (ADR)' }],
 ]);
 
 function isUsListed(ticker, countryCode) {
