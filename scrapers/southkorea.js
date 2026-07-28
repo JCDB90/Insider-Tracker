@@ -465,6 +465,38 @@ async function scrapeKR() {
 
   if (!flatRows.length) { console.log('  No rows to save.'); return { saved: 0 }; }
 
+  // price_per_share is NUMERIC(18,6) — max integer part is 999,999,999,999
+  // (12 nines). A genuine per-share KRW price never comes remotely close to
+  // this, even for Korea's priciest stocks, so a value this large can only
+  // be a misparsed field — most likely ACI_AMT2 (meant to be a per-unit
+  // price) occasionally carrying an aggregate/total consideration instead,
+  // for some report subtype this scraper hasn't hit before. Left unguarded,
+  // a single row like this fails the WHOLE batch upsert with a Postgres
+  // "numeric field overflow" — exactly what's been silently zeroing out
+  // every KR run for two straight weeks (scraper_runs shows 14 consecutive
+  // failed runs, 0 rows saved each time, with the full ~350s DART fetch
+  // duration intact — i.e. fetching succeeds and only the final save
+  // fails). Null the bad value out (and total_value, which derives from
+  // it) rather than truncate/guess at a "real" number, and log it so a
+  // future occurrence is diagnosable from the run's own output instead of
+  // requiring live reproduction again.
+  const MAX_PRICE_PER_SHARE = 999999999999;       // NUMERIC(18,6) integer-part cap
+  const MAX_TOTAL_VALUE     = Number.MAX_SAFE_INTEGER; // defensive bigint-scale guard
+
+  let nOverflow = 0;
+  for (const r of flatRows) {
+    let bad = false;
+    if (r.price_per_share != null && r.price_per_share > MAX_PRICE_PER_SHARE) bad = true;
+    if (r.total_value != null && r.total_value > MAX_TOTAL_VALUE) bad = true;
+    if (bad) {
+      nOverflow++;
+      console.warn(`  ⚠  OVERFLOW GUARD — nulling out-of-range value: ${JSON.stringify(r)}`);
+      r.price_per_share = null;
+      r.total_value = null;
+    }
+  }
+  if (nOverflow) console.log(`  ⚠  ${nOverflow} row(s) had an out-of-range price/total_value, nulled rather than dropped`);
+
   const { error } = await saveInsiderTransactions(flatRows);
   if (error) { console.error('  ❌ DB error:', error.message); process.exit(1); }
 
