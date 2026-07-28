@@ -39,6 +39,14 @@ const { translateRole }           = require('./lib/translate');
 const { romanizeKoreanName }      = require('./lib/korean');
 const { isAbsoluteUnusualPrice }  = require('./lib/unusualPrice');
 
+// Generous upper bound for a genuine Korean per-share price (KRW has no
+// fractional unit, so real prices run from a few hundred won for penny
+// stocks up to a few million won for the priciest KOSPI names — nothing
+// remotely close to this). Used as a sanity backstop independent of the
+// NUMERIC(18,6) column-overflow guard in scrapeKR() below: a garbled price
+// can be "too large" without actually overflowing the column.
+const MAX_REALISTIC_KRW_PRICE = 5000000;
+
 const COUNTRY_CODE    = 'KR';
 const SOURCE          = 'DART / FSS Korea';
 const RETENTION_DAYS  = parseInt(process.env.LOOKBACK_DAYS || '14');
@@ -226,6 +234,27 @@ function parseDocument(docContent) {
     return isNaN(n) ? null : n;
   }
 
+  // Defensive de-concatenation for ACI_AMT2 (price) specifically — NOT applied
+  // to shares. Reported live: a Samsung SDS filing produced a raw price string
+  // that parsed to 19700000197000 — 14 digits, which is exactly "197000" +
+  // "00" + "197000" (the real ~197,000 KRW price, self-repeated with a 2-zero
+  // gap). Root XML mechanism unconfirmed — this scraper has no API key
+  // available to re-fetch the filing and inspect the raw ACI_AMT2 cell
+  // directly, and the affected row was already dropped by db.js's own
+  // completeness filter (price null -> incomplete) rather than persisted
+  // with a wrong value, so there's nothing left in the DB to trace back to
+  // a real rcept_no either. This only recognizes the narrow, specific shape
+  // "same digit run, zero or more zeros, same digit run again" — a real
+  // price essentially never coincidentally has this exact structure, so the
+  // false-positive risk is low, and the MAX_REALISTIC_KRW_PRICE check right
+  // after this still catches it if the de-concatenation guess is wrong.
+  function deconcatenatePrice(raw) {
+    if (!raw) return raw;
+    const clean = raw.replace(/[,\s원주]/g, '').replace(/[^0-9]/g, '');
+    const m = clean.match(/^(\d+)0*\1$/);
+    return m ? m[1] : raw;
+  }
+
   function parseDate8(s) {
     if (!s || s === '-') return null;
     if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
@@ -268,7 +297,11 @@ function parseDocument(docContent) {
     if (txType === 'OTHER') continue;
 
     const shares = parseNum(sharesRaw);
-    const price  = parseNum(priceRaw);
+    let price    = parseNum(priceRaw);
+    if (price !== null && price > MAX_REALISTIC_KRW_PRICE) {
+      const retried = parseNum(deconcatenatePrice(priceRaw));
+      price = (retried !== null && retried > 0 && retried <= MAX_REALISTIC_KRW_PRICE) ? retried : null;
+    }
     const date   = parseDate8(dateValue);
 
     txns.push({
