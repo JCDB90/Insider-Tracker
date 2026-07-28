@@ -39,6 +39,7 @@ const FROM_EMAIL      = 'hello@insidersalpha.com';
 const BASE_URL        = 'https://www.insidersalpha.com';
 const OUT_FILE        = '/tmp/daily-tweet.txt';
 const MAX_CHARS       = 280;
+const DRY_RUN         = process.argv.includes('--dry-run');
 const MIN_VALUE_EUR   = 25000;
 const MIN_CSUITE_EUR  = 50000;
 
@@ -88,6 +89,104 @@ const CURRENCY_SYMBOLS = {
   EUR: '€', GBP: '£', SEK: 'SEK ', NOK: 'NOK ',
   DKK: 'DKK ', PLN: 'PLN ', KRW: '₩', CHF: 'CHF ',
 };
+
+// Static well-known large/mega-cap tickers across all 18 markets, used to
+// prioritize name-recognition on X over signal strength (a CEO buying ASML
+// beats a cluster buy at an unknown micro-cap). Deliberately NOT sourced from
+// a market-cap column — ticker_metadata has no such column, and Yahoo's free
+// /v1/finance/search endpoint (already used by enrich-sectors.js) doesn't
+// return marketCap; the endpoints that do (/v10/finance/quoteSummary,
+// /v7/finance/quote) now require a cookie/crumb auth flow that returns
+// "Unauthorized — Invalid Crumb" unauthenticated (confirmed live). A static
+// allowlist needs no new external dependency and serves the actual goal —
+// Twitter cashtag recognition — just as well as a precise market-cap figure
+// would. Flat across countries (no country_code dimension): a handful of
+// 2-3 letter tickers are reused by unrelated companies in different markets
+// (e.g. "SAN" = Sanofi in FR, Banco Santander in ES) but both sides of every
+// such collision here are themselves genuine large caps, so the ambiguity
+// never produces a false boost for an unknown name.
+const LARGE_CAP_TICKERS = new Set([
+  // Germany (DAX)
+  'SAP','SIE','ALV','BMW','MBG','RHM','BAYN','ADS',
+  'BAS','VOW3','DTE','DBK','MUV2','HEI','ZAL','VNA',
+  'CON','LIN','DHER','SMHN',
+
+  // France (CAC 40)
+  'MC','OR','TTE','SAN','BNP','AIR','SU','SGO',
+  'RI','DG','KER','GLE','ACA','VIE','EN','CS',
+  'ML','HO','PUB','ATO','WLN','SAF','STLAP',
+
+  // UK (FTSE 100)
+  'SHEL','AZN','HSBA','ULVR','BP','GSK','RIO',
+  'RR','LSEG','REL','CPG','BA','NG','VOD','BT',
+  'LLOY','NWG','STAN','EXPN','CNA','IMB','SSE',
+
+  // Netherlands (AEX)
+  'ASML','PHIA','HEIA','UNA','NN','AKZA','WKL',
+  'AD','INGA','ABN','RDSA','PRX','BESI','IMCD',
+
+  // Sweden (OMXS30)
+  'VOLV','ASSA','ATCO','LATO','INVE','ERIC',
+  'SEB','SHB','SWED','SAND','SKF','ALFA','HEXA',
+  'EVO','NIBE','SINCH','LIFCO',
+
+  // Denmark (OMXC25)
+  'NOVO','MAERSK','DSV','COLO','PNDORA',
+  'CARL','NETC','BAVA','GN','AMBU',
+
+  // Norway (OBX)
+  'EQNR','DNB','MOWI','YAR','ORK','TEL','NHY',
+  'SCATC','AKSO','SUBC','REC',
+
+  // Finland (OMXH25)
+  'NOKIA','FORTUM','NESTE','UPM','STERV','WRT1V',
+  'KNEBV','OUT1V','ORNBV',
+
+  // Switzerland (SMI)
+  'NESN','ROG','NOVN','ABB','ZURN','LONN',
+  'SREN','SCMN','GIVE','CFR','GEBN','CSGN',
+
+  // Spain (IBEX 35)
+  'IBE','REP','BBVA','ITX','TEF',
+  'AMS','FER','ACX','GRF','MTS','ELE',
+
+  // Italy (FTSE MIB)
+  'ENI','ENEL','ISP','UCG','STM','RACE',
+  'BMPS','G','LDO','PRY','AZM','BAMI',
+
+  // Belgium (BEL 20)
+  'ABI','UCB','AGS','SOLB','APAM','COFB',
+  'ARGX','GBLB','COLR','ONTEX',
+
+  // Austria (ATX)
+  'VOE','ANDR','EBS','OMV','VIG','WIE',
+  'BAWG','TKA',
+
+  // Poland (WIG20)
+  'PKO','PKN','PZU','KGH','LPP','CDR',
+  'MBANK','ALE','CPS','DNP',
+
+  // South Korea (KOSPI) — bare numeric codes, matching our DB's ticker format
+  '005930', // Samsung Electronics
+  '000660', // SK Hynix
+  '035420', // NAVER
+  '005380', // Hyundai Motor
+  '051910', // LG Chem
+  '035720', // Kakao
+  '207940', // Samsung Biologics
+
+  // Singapore (STI)
+  'D05', 'O39', 'U11', 'Z74', 'C31', 'BN4', 'S68', 'C6L', 'F34', 'G13',
+
+  // Luxembourg (cross-listed)
+  'ARCE', 'TEN', 'SES', 'EFIS',
+]);
+
+function isLargeCap(ticker) {
+  if (!ticker) return false;
+  const clean = ticker.replace(EXCHANGE_SUFFIX_RE, '').toUpperCase();
+  return LARGE_CAP_TICKERS.has(clean);
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -160,7 +259,7 @@ async function fetchRecentBuys() {
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const { data, error } = await sb
     .from('insider_transactions')
-    .select('id,company,ticker,country_code,transaction_date,insider_name,insider_role,price_per_share,total_value,currency,is_price_dip,price_drawdown')
+    .select('id,company,ticker,country_code,transaction_date,insider_name,insider_role,price_per_share,total_value,currency,is_price_dip,price_drawdown,is_cluster_buy,is_repetitive_buy,is_pre_blackout_buy')
     .gte('created_at', since)
     .eq('transaction_type', 'BUY')
     .eq('is_unusual_price', false)
@@ -240,6 +339,41 @@ function pickHighestValue(candidates) {
   return candidates.reduce((best, r) => (eurValue(r) > eurValue(best) ? r : best));
 }
 
+// ── Scoring (market-cap-first ranking) ───────────────────────────────────────
+// Market cap is the PRIMARY ranking factor — a CEO buying a well-known large
+// cap beats a cluster buy at an unknown micro-cap. Since neither
+// ticker_metadata nor Yahoo's free API actually expose market cap (see
+// LARGE_CAP_TICKERS comment above), name-recognition tier stands in for it.
+// Signal flags (cluster/dip/repetitive/pre-blackout), role, and transaction
+// size are secondary/tertiary tie-breakers on top of that.
+function scoreTransaction(t) {
+  let score = 0;
+
+  if (isLargeCap(t.ticker)) score += 1000;
+
+  if (t.is_cluster_buy) score += 100;
+  if (t.is_price_dip) score += 80;
+  if (t.is_repetitive_buy) score += 50;
+  if (t.is_pre_blackout_buy) score += 40;
+
+  const role = (t.insider_role || '').toLowerCase();
+  if (role.includes('ceo') || role.includes('chief executive')) score += 60;
+  if (role.includes('cfo') || role.includes('chief financial')) score += 40;
+  if (role.includes('chairman')) score += 30;
+
+  // Transaction-size bonus uses eurValue() (currency-normalized), not raw
+  // total_value — a raw comparison would apply the €500K/€100K tiers
+  // unevenly across currencies (e.g. SEK 600,000 is only ~€53,000, not a
+  // real €500K+ trade), the same pitfall MIN_VALUE_EUR already guards
+  // against elsewhere in this file.
+  const eur = eurValue(t);
+  if (eur > 500000) score += 50;
+  else if (eur > 100000) score += 20;
+  else if (eur > MIN_VALUE_EUR) score += 5;
+
+  return score;
+}
+
 // ── Tweet builders ────────────────────────────────────────────────────────────
 // Each builder takes a `level` (0-4) controlling progressive shortening so the
 // tweet fits MAX_CHARS: 1=short company name, 2=+drop cashtag, 3=+abbreviate
@@ -285,7 +419,11 @@ function buildFormatB(row, level, todayStr) {
   const company = companyFor(row, level);
   const currency = currencyOf(row);
   const cashtagText = getCashtag(row.ticker);
-  const cashtag = level >= 2 || !cashtagText ? '' : ` ${cashtagText}`;
+  // Large caps keep their cashtag even at the tightest char-budget level —
+  // these are exactly the tickers people search/follow on X, worth the
+  // space over an abbreviated role or dropped word elsewhere.
+  const dropCashtag = level >= 2 && !isLargeCap(row.ticker);
+  const cashtag = dropCashtag || !cashtagText ? '' : ` ${cashtagText}`;
   const slug = COUNTRY_SLUGS[row.country_code];
   const link = slug ? `insidersalpha.com/market/${slug}-insider-transactions` : 'insidersalpha.com';
   return `${flag} ${role} buy — ${countryName}\n\n${company}${cashtag}\n${row.insider_name} (${role}) bought ${formatValue(row.total_value, currency)}\n@ ${formatPrice(row.price_per_share, currency)}/share${dateSuffix(row, todayStr)}\n\n${link}`;
@@ -395,46 +533,57 @@ async function main() {
     fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
     fs.writeFileSync(OUT_FILE, 'No significant insider transactions today.', 'utf8');
 
+    if (DRY_RUN) { console.log('  ℹ  --dry-run: skipping email send'); return; }
     await sendResendEmail('📊 InsidersAlpha - No significant transactions today', buildEmptyEmailHtml(dateStr));
     return;
+  }
+
+  // Market cap (name recognition) is the PRIMARY ranking factor now — score
+  // every candidate and let the single highest-scoring transaction anchor
+  // today's tweet, instead of the old fixed cluster > C-suite > dip > value
+  // cascade (which could pick a cluster at an unknown micro-cap over a CEO
+  // buying a well-known large cap). The anchor's OWN properties still decide
+  // which tweet format reads best — a genuine 3+-insider cluster still gets
+  // the cluster narrative, a price-dip buy still gets the dip narrative —
+  // this only changed WHICH transaction wins, not how it gets written up.
+  const scored = candidates
+    .map(t => ({ ...t, score: scoreTransaction(t) }))
+    .sort((a, b) => b.score - a.score);
+  const best = scored[0];
+
+  if (DRY_RUN) {
+    console.log(`\n  Top 10 scored candidates:`);
+    for (const t of scored.slice(0, 10)) {
+      const cap = isLargeCap(t.ticker) ? 'large-cap' : 'other';
+      console.log(`    ${String(t.score).padStart(5)}  ${(t.ticker || t.company).padEnd(10)} ${t.insider_name.padEnd(28)} ${formatValue(t.total_value, currencyOf(t)).padStart(10)}  (${cap})`);
+    }
   }
 
   let tweet;
   // Only set for single-transaction formats (B, C) — used to build a subject
   // line naming the actual company/role/date when that date isn't today.
-  // Formats A/D pick multiple rows with no single company to name in a
-  // subject, so they keep the generic subject.
+  // Format A picks multiple rows with no single company to name in a
+  // subject, so it keeps the generic subject.
   let subjectRow = null;
 
+  // A genuine cluster (3+ distinct insiders, same company) containing the
+  // top-scored transaction still gets the cluster narrative — richer copy
+  // than pretending it's a single buyer — but only when the winning
+  // transaction is actually PART of that cluster, so a large-cap single buy
+  // never gets overridden by an unrelated cluster elsewhere in candidates.
+  const clusterKey = (r) => `${r.ticker || r.company}|${r.country_code}`;
   const cluster = pickCluster(candidates);
-  if (cluster) {
-    console.log(`  → Format A (cluster): ${cluster.length} insiders at ${cluster[0].company}`);
+  if (cluster && clusterKey(cluster[0]) === clusterKey(best)) {
+    console.log(`  → Format A (cluster, score ${best.score}): ${cluster.length} insiders at ${cluster[0].company}`);
     tweet = fitToLimit(level => buildFormatA(cluster, cluster[0].country_code, dayPhraseFor(cluster, today), level));
+  } else if (best.is_price_dip) {
+    console.log(`  → Format C (price dip, score ${best.score}): ${best.company}`);
+    tweet = fitToLimit(level => buildFormatC(best, level, today));
+    subjectRow = best;
   } else {
-    const csuite = pickCsuite(candidates);
-    if (csuite) {
-      console.log(`  → Format B (C-suite): ${csuite.insider_name} @ ${csuite.company}`);
-      tweet = fitToLimit(level => buildFormatB(csuite, level, today));
-      subjectRow = csuite;
-    } else {
-      const dip = pickPriceDip(candidates);
-      if (dip) {
-        console.log(`  → Format C (price dip): ${dip.company}`);
-        tweet = fitToLimit(level => buildFormatC(dip, level, today));
-        subjectRow = dip;
-      } else {
-        const roundup = pickCountryRoundup(candidates);
-        if (roundup) {
-          console.log(`  → Format D (country roundup): ${roundup.map(r => r.country_code).join(', ')}`);
-          tweet = fitToLimit(level => buildFormatD(roundup, dayPhraseFor(roundup, today), level));
-        } else {
-          const top = pickHighestValue(candidates);
-          console.log(`  → Format B (highest value): ${top.insider_name} @ ${top.company}`);
-          tweet = fitToLimit(level => buildFormatB(top, level, today));
-          subjectRow = top;
-        }
-      }
-    }
+    console.log(`  → Format B (score ${best.score}, large-cap=${isLargeCap(best.ticker)}): ${best.insider_name} @ ${best.company}`);
+    tweet = fitToLimit(level => buildFormatB(best, level, today));
+    subjectRow = best;
   }
 
   const charCount = tweet.length;
@@ -451,6 +600,11 @@ async function main() {
 
   const subject = buildEmailSubject(subjectRow, dateStr, today);
   console.log(`Subject: ${subject}\n`);
+
+  if (DRY_RUN) {
+    console.log('  ℹ  --dry-run: skipping email send');
+    return;
+  }
   await sendResendEmail(subject, buildTweetEmailHtml(tweet, charCount, dateStr));
 }
 
@@ -463,4 +617,5 @@ module.exports = {
   buildFormatA, buildFormatB, buildFormatC, buildFormatD, fitToLimit,
   eurValue, simplifyRole, formatValue, formatPrice, getCashtag, dayPhraseFor,
   shortDate, dateSuffix, buildEmailSubject,
+  scoreTransaction, isLargeCap, LARGE_CAP_TICKERS,
 };
