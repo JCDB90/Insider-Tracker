@@ -231,8 +231,26 @@ function computeSignals(buys, priceReference, chartDataSet = new Set()) {
     const sameTicker = (p) => !t.ticker || !p.ticker || p.ticker.toLowerCase() === t.ticker.toLowerCase();
 
     if (!isUnusualPrice && t.price_per_share > 0 && hasChartData) {
-      const recentPrices = peers
-        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && sameTicker(p) && daysBetween(p.transaction_date, t.transaction_date) <= 90)
+      const rawPeers = peers
+        .filter(p => !p.is_unusual_price && p.price_per_share > 1 && p.id !== t.id && sameTicker(p) && daysBetween(p.transaction_date, t.transaction_date) <= 90);
+      // Dedupe same-day/same-exact-price duplicates before computing the median —
+      // otherwise a cluster of N identical bad prints (e.g. an employee-savings-
+      // fund (FCPE) subscription batch where several insiders all "buy" at the
+      // identical fixed fund-unit price on the identical day) outvotes the real
+      // market-price peers and pulls the reference median down to the suspect
+      // price itself, masking the very anomaly this rule exists to catch.
+      // Confirmed live: WENDEL's 4 FCPE fund subscribers on 2026-07-27, all at
+      // the identical EUR 10.00 fund NAV vs. real WENDEL shares trading ~EUR 84
+      // — without dedup, 3 of the 5 candidate peer prices were that same EUR 10
+      // print, dragging the "median" down to EUR 10 and hiding the discount.
+      const seenPeerPrice = new Set();
+      const dedupedPeers = rawPeers.filter(p => {
+        const k = `${p.transaction_date}|${p.currency}|${Number(p.price_per_share)}`;
+        if (seenPeerPrice.has(k)) return false;
+        seenPeerPrice.add(k);
+        return true;
+      });
+      const recentPrices = dedupedPeers
         .map(p => toEUR(p.price_per_share, p.currency))
         .sort((a, b) => a - b);
       const recentMedian = recentPrices.length >= 2

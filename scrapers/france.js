@@ -316,6 +316,18 @@ function parseFrPdf(text) {
 
   let parsedShares = parseNum(sharesRaw);
 
+  // FCPE employee-savings-fund unit subscriptions (confirmed live: WENDEL's
+  // "Relais Wendel 2026" fund, "Parts du FCPE ... d'une valeur unitaire de 10
+  // euros") are a genuinely different instrument from equity shares: the
+  // "VOLUME" is a fund-unit count that is LEGITIMATELY fractional (you can
+  // hold 4 669.5920 units), and "PRIX UNITAIRE" is the fund's round par
+  // value (10.0000), not a market share price. This is the exact same
+  // fractional-VOLUME/whole-PRIX shape the swap heuristic below looks for,
+  // but here it's correct as-is — swapping it inflates a EUR 10 fund-unit
+  // subscription into a nonsense "EUR 4,669.59/share" trade. Must be
+  // excluded from the swap check before it runs.
+  const isFcpeFundUnit = /\bFCPE\b|parts?\s+(?:du|de|d')\s*fonds\s+(?:commun\s+de\s+placement|d.[eé]pargne)/i.test(flat);
+
   // Some filers transpose PRIX UNITAIRE and VOLUME entirely — confirmed live
   // on two unrelated companies (Unibail-Rodamco-Westfield / Rock Investment
   // SAS: "PRIX UNITAIRE: 5 000 000.0000" / "VOLUME: 103.4100", the filing's
@@ -329,7 +341,8 @@ function parseFrPdf(text) {
   // number PRIX UNITAIRE, reliably signals the two fields were swapped.
   // Confirmed this does NOT misfire on Hermès/Compagnie de l'Odet, both
   // genuinely >EUR 1,000/share but always with whole-number volumes.
-  if (parsedShares != null && parsedPrice != null &&
+  if (!isFcpeFundUnit &&
+      parsedShares != null && parsedPrice != null &&
       Math.abs(parsedShares - Math.round(parsedShares)) > 0.001 &&
       Math.abs(parsedPrice - Math.round(parsedPrice)) < 0.001) {
     [parsedPrice, parsedShares] = [parsedShares, parsedPrice];
