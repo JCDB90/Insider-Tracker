@@ -173,6 +173,17 @@ const BLOCKED_PATTERNS = [
   /^probe\d+/i,              // probe1@, probe42@, etc.
   /^test\d{5,}/i,             // test12345@ — bare digits, no separator (the
                               // existing test[.\-_]\d+ pattern requires one)
+  /^redir[-.]probe/i,        // redir-probe-0804@, redir.probe.42@, etc.
+  /^secmeta\d+/i,             // secmeta6473@, etc.
+  /^appscan\d+/i,             // appscan776861@, etc.
+  // Deliberately NOT adding a blanket /^[a-z]{6,10}$/ "N random lowercase
+  // letters" pattern for the kimxrhgi/ryljddfb-style bot usernames reported
+  // 2026-08-05 — plenty of real people have plain dictionary-word or
+  // initials-based local parts in that same shape (e.g. "hongkong",
+  // "jsmith12" minus the digits), so this would have an unacceptable
+  // false-positive rate against real signups. The domains those bots used
+  // (guerrillamailblock.com etc.) are already covered by BLOCKED_DOMAINS
+  // above — that combination is enough without a bare username-shape rule.
 ];
 
 const isBlockedEmail = (email) => {
@@ -180,6 +191,19 @@ const isBlockedEmail = (email) => {
   return (!!domain && BLOCKED_DOMAINS.includes(domain)) ||
          BLOCKED_PATTERNS.some(p => p.test(email));
 };
+
+// NOTE: this check runs client-side only, in the browser, before calling
+// supabase.auth.signUp(). It stops a bot that loads and runs this app's JS,
+// but does NOT stop a bot that calls Supabase's public signup REST API
+// directly (trivial to do — the anon key is public, embedded in this same
+// bundle) and skips the browser entirely. guerrillamailblock.com and
+// web-library.net were BOTH already in BLOCKED_DOMAINS before this comment
+// was added — the reason they kept getting through wasn't a missing domain,
+// it was this exact bypass. The real, server-side fix is a BEFORE INSERT
+// trigger on auth.users — see migrations/019_block_bot_signups.sql. Keep
+// this client-side list in sync with that migration's SQL copy (immediate
+// user-facing error message + one less round trip for the common case), but
+// treat the migration as the actual enforcement layer, not this file.
 
 // ─── LoginModal ───────────────────────────────────────────────────────────────
 
