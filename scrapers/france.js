@@ -130,6 +130,60 @@ function pdfToText(buffer) {
   }
 }
 
+// Title-keyword patterns used ONLY to locate the matched span within a raw
+// FR role string, so leftover text around it (a subsidiary, region, or
+// functional qualifier) can be preserved instead of silently discarded.
+// Mirrors the FR-specific entries in lib/translate.js's ROLE_RULES, in the
+// same specific-before-generic order — keep both lists in sync if the FR
+// patterns there change.
+const FR_TITLE_SPAN_PATTERNS = [
+  /pr[eé]sident.directeur\s+g[eé]n[eé]ral[e]?/i,
+  /\bPDG\b/i,
+  /direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?\s+d[eé]l[eé]gu[eé][e]?/i,
+  /direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?\s+adjoint[e]?/i,
+  /\bDGA\b/, /\bDGD\b/,
+  /direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?/i,
+  /\bDG\b/,
+  /chief\s+executive\s+officer/i, /\bCEO\b/,
+  /chief\s+financial\s+officer/i, /\bCFO\b/,
+  /chief\s+operating\s+officer/i, /\bCOO\b/,
+];
+
+/**
+ * Resolve a raw FR role string to its canonical label, preserving any extra
+ * context around the matched title as a parenthetical qualifier instead of
+ * letting translateRole() silently collapse the whole string to a bare
+ * label. Confirmed live (2026-08-05): Publicis Groupe SA's Nigel Vaz has
+ * "CEO Publicis Sapient" (a subsidiary) on his own AMF filing — bare
+ * translateRole() maps this straight to 'CEO', indistinguishable from Arthur
+ * Sadoun's actual group-level "CEO" and reproducing the exact "multiple
+ * people all showing CEO for one company" problem this file's role-mapping
+ * fix already addressed once for the DG/PDG distinction. Same for Unibail's
+ * "Membre du Directoire, Directrice Générale Stratégie Client et Commerce"
+ * and 74Software's "74Software, CEO Axway" (both reach here as one combined
+ * string after the comma-split fix above).
+ *
+ * When no FR title pattern matches, falls back to plain translateRole() —
+ * unchanged behavior for clean single-title strings (e.g. bare "PDG",
+ * "Directeur Général") and for non-title pass-through text (e.g. "DDD",
+ * "D.G. d'une filiale : Thermador SAS", which already correctly carries its
+ * own qualifier in a form no title pattern matches anyway).
+ */
+function resolveFrRole(roleRaw) {
+  if (!roleRaw) return null;
+  for (const re of FR_TITLE_SPAN_PATTERNS) {
+    const m = roleRaw.match(re);
+    if (!m) continue;
+    const canonical = translateRole(m[0]);
+    const leftover = (roleRaw.slice(0, m.index) + roleRaw.slice(m.index + m[0].length))
+      .replace(/^[,\s]+|[,\s]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return leftover ? `${canonical} (${leftover})` : canonical;
+  }
+  return translateRole(roleRaw);
+}
+
 /**
  * Parse text from a French AMF national declaration form (not the EU ESMA template).
  *
@@ -177,9 +231,20 @@ function parseFrPdf(text) {
   let viaEntity   = null;
   let roleRaw     = null;
   if (nameLine) {
-    // Value format: "NAME, Role"  or  "NAME personne liée à ENTITY, Role"
-    // Split at last comma to separate role
-    const commaIdx = nameLine.lastIndexOf(',');
+    // Value format: "NAME, Role"  or  "NAME personne liée à ENTITY, Role" —
+    // but some filers pack MULTIPLE comma-separated role/context fragments
+    // into this field, e.g. Unibail's "Anne-Sophie SANCERRE, Membre du
+    // Directoire, Directrice Générale Stratégie Client et Commerce" or
+    // 74Software's "Roland ROYER, 74Software, CEO Axway". Splitting at the
+    // LAST comma (as this used to) keeps the first role fragment stuck to
+    // the name ("Anne-Sophie SANCERRE, Membre du Directoire" as the "name")
+    // and throws away everything but the final fragment as the role.
+    // Splitting at the FIRST comma instead correctly isolates the name in
+    // every case seen so far — a person's own name has never contained a
+    // comma in this dataset — and keeps ALL subsequent fragments together as
+    // one combined role string, so resolveFrRole() below has the full
+    // context to work with instead of a truncated fragment.
+    const commaIdx = nameLine.indexOf(',');
     if (commaIdx > 0) {
       insiderName = nameLine.slice(0, commaIdx).trim();
       roleRaw     = nameLine.slice(commaIdx + 1).trim();
@@ -482,7 +547,7 @@ async function scrapeFR() {
       company,
       insider_name:     parsed.insiderName || 'Not disclosed',
       via_entity:       parsed.viaEntity   || null,
-      insider_role:     translateRole(parsed.role) || null,
+      insider_role:     resolveFrRole(parsed.role) || null,
       transaction_type: parsed.txType,
       transaction_date: txIso,
       shares,
