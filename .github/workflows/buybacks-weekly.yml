@@ -8,6 +8,8 @@ on:
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
   NODE_ENV: production
 
 jobs:
@@ -47,6 +49,13 @@ jobs:
       - name: 📋 Watchlist IR Monitor (keyword detector)
         continue-on-error: true
         run: node scrapers/buybacks/watchlist-buybacks.js
+
+      - name: 📬 Notify buyback watchlist matches
+        continue-on-error: true
+        # Requires SUPABASE_SERVICE_ROLE_KEY + RESEND_API_KEY repo secrets to
+        # actually send mail — without them this step just logs a warning and
+        # sends nothing (same graceful-degradation pattern as notify-watchlist.js).
+        run: node scrapers/notify-buyback-watchlist.js
 
       - name: 📊 Summary
         if: always()

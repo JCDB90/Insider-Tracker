@@ -1611,115 +1611,57 @@ function TradesTable({ rows, loading, sortBy, sortDir, onSort, onInsiderClick, o
   );
 }
 
-// ─── BuybackPrograms — grouped accordion view ─────────────────────────────────
+// ─── BuybackPrograms — company-level active-program view ─────────────────────
+// One row per company with a currently-active buyback program. Replaced the
+// former transaction-level accordion (execution history, completion %, etc.)
+// per product decision — users want "is this company buying back stock right
+// now", not per-filing execution detail.
 
-const BUYBACK_STALE_DAYS = 90;
+const BUYBACK_LOOKBACK_DAYS = 365;
+const ACTIVE_BUYBACK_STATUSES = new Set(['active', 'announced']);
+
+// Client-side equivalent of:
+//   SELECT DISTINCT ON (company, country_code) ...
+//   WHERE status IN ('Active','Announced') AND (program_end IS NULL OR program_end >= today)
+//     AND announced_date >= today - 365d
+//   ORDER BY company, country_code, announced_date DESC
+// Done in JS because the frontend pulls buyback_programs wholesale via fetchAll()
+// rather than querying SQL directly (see the Supabase client below).
+function getActiveBuybackPrograms(rows) {
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - BUYBACK_LOOKBACK_DAYS);
+  const cutoff = cutoffDate.toISOString().slice(0, 10);
+
+  const latestByCompany = {};
+  for (const row of rows) {
+    if (!ACTIVE_BUYBACK_STATUSES.has((row.status || '').toLowerCase())) continue;
+    if (!row.announced_date || row.announced_date < cutoff) continue;
+    if (row.program_end && row.program_end < today) continue;
+    if (row.country_code === 'IS') continue; // no insider-transaction coverage to correlate against
+    const key = `${row.country_code}|${(row.company || '').toLowerCase().trim()}`;
+    const existing = latestByCompany[key];
+    if (!existing || row.announced_date > existing.announced_date) latestByCompany[key] = row;
+  }
+  return Object.values(latestByCompany).sort((a, b) => (b.announced_date || '').localeCompare(a.announced_date || ''));
+}
+
+function formatMonthYear(dateStr) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+}
 
 function BuybackPrograms({ rows, loading }) {
-  const [expanded, setExpanded] = useState(new Set());
-  const toggle = key => setExpanded(prev => {
-    const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next;
-  });
-
-  const cutoffDate = useMemo(() => {
-    const d = new Date(); d.setDate(d.getDate() - BUYBACK_STALE_DAYS);
-    return d.toISOString().slice(0, 10);
-  }, []);
-
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-
-  // Group rows by country_code + company
-  const allPrograms = useMemo(() => {
-    const groups = {};
-    for (const row of rows) {
-      const key = `${row.country_code}|${(row.company || '').toLowerCase().trim().slice(0, 40)}`;
-      if (!groups[key]) groups[key] = { key, company: row.company, ticker: row.ticker || '', country_code: row.country_code, currency: row.currency, executions: [] };
-      groups[key].executions.push(row);
-    }
-
-    return Object.values(groups).map(g => {
-      const sorted = [...g.executions].sort((a, b) => (b.execution_date||'').localeCompare(a.execution_date||''));
-      const latest = sorted[0];
-
-      // Best row for programme-level metadata (has completion_pct, or any with total_value)
-      const enriched = sorted.find(r => r.completion_pct != null)
-                    || sorted.find(r => r.total_value)
-                    || null;
-
-      const programMax   = Number(enriched?.total_value)  || null;
-      // spentCumul: take the highest cumulative_value seen across all rows (explicitly stated cumulative),
-      // or fall back to summing spent_value (which stores the weekly amount for SEB-style reports)
-      const maxCumVal = Math.max(0, ...sorted.map(r => Number(r.cumulative_value) || 0));
-      const sumSpent  = sorted.reduce((s, r) => s + (Number(r.spent_value) || 0), 0);
-      const spentCumul = maxCumVal > 0 ? maxCumVal : (sumSpent > 0 ? sumSpent : null);
-      const cumShares    = Number(enriched?.cumulative_shares) || null;
-      const programEnd   = sorted.find(r => r.program_end)?.program_end || null;
-
-      // Shares: prefer cumulative_shares, else sum weekly shares_bought
-      const execRows  = sorted.filter(r => r.shares_bought != null);
-      const sumShares = execRows.reduce((s, r) => s + Number(r.shares_bought || 0), 0);
-      const totalShares = cumShares || (sumShares > 0 ? sumShares : null);
-
-      // Dates: start = earliest announced_date; last = most recent execution_date
-      const announcedDates = sorted.map(r => r.announced_date).filter(Boolean).sort();
-      const execDates      = sorted.map(r => r.execution_date).filter(Boolean).sort();
-      const firstDate = announcedDates[0] || execDates[0];
-      const lastDate  = execDates[execDates.length - 1] || announcedDates[announcedDates.length - 1];
-
-      // completion_pct
-      const rawPct = enriched?.completion_pct ?? (
-        programMax && spentCumul && programMax > 0
-          ? Math.round((spentCumul / programMax) * 1000) / 10 : null
-      );
-      const completionPct = rawPct != null && rawPct > 0 && rawPct <= 150 ? rawPct : null;
-
-      // Status: only Active reaches the card — Expired/Completed are filtered.
-      // 'Announced' counts as Active too (recency is already gated by isStale
-      // above — a source can legitimately report a program as "Announced"
-      // rather than "Active" and still be a real, current program).
-      const hasFutureEnd = programEnd && programEnd >= today;
-      const isStale = !hasFutureEnd && lastDate < cutoffDate;
-      const status = completionPct >= 100 ? 'Completed'
-                   : isStale            ? 'Expired'
-                   : ['Active', 'Announced'].includes(latest?.status) ? 'Active'
-                   : 'Expired'; // treat other/unknown statuses as Expired
-
-      return {
-        ...g, programMax, spentCumul, cumShares: totalShares,
-        firstDate, lastDate, programEnd,
-        executionCount: execRows.length,
-        completionPct, status,
-        executions: sorted,
-      };
-    }).sort((a, b) => (b.lastDate||'').localeCompare(a.lastDate||''));
-  }, [rows, cutoffDate, today]);
-
-  // Show ONLY Active programs with execution in last 90 days OR future program_end.
-  // Exclude Iceland (IS) — Nasdaq Nordic JSONP includes IS but we have no execution data.
-  const programs = useMemo(() =>
-    allPrograms.filter(p => p.status === 'Active' && p.country_code !== 'IS'),
-    [allPrograms]
-  );
-
-  // Group by country — country header only when 3+ programs
-  const byCountry = useMemo(() => {
-    const map = {};
-    for (const p of programs) {
-      if (!map[p.country_code]) map[p.country_code] = [];
-      map[p.country_code].push(p);
-    }
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [programs]);
+  const programs = useMemo(() => getActiveBuybackPrograms(rows), [rows]);
 
   if (loading) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ height: 14, width: 220, background: '#f0f0f0', borderRadius: 4, marginBottom: 10 }} />
-          <div style={{ height: 6, width: '65%', background: '#f0f0f0', borderRadius: 3, marginBottom: 10 }} />
-          <div style={{ display: 'flex', gap: 20 }}>
-            {[100, 80, 90, 50].map((w, j) => <div key={j} style={{ height: 28, width: w, background: '#f0f0f0', borderRadius: 4 }} />)}
-          </div>
+    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} style={{ padding: '14px 18px', borderBottom: i < 5 ? '1px solid #f0f0f0' : 'none', display: 'flex', gap: 24, alignItems: 'center' }}>
+          <div style={{ height: 13, width: 160, background: '#f0f0f0', borderRadius: 4 }} />
+          <div style={{ height: 13, width: 40, background: '#f0f0f0', borderRadius: 4 }} />
+          <div style={{ height: 13, width: 60, background: '#f0f0f0', borderRadius: 4 }} />
+          <div style={{ height: 13, width: 60, background: '#f0f0f0', borderRadius: 4 }} />
         </div>
       ))}
     </div>
@@ -1731,354 +1673,58 @@ function BuybackPrograms({ rows, loading }) {
     </div>
   );
 
-  const LABEL = { fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 };
-  const VALUE = { fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' };
-  const VALUE_MUTED = { ...VALUE, color: '#6B7280', fontWeight: 400, fontSize: 12 };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {byCountry.map(([cc, cPrograms]) => (
-        <div key={cc}>
-          {/* Country header — only when 3+ programs */}
-          {cPrograms.length >= 3 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <Flag code={cc} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', fontFamily: "'JetBrains Mono', monospace" }}>
-                {COUNTRY_NAMES[cc] || cc}
-              </span>
-              <span style={{ fontSize: 11, color: '#D1D5DB', fontFamily: "'JetBrains Mono', monospace" }}>
-                {cPrograms.length} programs
-              </span>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {cPrograms.map(p => {
-              const isExpanded = expanded.has(p.key);
-              const pct = p.completionPct != null ? Number(p.completionPct) : null;
-              const showPctBar  = pct != null && pct > 0 && pct < 100;
-              const showDoneBar = pct != null && pct >= 100;
-              const futureEnd   = p.programEnd && p.programEnd > today;
-
-              return (
-                <div key={p.key} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
-                  {/* ── Card header (clickable to expand) ─────────────── */}
-                  <div
-                    onClick={() => toggle(p.key)}
-                    style={{ padding: '14px 18px', cursor: 'pointer', userSelect: 'none' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}
-                  >
-                    {/* Row 1: flag (if no country header) + company + ticker + chevron */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        {cPrograms.length < 3 && <Flag code={p.country_code} />}
-                        <span style={{ fontWeight: 700, fontSize: 14, color: '#111318', marginRight: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {p.company || '—'}
-                        </span>
-                        {p.ticker && (
-                          <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF', flexShrink: 0 }}>
-                            {p.ticker}
-                          </span>
-                        )}
-                      </div>
-                      <span style={{ fontSize: 12, color: '#D1D5DB', flexShrink: 0, marginLeft: 8 }}>
-                        {isExpanded ? '▲' : '▼'}
-                      </span>
-                    </div>
-
-                    {/* Row 2: progress bar */}
-                    {showDoneBar ? (
-                      // 100% complete
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, color: '#6B7280' }}>
-                            {p.spentCumul && p.programMax
-                              ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
-                              : p.programMax ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span> : null}
-                          </span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#16A34A', fontFamily: "'JetBrains Mono', monospace" }}>
-                            {pct.toFixed(1)}% complete
-                          </span>
-                        </div>
-                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: '100%', background: '#16A34A', borderRadius: 4 }} />
-                        </div>
-                      </div>
-                    ) : showPctBar ? (
-                      // Known % 0-99
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, color: '#6B7280' }}>
-                            {p.spentCumul && p.programMax
-                              ? <>{formatValue(p.spentCumul, p.currency)} <span style={{ color: '#9CA3AF' }}>of {formatValue(p.programMax, p.currency)}</span></>
-                              : p.programMax ? <span style={{ color: '#9CA3AF' }}>Max {formatValue(p.programMax, p.currency)}</span> : null}
-                          </span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: ACCENT, fontFamily: "'JetBrains Mono', monospace" }}>
-                            {pct.toFixed(1)}% complete
-                          </span>
-                        </div>
-                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: ACCENT, borderRadius: 4, transition: 'width 0.4s' }} />
-                        </div>
-                      </div>
-                    ) : p.programMax ? (
-                      // Max known, no pct — striped "in progress"
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-                            {p.spentCumul
-                              ? <>{formatValue(p.spentCumul, p.currency)} <span>of {formatValue(p.programMax, p.currency)}</span></>
-                              : <>Max {formatValue(p.programMax, p.currency)}</>}
-                          </span>
-                          <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>In progress</span>
-                        </div>
-                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: '100%',
-                            background: `repeating-linear-gradient(90deg, ${ACCENT}28 0px, ${ACCENT}55 18px, ${ACCENT}28 36px)`,
-                            borderRadius: 4 }} />
-                        </div>
-                      </div>
-                    ) : (
-                      // No size data — thin activity line
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ height: 4, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: '55%', background: `${ACCENT}77`, borderRadius: 4 }} />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Row 3: 4 canonical metadata fields */}
-                    <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>
-                      {/* STARTED */}
-                      <div style={{ minWidth: 80, marginRight: 20 }}>
-                        <div style={LABEL}>Started</div>
-                        <div style={VALUE_MUTED}>{p.firstDate ? formatDateShort(p.firstDate) : '—'}</div>
-                      </div>
-                      {/* LAST FILING */}
-                      <div style={{ minWidth: 80, marginRight: 20 }}>
-                        <div style={LABEL}>Last filing</div>
-                        <div style={VALUE_MUTED}>{p.lastDate ? formatDateShort(p.lastDate) : '—'}</div>
-                      </div>
-                      {/* SHARES BOUGHT */}
-                      <div style={{ minWidth: 90, marginRight: 20 }}>
-                        <div style={LABEL}>Shares bought</div>
-                        <div style={VALUE}>
-                          {p.cumShares != null && p.cumShares > 0
-                            ? p.cumShares.toLocaleString('en-US')
-                            : '—'}
-                        </div>
-                      </div>
-                      {/* REPORTS — only if >0 */}
-                      {p.executionCount > 0 && (
-                        <div style={{ minWidth: 56, marginRight: 20 }}>
-                          <div style={LABEL}>Reports</div>
-                          <div style={VALUE}>{p.executionCount}</div>
-                        </div>
-                      )}
-                      {/* ENDS — only if program_end is in the future */}
-                      {futureEnd && (
-                        <div style={{ minWidth: 90 }}>
-                          <div style={LABEL}>Ends</div>
-                          <div style={{ ...VALUE_MUTED, color: '#374151' }}>{formatDateShort(p.programEnd)}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* ── Expanded execution detail table ─────────────────── */}
-                  {isExpanded && (
-                    <div style={{ borderTop: '1px solid #f0f0f0' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                            {['Date', 'Shares', 'Avg Price', 'Value', 'Completion'].map((h, i) => (
-                              <th key={h} style={{
-                                padding: '7px 16px', fontSize: 10, fontWeight: 600, color: '#9CA3AF',
-                                letterSpacing: '0.06em', textTransform: 'uppercase',
-                                textAlign: i === 0 ? 'left' : 'right',
-                              }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {p.executions.map((ex, i) => (
-                            <tr key={ex.id ?? i}
-                              style={{ borderBottom: i < p.executions.length - 1 ? '1px solid #f0f0f0' : 'none' }}
-                              onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                              onMouseLeave={e => e.currentTarget.style.background = ''}
-                            >
-                              <td style={{ padding: '7px 16px', fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
-                                {formatDateShort(ex.execution_date || ex.announced_date)}
-                              </td>
-                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                {ex.shares_bought != null && ex.shares_bought > 0 ? Number(ex.shares_bought).toLocaleString('en-US') : '—'}
-                              </td>
-                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                {ex.avg_price != null ? formatPrice(ex.avg_price, ex.currency) : '—'}
-                              </td>
-                              <td style={{ padding: '7px 16px', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                {formatValue(ex.total_value, ex.currency)}
-                              </td>
-                              <td style={{ padding: '7px 16px', textAlign: 'right' }}>
-                                {ex.completion_pct != null && ex.completion_pct > 0 ? (
-                                  <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>
-                                    {Number(ex.completion_pct).toFixed(1)}%
-                                  </span>
-                                ) : (
-                                  <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {p.executions[0]?.filing_url && (
-                        <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f0f0' }}>
-                          <a href={p.executions[0].filing_url} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 11, color: ACCENT, textDecoration: 'none' }}>
-                            View latest filing ↗
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── BuybackTable ─────────────────────────────────────────────────────────────
-
-function BuybackTable({ rows, loading, sortBy, sortDir, onSort }) {
-  const cols = [
-    { key: 'execution_date', label: 'Date',       align: 'left',  sortable: true  },
-    { key: 'company',        label: 'Company',     align: 'left',  sortable: true  },
-    { key: 'country_code',   label: 'Country',     align: 'left',  sortable: false },
-    { key: 'shares_bought',  label: 'Shares',      align: 'right', sortable: true  },
-    { key: 'avg_price',      label: 'Avg Price',   align: 'right', sortable: true  },
-    { key: 'total_value',    label: 'Value',       align: 'right', sortable: true  },
-    { key: 'completion_pct', label: 'Progress',    align: 'left',  sortable: true  },
-    { key: 'status',         label: 'Status',      align: 'left',  sortable: false },
-  ];
-
-  const rowPad = '8px 14px';
+  const th = { padding: '10px 14px', fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+  const td = { padding: '10px 14px', fontSize: 13, whiteSpace: 'nowrap' };
 
   return (
     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
-              {cols.map(col => (
-                <th key={col.key} onClick={() => col.sortable && onSort(col.key)} style={{
-                  padding: '10px 14px', textAlign: col.align,
-                  fontSize: 11, fontWeight: 600, color: '#9CA3AF',
-                  letterSpacing: '0.06em', textTransform: 'uppercase',
-                  cursor: col.sortable ? 'pointer' : 'default',
-                  userSelect: 'none', whiteSpace: 'nowrap',
-                }}>
-                  {col.label}
-                  {col.sortable && (sortBy === col.key
-                    ? <span style={{ color: ACCENT }}>{sortDir === 'asc' ? ' ↑' : ' ↓'}</span>
-                    : <span style={{ color: '#D1D5DB' }}> ↕</span>)}
-                </th>
-              ))}
+              <th style={{ ...th, textAlign: 'left' }}>Company</th>
+              <th style={{ ...th, textAlign: 'left' }}>Country</th>
+              <th style={{ ...th, textAlign: 'left' }}>Announced</th>
+              <th style={{ ...th, textAlign: 'left' }}>Expires</th>
+              <th style={{ ...th, textAlign: 'left' }}>Source</th>
+              <th style={{ ...th, textAlign: 'right' }}>Filing</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                  {cols.map((_, j) => (
-                    <td key={j} style={{ padding: rowPad }}>
-                      <div style={{ height: 13, borderRadius: 4, background: '#f0f0f0', width: j === 1 ? 120 : 60 }} />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={cols.length} style={{ padding: '60px 20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 13, color: '#9CA3AF' }}>No buyback programs found</div>
-                  <div style={{ fontSize: 12, color: '#D1D5DB', marginTop: 4 }}>Norway and UK buybacks scraped daily</div>
+            {programs.map((p, i) => (
+              <tr key={`${p.country_code}|${p.company}`}
+                style={{ borderBottom: i < programs.length - 1 ? '1px solid #f0f0f0' : 'none' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                onMouseLeave={e => e.currentTarget.style.background = ''}
+              >
+                <td style={td}>
+                  <div style={{ fontWeight: 600, color: '#111318', fontSize: 13 }}>{p.company || '—'}</div>
+                  {p.ticker && <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{p.ticker}</div>}
+                </td>
+                <td style={td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Flag code={p.country_code} />
+                    <span style={{ fontSize: 12, color: '#6B7280' }}>{p.country_code}</span>
+                  </div>
+                </td>
+                <td style={{ ...td, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                  {formatMonthYear(p.announced_date)}
+                </td>
+                <td style={{ ...td, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                  {p.program_end ? formatMonthYear(p.program_end) : 'Ongoing'}
+                </td>
+                <td style={{ ...td, color: '#6B7280', fontSize: 12 }} title={p.source || undefined}>
+                  {p.source ? p.source.split(' — ')[0] : '—'}
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  {p.filing_url ? (
+                    <a href={p.filing_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: ACCENT, textDecoration: 'none' }}>
+                      View ↗
+                    </a>
+                  ) : <span style={{ color: '#D1D5DB' }}>—</span>}
                 </td>
               </tr>
-            ) : (
-              rows.map((row, i) => {
-                const pct    = row.completion_pct != null ? Number(row.completion_pct) : null;
-                const isAnn  = row.status === 'Announced';
-                return (
-                  <tr key={row.id ?? i}
-                    style={{ borderBottom: i < rows.length - 1 ? '1px solid #f0f0f0' : 'none' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}
-                  >
-                    {/* Date */}
-                    <td style={{ padding: rowPad, fontSize: 12, color: '#6B7280', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
-                      {formatDateShort(row.execution_date || row.announced_date)}
-                    </td>
-                    {/* Company */}
-                    <td style={{ padding: rowPad, maxWidth: 200, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111318', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                        title={row.company}>{row.company || '—'}</div>
-                      {row.ticker && <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace" }}>{row.ticker}</div>}
-                    </td>
-                    {/* Country */}
-                    <td style={{ padding: rowPad }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Flag code={row.country_code} />
-                        <span style={{ fontSize: 12, color: '#6B7280' }}>{row.country_code}</span>
-                      </div>
-                    </td>
-                    {/* Shares bought */}
-                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
-                      {row.shares_bought != null ? Number(row.shares_bought).toLocaleString('en-US') : '—'}
-                    </td>
-                    {/* Avg price */}
-                    <td style={{ padding: rowPad, textAlign: 'right', fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: '#374151', whiteSpace: 'nowrap' }}>
-                      {row.avg_price != null ? formatPrice(row.avg_price, row.currency) : '—'}
-                    </td>
-                    {/* Total value */}
-                    <td style={{ padding: rowPad, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", color: '#111318' }}>
-                        {formatValue(row.total_value, row.currency)}
-                      </span>
-                    </td>
-                    {/* Progress bar */}
-                    <td style={{ padding: rowPad, minWidth: 110 }}>
-                      {pct != null ? (
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                            <span style={{ fontSize: 11, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{pct.toFixed(1)}%</span>
-                          </div>
-                          <div style={{ height: 5, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 3 }} />
-                          </div>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: 11, color: '#D1D5DB' }}>—</span>
-                      )}
-                    </td>
-                    {/* Status */}
-                    <td style={{ padding: rowPad }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                        background: isAnn ? '#EEF2FF' : '#F0FDF4',
-                        color:      isAnn ? ACCENT    : '#16A34A',
-                      }}>
-                        {row.status || 'Active'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+            ))}
           </tbody>
         </table>
       </div>
@@ -2643,9 +2289,6 @@ function DashboardPage({
     setTradePage(1);
     setTradeSort(s => ({ by: col, dir: s.by === col ? (s.dir === 'asc' ? 'desc' : 'asc') : 'desc' }));
   }
-  function handleBuybackSort(col) {
-    setBuybackSort(s => ({ by: col, dir: s.by === col ? (s.dir === 'asc' ? 'desc' : 'asc') : 'desc' }));
-  }
 
   // Signal KPIs — last 14 days only
   const cutoff14d = useMemo(() => {
@@ -2703,11 +2346,9 @@ function DashboardPage({
   const isLoading = activeTab === 'trades' ? tradesLoading : buybacksLoading;
   const activeCount = activeTab === 'trades' ? filteredTrades.length : filteredBuybacks.length;
   const totalCount  = activeTab === 'trades' ? trades.length : buybacks.length;
-  // Distinct program count for buybacks tab (groups by company+country)
-  const buybackProgramCount = useMemo(() => {
-    const keys = new Set(filteredBuybacks.map(r => `${r.country_code}|${(r.company||'').toLowerCase().trim().slice(0,40)}`));
-    return keys.size;
-  }, [filteredBuybacks]);
+  // Companies with a currently-active buyback program (same dedup/filter logic
+  // the BuybackPrograms table itself renders — kept in sync via the shared helper).
+  const buybackProgramCount = useMemo(() => getActiveBuybackPrograms(filteredBuybacks).length, [filteredBuybacks]);
 
 
   return (
@@ -2807,7 +2448,7 @@ function DashboardPage({
                   border: '1px solid #f0f0f0', borderRadius: 6, padding: '4px 10px',
                 }}>
                   {activeTab === 'buybacks'
-                    ? `${buybackProgramCount} programs`
+                    ? `${buybackProgramCount} active`
                     : `${activeCount.toLocaleString()} / ${totalCount.toLocaleString()}`}
                 </span>
               )}
@@ -2835,7 +2476,7 @@ function DashboardPage({
           )}
 
           {/* Buybacks footer — pagination handles trades inline in the table */}
-          {!isLoading && activeTab === 'buybacks' && activeCount > 0 && (
+          {!isLoading && activeTab === 'buybacks' && buybackProgramCount > 0 && (
             <div style={{
               marginTop: 12, padding: '10px 16px',
               background: '#fff', border: '1px solid #f0f0f0', borderRadius: '0 0 10px 10px',
@@ -2843,8 +2484,8 @@ function DashboardPage({
               borderTop: 'none',
             }}>
               <p style={{ fontSize: 12, color: '#9CA3AF' }}>
-                <span style={{ color: '#374151', fontWeight: 500 }}>{activeCount.toLocaleString()}</span>
-                {' '}programs · sourced from regulatory filings
+                <span style={{ color: '#374151', fontWeight: 500 }}>{buybackProgramCount.toLocaleString()}</span>
+                {' '}companies with active buyback programs · sourced from regulatory filings
               </p>
             </div>
           )}
