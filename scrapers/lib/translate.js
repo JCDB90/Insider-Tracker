@@ -10,6 +10,26 @@
  */
 
 const ROLE_RULES = [
+  // ── Deputy CEO / DG Délégué / DG Adjoint ─────────────────────────────────────
+  // Checked BEFORE the generic CEO / bare-DG patterns below — "directeur général
+  // délégué" and "directeur général adjoint" both contain "directeur général" as
+  // a substring, so if a generic "directeur général" pattern were checked first
+  // it would match and return before ever reaching these more specific deputy
+  // patterns. Confirmed live (2026-08-05): ENGIE's Pierre-François Riolacci,
+  // Jean-Sébastien Blanc, Sébastien Arbola, Cécile Previeu, and Julia Maris are
+  // ALL "Directeur(trice) Général(e) Adjoint(e)" on their own AMF filings, but
+  // were all showing as "CEO" — partly this ordering issue, partly because the
+  // spelled-out "adjoint(e)" phrase had no rule at all (only the bare "DGA"
+  // abbreviation was covered).
+  [/direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?\s+d[eé]l[eé]gu[eé][e]?/i, 'Deputy CEO'],   // FR: DGD, masc/fem
+  [/direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?\s+adjoint[e]?/i,          'Deputy CEO'],   // FR: DGA, masc/fem
+  [/deputy\s+(?:managing\s+)?(?:chief\s+executive|CEO)/i,  'Deputy CEO'],
+  [/acting\s+(?:chief\s+executive|CEO)/i,                  'Acting CEO'],
+  [/vd.vikarie/i,                                          'Acting CEO'],  // SE
+  [/toimitusjohtajan\s+sijainen/i,                         'Deputy CEO'],  // FI
+  [/\bDGA\b/,                                              'Deputy CEO'],  // FR: Directeur Général Adjoint
+  [/\bDGD\b/,                                              'Deputy CEO'],  // FR: Directeur Général Délégué
+
   // ── CEO / Managing Director ──────────────────────────────────────────────────
   [/président.directeur\s+général/i,            'CEO'],   // FR: PDG
   [/\bPDG\b/i,                                  'CEO'],   // FR (pdg lowercase too)
@@ -22,7 +42,20 @@ const ROLE_RULES = [
   [/verkställande\s+direktör/i,                 'CEO'],   // SE
   [/\bVD\b/,                                    'CEO'],   // SE: VD = CEO
   [/toimitusjohtaja/i,                          'CEO'],   // FI
-  [/direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?/i,   'CEO'],   // FR male/female (DG, DGA context)
+  // FR: bare "Directeur(trice) Général(e)" WITHOUT a "Président-" prefix is NOT
+  // reliably "the one CEO" of a company — French SAs (especially multi-brand
+  // holding groups) can have several people carrying this exact title
+  // concurrently, one per subsidiary. Confirmed live: Thermador Groupe's Lionel
+  // Gres, Marylène Pattard, Frank Bourgois, and Laure Empereur all hold plain
+  // "Directeur Général"/"DG" on their own AMF filings — none of them is the
+  // group's actual chief executive, only Guillaume Jean Robin's "PDG"-labeled
+  // filings represent that singular role (matched by the président-directeur
+  // rule above, unaffected by this change). "Président-Directeur Général"/PDG
+  // is the only FR title that unambiguously implies a single top executive, so
+  // it's the only one still mapped to 'CEO' — bare DG maps to the more honest,
+  // non-singularity-implying 'Managing Director' instead.
+  [/direct(?:eur|rice)\s+g[eé]n[eé]ral[e]?/i,   'Managing Director'],   // FR bare DG (no Président- prefix)
+  [/\bDG\b/,                                    'Managing Director'],   // FR bare DG abbreviation
   [/amministratore\s+delegato/i,                'CEO'],   // IT
   [/consejero\s+delegado/i,                     'CEO'],   // ES
   [/director\s+general/i,                       'CEO'],   // ES
@@ -31,16 +64,6 @@ const ROLE_RULES = [
   [/directeur.generaal/i,                       'CEO'],   // NL
   [/managing\s+director/i,                      'CEO'],
   [/chief\s+exec/i,                             'CEO'],
-
-  // ── Deputy CEO / DG Délégué ──────────────────────────────────────────────────
-  [/directeur\s+g[eé]n[eé]ral\s+d[eé]l[eé]gu[eé]/i,       'Deputy CEO'],   // FR: DGD
-  [/deputy\s+(?:managing\s+)?(?:chief\s+executive|CEO)/i,  'Deputy CEO'],
-  [/acting\s+(?:chief\s+executive|CEO)/i,                  'Acting CEO'],
-  [/vd.vikarie/i,                                          'Acting CEO'],  // SE
-  [/toimitusjohtajan\s+sijainen/i,                         'Deputy CEO'],  // FI
-  [/\bDGA\b/,                                              'Deputy CEO'],  // FR: Directeur Général Adjoint
-  [/\bDGD\b/,                                              'Deputy CEO'],  // FR: Directeur Général Délégué
-  [/\bDG\b/,                                               'CEO'],         // FR: Directeur Général
 
   // ── CFO ──────────────────────────────────────────────────────────────────────
   [/chief\s+financial\s+officer/i,              'CFO'],

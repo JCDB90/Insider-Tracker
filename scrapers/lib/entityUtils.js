@@ -74,13 +74,36 @@ function looksLikeAddress(name) {
   return ADDRESS_RE.test(name.trim());
 }
 
+// French family/relationship terms filers sometimes put in the role field for
+// a closely-associated person, instead of a corporate title — e.g. "Epouse
+// Guillaume Robin" (wife of Guillaume Robin). A relationship term can never
+// describe the reference PDMR (a spouse isn't a job title), only the actual
+// closely-associated individual — see splitFrPersonLiee's swap below.
+const FAMILY_RELATION_RE = /^(?:[EÉ]po(?:ux|use)|Conjoint[e]?|Concubin[e]?|Compagn(?:on|e)|Partenaire(?:\s+pacs[eé][e]?)?|Fils|Fille|Enfant|P[eè]re|M[eè]re|Fr[eè]re|S[oœ]ur)\b/i;
+
 /**
  * Split AMF "closely associated" name strings. Two form layouts:
  *   1. "PERSON personne liée à ENTITY"   → person is on the left
  *   2. "ENTITY personne morale liée à PERSON" → entity on left, person on right
  * Returns { person, entity } or null if no match.
+ *
+ * `roleText`, if given, is the trailing role/description clause already split
+ * off by the caller (e.g. "Directeur Général" or "Epouse Guillaume Robin") —
+ * used to detect a THIRD layout AMF filers sometimes use for family-member
+ * trades, confirmed live on Thermador Groupe: "Guillaume Jean ROBIN personne
+ * liée à Laurence ROBIN, Epouse Guillaume Robin" — both sides are natural-
+ * person names (so the corp-swap above doesn't fire), but the role clause
+ * "Epouse Guillaume Robin" (wife of Guillaume Robin) can only describe
+ * Laurence, not Guillaume (a person can't be their own spouse). Contrast with
+ * Dassault Aviation's "Clément TRAPPIER personne liée à ERIC TRAPPIER,
+ * Président-directeur général" — there the role IS a genuine corporate title
+ * describing the right-hand name (Eric Trappier, Dassault's real PDG), so the
+ * default left=person assignment (Clément, who actually traded) is correct
+ * as-is. The two companies just fill in this free-text field in the opposite
+ * order from each other; a family-relation-term role is the only reliable
+ * signal available to tell which order a given filing used.
  */
-function splitFrPersonLiee(text) {
+function splitFrPersonLiee(text, roleText) {
   if (!text) return null;
   // Handle optional "morale" / "physique" between "personne" and "liée"
   const m = text.match(/^(.+?)\s+personne(?:\s+(?:morale|physique))?\s+li[eé]e?\s+[àa]\s+(.+)$/i);
@@ -89,6 +112,10 @@ function splitFrPersonLiee(text) {
   const right = m[2].trim();
   // If the left side is a corporate entity and right is not, swap
   if (looksLikeCorp(left) && !looksLikeCorp(right)) {
+    return { person: right, entity: left };
+  }
+  // Both sides are natural-person names — see doc comment above.
+  if (roleText && FAMILY_RELATION_RE.test(roleText.trim()) && !looksLikeCorp(right)) {
     return { person: right, entity: left };
   }
   return { person: left, entity: right };

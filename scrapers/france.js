@@ -194,9 +194,12 @@ function parseFrPdf(text) {
         insiderName = nameLine;
       }
     }
-    // Split "NAME personne liée à ENTITY" into person + via_entity
+    // Split "NAME personne liée à ENTITY" into person + via_entity. roleRaw is
+    // passed through so a family-relation-term role (e.g. "Epouse Guillaume
+    // Robin") can be detected and the person/entity assignment swapped — see
+    // splitFrPersonLiee's doc comment.
     if (insiderName) {
-      const liee = splitFrPersonLiee(insiderName);
+      const liee = splitFrPersonLiee(insiderName, roleRaw);
       if (liee) { insiderName = liee.person; viaEntity = liee.entity; }
     }
   }

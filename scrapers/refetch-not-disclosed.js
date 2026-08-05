@@ -142,8 +142,9 @@ function parseFrPdfForPerson(text) {
     // Strip trailing role (after last comma)
     const commaIdx = nameLine.lastIndexOf(',');
     const nameOnly = commaIdx > 0 ? nameLine.slice(0, commaIdx).trim() : nameLine;
+    const roleOnly = commaIdx > 0 ? nameLine.slice(commaIdx + 1).trim() : null;
     // Try splitFrPersonLiee (handles both form layouts including "personne morale liée à")
-    const split = splitFrPersonLiee(nameOnly);
+    const split = splitFrPersonLiee(nameOnly, roleOnly);
     if (split && split.person && !looksLikeCorp(split.person)) return split.person;
     // Also try extracting from via_entity-style string without splitFrPersonLiee
     const person = personFromViaEntity(nameOnly);
