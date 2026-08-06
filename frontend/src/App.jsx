@@ -1681,7 +1681,7 @@ function formatMonthYear(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
 }
 
-function BuybackPrograms({ rows, loading }) {
+function BuybackPrograms({ rows, loading, emptyMessage }) {
   const programs = useMemo(() => getActiveBuybackPrograms(rows), [rows]);
 
   if (loading) return (
@@ -1699,7 +1699,7 @@ function BuybackPrograms({ rows, loading }) {
 
   if (programs.length === 0) return (
     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '60px 20px', textAlign: 'center' }}>
-      <div style={{ fontSize: 13, color: '#9CA3AF' }}>No active buyback programs in the current window</div>
+      <div style={{ fontSize: 13, color: '#9CA3AF' }}>{emptyMessage || 'No active buyback programs in the current window'}</div>
     </div>
   );
 
@@ -1814,13 +1814,15 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
       .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
   }, [trades, watchlist]);
 
-  // Buyback signals: any buyback_programs row whose ticker matches a watchlist stock
-  const watchlistBuybacks = useMemo(() => {
-    if (!buybacks?.length) return [];
-    return buybacks
-      .filter(b => watchlist.some(w => w.ticker === b.ticker && w.country_code === b.country_code))
-      .sort((a, b) => (b.announced_date || '').localeCompare(a.announced_date || ''))
-      .slice(0, 10);
+  // Buyback signals: any buyback_programs row whose ticker matches a watchlist stock.
+  // Dedup-to-latest-per-company/active-status/not-expired filtering is delegated to
+  // getActiveBuybackPrograms() inside <BuybackPrograms> (same company-level view as
+  // the main Buyback Programs tab) — this just narrows the raw rows down to the
+  // watchlist first, ticker+country_code matched (not ticker alone) to avoid a
+  // false match between two different countries that happen to share a ticker string.
+  const watchlistBuybackRows = useMemo(() => {
+    if (!buybacks?.length || !watchlist?.length) return [];
+    return buybacks.filter(b => watchlist.some(w => w.ticker === b.ticker && w.country_code === b.country_code));
   }, [buybacks, watchlist]);
 
   return (
@@ -2095,75 +2097,25 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
       </div>
       )}
 
-      {/* Buyback signals for watchlist stocks */}
-      {watchlistBuybacks.length > 0 && (
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ marginBottom: 14 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>🔄</span> Buyback Programs
-            </h2>
-            <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>Active share repurchase programs for your watchlist stocks</p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {watchlistBuybacks.map((b, i) => {
-              const pct = b.completion_pct != null ? Number(b.completion_pct) : null;
-              return (
-                <div key={b.id ?? i} style={{
-                  background: '#fff', border: '1px solid #f0f0f0', borderLeft: '3px solid ' + ACCENT,
-                  borderRadius: 8, padding: '12px 16px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Flag code={b.country_code} />
-                      <span style={{ fontWeight: 600, fontSize: 13, color: '#111318' }}>{b.company}</span>
-                      {b.ticker && <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: '#9CA3AF' }}>{b.ticker}</span>}
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
-                        background: b.status === 'Announced' ? '#EEF2FF' : '#FFFBEB',
-                        color: b.status === 'Announced' ? ACCENT : '#D97706',
-                      }}>{b.status || 'Active'}</span>
-                    </div>
-                    {pct != null ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 4, background: '#f0f0f0', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
-                          <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: ACCENT, borderRadius: 2 }} />
-                        </div>
-                        <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: ACCENT, fontWeight: 600 }}>{pct.toFixed(1)}%</span>
-                        {b.spent_value && b.total_value && (
-                          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-                            {formatValue(b.spent_value, b.currency)} of {formatValue(b.total_value, b.currency)}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 4, background: '#f0f0f0', borderRadius: 2, overflow: 'hidden', maxWidth: 150 }}>
-                          <div style={{ height: '100%', width: '60%',
-                            background: `repeating-linear-gradient(90deg, ${ACCENT}44 0px, ${ACCENT}88 20px, ${ACCENT}44 40px)`,
-                            borderRadius: 2 }} />
-                        </div>
-                        <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>
-                          {b.total_value ? formatValue(b.total_value, b.currency) + ' max' : 'In progress'}
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                      {b.announced_date && <span style={{ fontSize: 11, color: '#9CA3AF' }}>Started {formatDateShort(b.announced_date)}</span>}
-                      {b.execution_date && b.execution_date !== b.announced_date && <span style={{ fontSize: 11, color: '#9CA3AF' }}>· Last filing {formatDateShort(b.execution_date)}</span>}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: '#374151', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
-                      {b.cumulative_shares ? Number(b.cumulative_shares).toLocaleString('en-US') + ' sh' : formatValue(b.total_value, b.currency)}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Buyback signals for watchlist stocks — same company-level table as the
+          main Buyback Programs tab (see BuybackPrograms/getActiveBuybackPrograms
+          above), just pre-filtered to the user's watchlist. Previously this
+          rendered its own separate transaction-level card UI (completion %
+          progress bar, cumulative shares, raw per-filing status) that had
+          drifted out of sync with the main tab's redesign to a clean
+          company-level view — replaced so both surfaces show identical data. */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 14 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🔄</span> Buyback Programs
+          </h2>
+          <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 2 }}>Active share repurchase programs for your watchlist stocks</p>
         </div>
-      )}
+        <BuybackPrograms
+          rows={watchlistBuybackRows}
+          emptyMessage="No active buyback programs for your watchlist stocks. Add more stocks to track."
+        />
+      </div>
 
       {/* All watchlist transactions table */}
       <div>

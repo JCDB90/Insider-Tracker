@@ -208,6 +208,11 @@ const TICKERS = {
   'lagercrantz': 'LAGR-B',      // LAGR-B.ST (was LAGERC — no Yahoo listing)
   // ── Companies whose first word is ambiguous / misleading ──────────────────
   'investment aktiebolaget spiltan': 'SPILTAN', // SPILTAN.ST — auto-derive gives "INVEST" (wrong)
+  'investment ab öresund': 'ORES',    // ORES.ST — same "INVEST" collision as Spiltan above;
+  'investment ab oresund': 'ORES',    // confirmed live: INVEST.ST doesn't even resolve on Yahoo
+                                       // (404), so this also silently killed the chart, not just
+                                       // the ticker label. ASCII fallback for the ö, same pattern
+                                       // as samhällsbyggnadsbolaget/samhallsbyggnadsbolaget below.
   // ── Distinct companies auto-deriving to the SAME 6-char ticker ────────────
   // getTicker's fallback truncates to the first word's first 6 characters, so two
   // unrelated companies sharing a first word (or one being a prefix of the other)
