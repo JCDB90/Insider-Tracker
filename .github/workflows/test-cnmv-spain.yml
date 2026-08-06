@@ -1,0 +1,26 @@
+name: Test CNMV Spain Buyback Access
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test CNMV buyback page
+        run: |
+          echo "Testing from IP:"
+          curl -s https://api.ipify.org
+          echo ""
+
+          echo "Testing CNMV buyback search:"
+          curl -s -o /dev/null -w '%{http_code}' \
+            'https://www.cnmv.es/Portal/consultas/busqueda?id=7&fechaDesde=2026-01-01&fechaHasta=2026-08-06'
+          echo ""
+
+          echo "Testing CNMV BBVA autocartera detail:"
+          curl -s -o /dev/null -w '%{http_code}' \
+            'https://www.cnmv.es/Portal/consultas/busqueda?id=7&isin=ES0113211835'
+          echo ""
+
+          echo "Testing full page content:"
+          curl -s 'https://www.cnmv.es/Portal/consultas/busqueda?id=7&fechaDesde=2026-07-01&fechaHasta=2026-08-06' | head -100
