@@ -11,7 +11,9 @@
 # Markets covered: NO (Oslo Newsweb), GB (FCA NSM), SE/DK/FI/IS (Nasdaq
 # Nordic), BE (FSMA STORI), FR/NL/BE (GlobeNewswire press releases — AMF/AFM/
 # BaFin confirmed to have no buyback-program category for these markets, do
-# not re-add them here). DE/ES/IT are not covered by any current source.
+# not re-add them here), ES (CNMV, Puppeteer — see spain-buybacks.js header
+# for why a real browser session is required, not plain HTTP). DE/IT are not
+# covered by any current source.
 #
 # Each scraper call below is fault-isolated (`|| true`) so one broken source
 # doesn't take down the rest of the run — this script used to run under
@@ -57,6 +59,7 @@ cd "$APP_DIR"
 "$NODE_BIN" scrapers/buybacks/belgium-buybacks.js         || echo "  ⚠ belgium-buybacks.js failed"
 "$NODE_BIN" scrapers/buybacks/globenewswire-buybacks.js   || echo "  ⚠ globenewswire-buybacks.js failed"
 "$NODE_BIN" scrapers/buybacks/watchlist-buybacks.js       || echo "  ⚠ watchlist-buybacks.js failed"
+"$NODE_BIN" scrapers/buybacks/spain-buybacks.js           || echo "  ⚠ spain-buybacks.js failed"
 
 echo ""
 echo "  Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
