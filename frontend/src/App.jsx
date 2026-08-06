@@ -1661,6 +1661,12 @@ function getActiveBuybackPrograms(rows) {
   for (const row of rows) {
     if (!ACTIVE_BUYBACK_STATUSES.has((row.status || '').toLowerCase())) continue;
     if (!row.announced_date || row.announced_date < cutoff) continue;
+    // Reject future-dated announced_date — a scraper date-parsing bug (e.g. a
+    // "between X and Y" program-duration sentence extracting the END date as
+    // the start) can otherwise surface a program that hasn't actually started
+    // yet as if it had. Confirmed live: SEB-A showing "Oct 2026 - Oct 2026"
+    // before the underlying scrapers were fixed to stop producing this.
+    if (row.announced_date > today) continue;
     if (row.program_end && row.program_end < today) continue;
     if (row.country_code === 'IS') continue; // no insider-transaction coverage to correlate against
     const key = `${row.country_code}|${(row.company || '').toLowerCase().trim()}`;

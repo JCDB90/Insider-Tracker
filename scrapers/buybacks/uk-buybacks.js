@@ -171,8 +171,23 @@ function parseUKBuybackDoc(text, meta) {
   }
 
   // "Programme will commence on 24 April 2026 and will end on or before the 27 February 2027"
-  const startM = text.match(/(?:commence|begin|start)\s+on\s+(\d{1,2}\s+\w+ \d{4})/i);
-  const endM   = text.match(/(?:end\s+(?:on|before|by)|no\s+later\s+than)\s+(?:or\s+before\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
+  //
+  // Scope this search to a window near where the buyback's own max value was
+  // mentioned (progValueM), not the whole filing — RNS filings are often
+  // combined annual/interim results announcements covering many unrelated
+  // topics (litigation, leadership changes, financials) in one document, and
+  // an unscoped search can grab an unrelated "begin on DATE"/"end by DATE"
+  // phrase from somewhere else entirely. Confirmed live: Hikma
+  // Pharmaceuticals' 26 Feb 2026 results announcement had program_start
+  // wrongly set to "8 September 2026" — actually an unrelated US patent-
+  // litigation trial date ("A trial in the district court was scheduled to
+  // begin on 8 September 2026") ~86,000 characters away from the buyback
+  // mention, picked up only because it also happened to match "begin on
+  // <date>". Falls back to unscoped search when no max value was found
+  // (progValueM null) — no better anchor available in that case either.
+  const dateSearchText = progValueM ? text.slice(progValueM.index, progValueM.index + 600) : text;
+  const startM = dateSearchText.match(/(?:commence|begin|start)\s+on\s+(\d{1,2}\s+\w+ \d{4})/i);
+  const endM   = dateSearchText.match(/(?:end\s+(?:on|before|by)|no\s+later\s+than)\s+(?:or\s+before\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
   const mo = { january:1,february:2,march:3,april:4,may:5,june:6,july:7,august:8,september:9,october:10,november:11,december:12 };
 
   function parseProseDate(s) {

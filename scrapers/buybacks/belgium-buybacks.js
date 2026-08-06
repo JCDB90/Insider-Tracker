@@ -150,9 +150,19 @@ async function scrapeBEBuybacks() {
       const isin = item.isinCodes?.[0]?.code || null;
       const doc  = item.mainDocuments?.find(d => d.language === 'en') || item.mainDocuments?.[0];
 
-      // Build a deep-link to the FSMA STORI viewer for this specific topic
-      const topicId = item.requiredReportingTopicId;
-      const filingPageUrl = `${STORI_PAGE}?topicId=${topicId}`;
+      // `${STORI_PAGE}?topicId=${topicId}` (the old link format) is dead —
+      // confirmed live: FSMA rebuilt the STORI frontend as a Vue SPA with no
+      // topicId deep-link route at all (it's a search-and-browse table now,
+      // not a permalink-per-result page); every historical topicId URL now
+      // returns a soft-404 (HTTP 200, but the page body is FSMA's generic
+      // "Website error" page). The working replacement is a direct PDF
+      // download via the same API the results table itself uses to fetch
+      // attachments — confirmed live, returns a real application/pdf byte
+      // stream with no special headers required (a plain `<a href>` click
+      // works): GET webapi.fsma.be/api/v1/en/stori/download?fileDataId=X.
+      const filingPageUrl = doc?.fileDataId
+        ? `https://${STORI_HOST}/api/v1/en/stori/download?fileDataId=${doc.fileDataId}`
+        : STORI_PAGE; // no document attached to this filing — fall back to the search page rather than a dead link
 
       dbRows.push({
         filing_id:      filingId,

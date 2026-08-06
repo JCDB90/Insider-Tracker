@@ -144,12 +144,48 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
   // ── Program dates ──────────────────────────────────────────────────────────
   // "program commenced on 3 March 2026"
   const startM = text.match(/(?:program(?:me)?\s+commenced\s+on|commencing\s+on|start(?:ing)?\s+(?:date|on))\s+(\d{1,2}\s+\w+\s+\d{4}|\d{1,2}[./]\d{1,2}[./]\d{4})/i);
-  const programStart = startM ? parseProseDate(startM[1]) : null;
+  let programStart = startM ? parseProseDate(startM[1]) : null;
 
   // "will run until no later than the Company's Annual General Meeting on 27 May 2026"
   // "no later than [date]" / "until [date]"
-  const endM = text.match(/(?:no\s+later\s+than|until|expire|end(?:ing)?(?:\s+(?:on|date))?)\s+(?:the\s+Company['']?s?\s+Annual\s+General\s+Meeting\s+on\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
-  const programEnd = endM ? parseProseDate(endM[1]) : null;
+  //
+  // Excludes "Accumulated until DATE" — every Nordic weekly execution report
+  // uses this exact phrase as a running-total table caption ("Accumulated
+  // until 24 July 2026  222,283  648.75  144,205,619"), which otherwise
+  // false-matches as if it were the program's own end date. Confirmed live:
+  // this is why Schouw & Co.'s program_end kept coming out as that week's
+  // report date instead of the real 31 December 2026 program end — the
+  // false match was non-null, so it silently won over the (correct) "during
+  // the period ... to ..." fallback below, which only fires when this
+  // pattern found nothing at all.
+  const endM = text.match(/(?<!Accumulated\s)(?:no\s+later\s+than|until|expire|end(?:ing)?(?:\s+(?:on|date))?)\s+(?:the\s+Company['']?s?\s+Annual\s+General\s+Meeting\s+on\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
+  let programEnd = endM ? parseProseDate(endM[1]) : null;
+
+  // "during the period 2 January to 31 December 2026" (Aktieselskabet Schouw &
+  // Co. style — confirmed live, this company files its weekly buyback reports
+  // to Oslo Newsweb too, not just Nasdaq Nordic). The first date in this
+  // phrasing frequently has no year of its own (natural English only states
+  // it once, attached to the later date) — inherit it from the end date
+  // rather than letting parseProseDate silently fail. Only used as a
+  // fallback when the commenced-on/no-later-than patterns above didn't
+  // already find dates, so it never overrides an already-correct
+  // different-phrasing extraction.
+  if (!programStart || !programEnd) {
+    const periodM = text.match(/(?:during\s+)?(?:the\s+)?period\s+([\d\s\w]+?)\s+(?:to|through)\s+([\d\s\w]+\d{4})/i);
+    if (periodM) {
+      const end = parseProseDate(periodM[2]);
+      let startText = periodM[1].trim();
+      if (end && !/\d{4}/.test(startText)) startText = `${startText} ${end.slice(0, 4)}`;
+      let start = parseProseDate(startText);
+      // Year-boundary program — inherited year would land after the end
+      // date, so the start actually belongs to the prior year.
+      if (start && end && start > end) {
+        start = parseProseDate(`${periodM[1].trim()} ${Number(end.slice(0, 4)) - 1}`);
+      }
+      if (!programStart) programStart = start;
+      if (!programEnd) programEnd = end;
+    }
+  }
 
   // ── Accumulated / cumulative row ───────────────────────────────────────────
   // |Accumulated under the buyback program | 9,600,000 | 22.2974 | 214,054,650|
@@ -332,6 +368,13 @@ async function scrapeNOBuybacks() {
     // total_value always written (even null) so bad extractions get cleared on re-run
     // total_value always written so bad extractions get cleared on re-run
     row.total_value = result.program_max || null;
+    // program_end was being extracted correctly by parseBuybackBody() but never
+    // copied onto `row` at all — confirmed live: Aktieselskabet Schouw & Co.'s
+    // program_end stayed null across multiple backfill re-runs even after
+    // fixing the extraction regexes themselves, because the correct value was
+    // computed and then simply discarded here. Always written (even null),
+    // same reasoning as total_value above.
+    row.program_end = result.program_end || null;
     if (result.cumulative_value != null) { row.spent_value = result.cumulative_value; row.cumulative_value = result.cumulative_value; }
     if (result.cumulative_shares!= null) row.cumulative_shares = result.cumulative_shares;
     if (result.completion_pct   != null) { row.completion_pct = result.completion_pct; row.pct_complete = Math.round(result.completion_pct); }

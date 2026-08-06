@@ -259,6 +259,45 @@ async function saveInsiderTransactions(rows, options = {}) {
 }
 
 /**
+ * Guard against reversed/nonsensical announced_date & program_end values
+ * before they reach the DB. Centralized here (not duplicated per-scraper)
+ * so every buyback scraper gets the same protection automatically.
+ *
+ * Root cause this backstops (already fixed at the source in nordic-buybacks.js,
+ * norway-buybacks.js, uk-buybacks.js as of 2026-08-06 — this is a safety net
+ * for whatever similar date-range parsing bug turns up next, not a substitute
+ * for fixing extraction bugs when found): a scraper's date-range regex
+ * grabbing the wrong end of a "between X and Y" phrase, or an unrelated date
+ * elsewhere in a multi-topic filing, can produce an announced_date that's in
+ * the future or that falls after program_end.
+ *
+ * Swaps announced_date/program_end when the swap is well-justified (the
+ * "before" value is a plausible date and the "after" value isn't). When
+ * announced_date is in the future and there's no program_end to swap with,
+ * nulls announced_date rather than fabricating a value (e.g. "today") that
+ * has no basis in the source filing — a program with an unreliable date is
+ * better hidden from the frontend's "active programs" view (which requires
+ * announced_date to render at all) than shown with a made-up one.
+ */
+function validateBuybackProgram(row) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (row.announced_date > today) {
+    if (row.program_end && row.program_end <= today) {
+      console.warn(`  ⚠  Future announced_date (${row.announced_date}) with past program_end (${row.program_end}) — swapping: ${row.company || '?'}`);
+      [row.announced_date, row.program_end] = [row.program_end, row.announced_date];
+    } else {
+      console.warn(`  ⚠  Future announced_date (${row.announced_date}) with no usable program_end to recover from — nulling: ${row.company || '?'}`);
+      row.announced_date = null;
+    }
+  }
+  if (row.announced_date && row.program_end && row.program_end < row.announced_date) {
+    console.warn(`  ⚠  program_end (${row.program_end}) before announced_date (${row.announced_date}) — swapping: ${row.company || '?'}`);
+    [row.announced_date, row.program_end] = [row.program_end, row.announced_date];
+  }
+  return row;
+}
+
+/**
  * Upsert buyback programs. Deduplicates on filing_id.
  * @param {Array} rows - array of buyback_programs rows
  * @returns {{ inserted: number, error: any }}
@@ -266,15 +305,21 @@ async function saveInsiderTransactions(rows, options = {}) {
 async function saveBuybackPrograms(rows) {
   if (!rows || rows.length === 0) return { inserted: 0 };
 
+  const validated = rows.map(validateBuybackProgram).filter(r => r.announced_date != null);
+  if (validated.length < rows.length) {
+    console.warn(`  ⚠  Dropped ${rows.length - validated.length} row(s) with unrecoverable announced_date`);
+  }
+  if (!validated.length) return { inserted: 0 };
+
   const { data, error } = await supabase
     .from('buyback_programs')
-    .upsert(rows, { onConflict: 'filing_id', ignoreDuplicates: false });
+    .upsert(validated, { onConflict: 'filing_id', ignoreDuplicates: false });
 
   if (error) {
     console.error('  DB error (buyback_programs):', error.message);
     return { inserted: 0, error };
   }
-  return { inserted: rows.length };
+  return { inserted: validated.length };
 }
 
 /**
