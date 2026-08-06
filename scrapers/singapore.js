@@ -101,6 +101,7 @@ const fs = require('fs');
 const path = require('path');
 const { saveInsiderTransactions } = require('./lib/db');
 const { looksLikeCorp } = require('./lib/entityUtils');
+const { findChromium } = require('./lib/findChromium');
 
 const COUNTRY_CODE = 'SG';
 const SOURCE = 'SGX Company Announcements';
@@ -122,25 +123,14 @@ function cutoffYyyymmdd() {
   return parseInt(isoDate(d));
 }
 
-// ─── Chromium discovery (same pattern as scrapers/portugal.js) ───────────────
-
-function existingPath(p) {
-  try { return p && fs.existsSync(p) ? p : null; } catch { return null; }
-}
-function findChromium() {
-  const envPath = existingPath(process.env.PUPPETEER_EXECUTABLE_PATH);
-  if (envPath) return envPath;
-  const candidates = [
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-  ];
-  for (const p of candidates) { const hit = existingPath(p); if (hit) return hit; }
-  try { const bundled = existingPath(puppeteer.executablePath()); if (bundled) return bundled; } catch {}
-  return null;
-}
+// ─── Chromium discovery ───────────────────────────────────────────────────────
+// Delegated to lib/findChromium.js (shared with portugal.js and
+// buybacks/spain-buybacks.js) — see that file's header: it now also scans
+// the real puppeteer download cache directly by filesystem, since
+// puppeteer.executablePath() alone was confirmed to resolve incorrectly
+// under run-daily.sh's cron+.env-sourced context — scraper_runs showed SG
+// saving 0 rows on every run despite this scraper working fine run directly
+// in an interactive shell.
 
 // ─── Listing (Puppeteer: token capture + in-page fetch pagination) ───────────
 
@@ -150,7 +140,7 @@ async function fetchListings(cutoff) {
     console.log('  ⚠  No Chromium found — attempting on-demand install…');
     try {
       execSync('npx --yes puppeteer browsers install chrome', { stdio: 'inherit', timeout: 5 * 60 * 1000 });
-      chromiumPath = existingPath(puppeteer.executablePath());
+      chromiumPath = findChromium();
     } catch (e) { console.log(`  ⚠  Install failed: ${e.message}`); }
   }
 

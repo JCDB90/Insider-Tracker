@@ -60,6 +60,7 @@ const { execSync }                 = require('child_process');
 const puppeteer                    = require('puppeteer');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { extractDateRange } = require('../lib/buybackDates');
+const { findChromium } = require('../lib/findChromium');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
@@ -144,22 +145,13 @@ function parseEsNum(s) {
   return isNaN(n) ? null : n;
 }
 
-// ─── Chromium resolution — same pattern as portugal.js, see that file's
-// comment for why: an unverified hardcoded path silently broke that scraper
-// for 7+ weeks. Every candidate is checked with fs.existsSync() first.
-function findChromium() {
-  const checked = [];
-  function existingPath(p) { checked.push(p); try { return p && fs.existsSync(p) ? p : null; } catch { return null; } }
-  const envPath = existingPath(process.env.PUPPETEER_EXECUTABLE_PATH);
-  if (envPath) return envPath;
-  for (const p of ['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium']) {
-    const hit = existingPath(p);
-    if (hit) return hit;
-  }
-  try { const bundled = existingPath(puppeteer.executablePath()); if (bundled) return bundled; } catch {}
-  console.log(`  ⚠  No Chromium found (checked: ${checked.filter(Boolean).join(', ') || '(no candidates)'})`);
-  return null;
-}
+// ─── Chromium resolution ────────────────────────────────────────────────────
+// Delegated to lib/findChromium.js (shared with portugal.js and
+// singapore.js) — see that file's header for why: it now also scans the
+// real puppeteer download cache directly by filesystem, since
+// puppeteer.executablePath() alone was confirmed to resolve incorrectly
+// under run-daily.sh's cron+.env-sourced context (portugal.js and
+// singapore.js were both silently saving 0 rows for weeks because of it).
 
 function launchBrowser(chromiumPath) {
   return puppeteer.launch({
@@ -387,24 +379,24 @@ async function scrapeESBuybacks() {
   const toIso   = isoDate(new Date());
   console.log(`  Lookback: ${RETENTION_DAYS} days (${fromIso} → ${toIso})`);
 
-  const chromiumPath = findChromium();
+  let chromiumPath = findChromium();
   if (!chromiumPath) {
     console.log('  Attempting to install Chrome via puppeteer…');
     try {
       execSync('npx --yes puppeteer browsers install chrome', { stdio: 'inherit', timeout: 5 * 60 * 1000 });
+      chromiumPath = findChromium();
     } catch (e) { console.log(`  ⚠  Install attempt failed: ${e.message}`); }
   }
-  const resolvedChromium = chromiumPath || (() => { try { return fs.existsSync(puppeteer.executablePath()) ? puppeteer.executablePath() : null; } catch { return null; } })();
-  if (!resolvedChromium) {
+  if (!chromiumPath) {
     console.error('  ❌ Could not find or install a working Chromium.');
     await logScraperRun(COUNTRY_CODE, 0, (Date.now() - t0) / 1000, 'failed');
     return { saved: 0 };
   }
-  console.log(`  Using Chromium: ${resolvedChromium}`);
+  console.log(`  Using Chromium: ${chromiumPath}`);
 
   let browser;
   try {
-    browser = await launchBrowser(resolvedChromium);
+    browser = await launchBrowser(chromiumPath);
   } catch (e) {
     console.error(`  ❌ Failed to launch browser: ${e.message}`);
     await logScraperRun(COUNTRY_CODE, 0, (Date.now() - t0) / 1000, 'failed');

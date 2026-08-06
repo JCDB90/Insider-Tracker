@@ -159,8 +159,29 @@ else
   log "Chromium already installed — skipping"
 fi
 
-CHROMIUM_PATH="$(which chromium-browser 2>/dev/null || which chromium 2>/dev/null || echo '/usr/bin/chromium-browser')"
-log "Node: $(node --version) | npm: $(npm --version) | Chromium: $CHROMIUM_PATH"
+CHROMIUM_PATH="$(which chromium-browser 2>/dev/null || which chromium 2>/dev/null || true)"
+# Verified with a real existence/executable check — the previous version
+# fell back to the literal string '/usr/bin/chromium-browser' when neither
+# `which` call found anything, and wrote THAT into .env unconditionally.
+# `apt-get install chromium-browser` fails outright on Ubuntu releases where
+# that transitional package no longer exists (the whole `apt-get install`
+# call — chromium-browser plus its listed deps — aborts together, easy to
+# miss since it's only surfaced via `warn`), silently leaving no real binary
+# on disk while still baking a nonexistent PUPPETEER_EXECUTABLE_PATH into
+# .env. Confirmed live: this is exactly what broke portugal.js, singapore.js,
+# and spain-buybacks.js under the cron+.env-sourced context in production —
+# see scrapers/lib/findChromium.js for the scraper-side fix (this deploy.sh
+# fix only prevents it recurring on a FRESH deploy; it can't retroactively
+# fix an already-generated .env, since this whole block is skipped once
+# .env exists — that's why the scraper-side fix is the one that matters for
+# the currently-broken production host).
+if [ -n "$CHROMIUM_PATH" ] && [ -x "$CHROMIUM_PATH" ]; then
+  log "Node: $(node --version) | npm: $(npm --version) | Chromium: $CHROMIUM_PATH"
+else
+  warn "No working system Chromium found — Puppeteer will download and manage its own bundled Chrome instead"
+  CHROMIUM_PATH=""
+  log "Node: $(node --version) | npm: $(npm --version) | Chromium: (Puppeteer-managed)"
+fi
 
 # ── 3. Create dedicated system user ──────────────────────────────────────────
 #
@@ -214,11 +235,22 @@ else
 SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_KEY=${SUPABASE_KEY}
 NODE_ENV=production
+ENVEOF
+
+  # Only pin PUPPETEER_EXECUTABLE_PATH when a real, verified system Chromium
+  # was found above — pinning a path that doesn't exist (or skipping
+  # Puppeteer's own download without one) is what broke every Puppeteer
+  # scraper in production. Without a system Chromium, leave both unset so
+  # `npm install` downloads Puppeteer's own bundled Chrome normally —
+  # scrapers/lib/findChromium.js already knows how to find that.
+  if [ -n "$CHROMIUM_PATH" ]; then
+    cat >> "$APP_DIR/.env" <<ENVEOF
 
 # Puppeteer — use system Chromium (no extra 300 MB download)
 PUPPETEER_EXECUTABLE_PATH=${CHROMIUM_PATH}
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENVEOF
+  fi
 
   chmod 600 "$APP_DIR/.env"
   chown "$APP_USER":"$APP_USER" "$APP_DIR/.env"

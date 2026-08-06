@@ -38,6 +38,7 @@ const { saveInsiderTransactions } = require('./lib/db');
 const { translateRole }           = require('./lib/translate');
 const { isinToTicker }            = require('./lib/isinToTicker');
 const { looksLikeCorp }           = require('./lib/entityUtils');
+const { findChromium }            = require('./lib/findChromium');
 
 const COUNTRY_CODE   = 'PT';
 const SOURCE         = 'CMVM Portugal';
@@ -995,62 +996,32 @@ async function scrapePT() {
   const cutoffIso = isoDate(cutoffDate);
   console.log(`  Fetching transactions since ${cutoffIso}…`);
 
-  // Resolve Chromium path: env var → common Linux paths → puppeteer bundled cache.
-  // Every candidate is verified with fs.existsSync() before being trusted — the
-  // previous version returned process.env.PUPPETEER_EXECUTABLE_PATH and
-  // puppeteer.executablePath() unconditionally, with no check that the binary
-  // was actually still there. If a system Chromium install ever goes missing
-  // (OS update, disk cleanup, a stale env var pointing at a path that was never
-  // valid on this host), puppeteer.launch({executablePath: <ghost path>}) fails
-  // almost instantly with an opaque spawn ENOENT — which is indistinguishable
-  // from every other failure in scraper_runs (duration ~0.4-0.7s, no error text
-  // captured there). This silently broke every PT run for 7+ weeks.
-  const checked = [];
-  function existingPath(p) {
-    checked.push(p);
-    try { return p && fs.existsSync(p) ? p : null; } catch { return null; }
-  }
-  function findChromium() {
-    const envPath = existingPath(process.env.PUPPETEER_EXECUTABLE_PATH);
-    if (envPath) return envPath;
-    const candidates = [
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/snap/bin/chromium',
-    ];
-    for (const p of candidates) {
-      const hit = existingPath(p);
-      if (hit) return hit;
-    }
-    // Puppeteer's own downloaded browser (~/.cache/puppeteer/) — verify it's
-    // actually present on disk, not just that the path computation succeeded.
-    try {
-      const bundled = existingPath(puppeteer.executablePath());
-      if (bundled) return bundled;
-    } catch {}
-    return null;
-  }
-
+  // Resolve Chromium path — delegated to lib/findChromium.js (shared with
+  // singapore.js and buybacks/spain-buybacks.js). See that file's header:
+  // it now also scans the real puppeteer download cache directly by
+  // filesystem, since puppeteer.executablePath() alone was confirmed to
+  // resolve incorrectly under run-daily.sh's cron+.env-sourced context —
+  // scraper_runs showed PT saving 0 rows on every run since at least
+  // 2026-07-18 (duration ~1.5-2s, far too fast for a real Puppeteer
+  // session) despite this scraper working fine run directly in an
+  // interactive shell.
   let chromiumPath = findChromium();
 
   // Self-heal: nothing found anywhere — download Puppeteer's own Chrome build
   // on demand rather than crashing with no way to recover until someone
   // manually re-installs it on the host.
   if (!chromiumPath) {
-    console.log(`  ⚠  No Chromium found (checked: ${checked.filter(Boolean).join(', ') || '(no candidates)'})`);
     console.log('  Attempting to install Chrome via puppeteer…');
     try {
       execSync('npx --yes puppeteer browsers install chrome', { stdio: 'inherit', timeout: 5 * 60 * 1000 });
-      chromiumPath = existingPath(puppeteer.executablePath());
+      chromiumPath = findChromium();
     } catch (e) {
       console.log(`  ⚠  Install attempt failed: ${e.message}`);
     }
   }
 
   if (!chromiumPath) {
-    console.error(`  ❌ Could not find or install a working Chromium. Checked: ${checked.filter(Boolean).join(', ') || '(none)'}`);
+    console.error('  ❌ Could not find or install a working Chromium.');
     console.log('  ℹ  0 rows saved.');
     return { saved: 0 };
   }
