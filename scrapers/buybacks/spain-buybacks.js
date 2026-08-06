@@ -63,7 +63,17 @@ const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
 const CURRENCY       = 'EUR';
-const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '365');
+// Default 90 days (overridable via LOOKBACK_DAYS, e.g. for a one-off wider
+// backfill) — matches belgium-buybacks.js's own default for the same
+// trade-off: wide enough that dropdown-based company discovery still finds
+// companies filing every 1-3 months, without re-fetching/re-parsing a full
+// year of history on every weekly CI run. A 365-day run (used for this
+// scraper's initial build/testing) took ~8 minutes for ~90 filings across
+// 25 companies; running that every week in the shared buybacks-weekly.yml
+// job (6 other scrapers before this one, 30-minute job timeout) would be
+// both wasteful and a real timeout risk for no benefit, since the upsert
+// already dedups on filing_id regardless of window size.
+const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '90');
 const BASE_URL       = 'https://www.cnmv.es/Portal/consultas/busqueda?id=7';
 const NAV_TIMEOUT    = 60000;
 const PDF_DELAY_MS   = 300;

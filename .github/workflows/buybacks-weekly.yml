@@ -42,6 +42,19 @@ jobs:
         continue-on-error: true
         run: node scrapers/buybacks/belgium-buybacks.js
 
+      - name: 🇪🇸 Spain Buybacks (CNMV, Puppeteer)
+        continue-on-error: true
+        # No separate Chromium setup step needed — `npm ci` above already
+        # triggers Puppeteer's own bundled-Chrome download (no
+        # PUPPETEER_SKIP_DOWNLOAD set anywhere in this repo), the same way
+        # portugal.js already relies on in scrape-daily.yml with no extra
+        # apt-get/chromium step there either. spain-buybacks.js's
+        # findChromium() resolves that bundled binary automatically (with a
+        # self-heal `puppeteer browsers install chrome` fallback if it's
+        # ever missing) — see that file's header comment for why a real
+        # browser session is required here instead of plain HTTP.
+        run: node scrapers/buybacks/spain-buybacks.js
+
       - name: 🇫🇷🇳🇱🇧🇪 GlobeNewswire Buybacks (FR/NL/BE press releases)
         continue-on-error: true
         run: node scrapers/buybacks/globenewswire-buybacks.js
