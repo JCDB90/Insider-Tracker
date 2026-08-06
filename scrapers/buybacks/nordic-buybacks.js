@@ -30,6 +30,7 @@
 const https = require('https');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { isinToTicker }        = require('../lib/isinToTicker');
+const { extractDateRange }    = require('../lib/buybackDates');
 
 const SOURCE         = 'Nasdaq Nordic';
 const RETENTION_DAYS = parseInt(process.env.LOOKBACK_DAYS || '14');
@@ -163,53 +164,29 @@ function parseBuybackText(text, pub) {
   }
 
   // ── Program dates ─────────────────────────────────────────────────────────────
-  // "runs between 7 May 2026 and 19 August 2026"
-  // "running between 30 April and 13 July 2026"        (SEB style)
-  // "runs from 4 March 2026 to 12 September 2026"
-  // "during the period 2 January to 31 December 2026"  (Schouw style)
-  const periodM = text.match(/runn?(?:ing|s)?\s+between\s+([\d\s\w]+?)\s+and\s+([\d\s\w]+\d{4})/i)
-               || text.match(/runn?(?:ing|s)?\s+from\s+([\d\s\w]+?\d{4})\s+(?:to|and|until)\s+([\d\s\w]+\d{4})/i)
-               || text.match(/(?:during\s+)?(?:the\s+)?period\s+([\d\s\w]+?)\s+(?:to|through)\s+([\d\s\w]+\d{4})/i);
-
-  // The FIRST date in these ranges frequently has no year of its own — natural
-  // English only states it once, attached to the later date ("16 July and 20
-  // October 2026", "2 January to 31 December 2026") — parseProseDate requires
-  // an explicit year and silently returns null without one. Confirmed live:
-  // this was the actual root cause of SEB-A's announced_date showing October
-  // instead of July (see below for the OTHER half of that bug) and of Schouw's
-  // program_end never being populated at all. Inherit the end date's year
-  // rather than leaving programStart null.
-  let programStart = null, programEnd = null;
-  if (periodM) {
-    programEnd = parseProseDate(periodM[2]);
-    let startText = periodM[1].trim();
-    if (programEnd && !/\d{4}/.test(startText)) {
-      startText = `${startText} ${programEnd.slice(0, 4)}`;
-    }
-    programStart = parseProseDate(startText);
-    // Year-boundary program ("16 December and 20 January 2027") — the
-    // inherited year would land AFTER the end date; it actually belongs to
-    // the prior year.
-    if (programStart && programEnd && programStart > programEnd) {
-      const priorYear = String(Number(programEnd.slice(0, 4)) - 1);
-      programStart = parseProseDate(`${periodM[1].trim()} ${priorYear}`);
-    }
-  }
+  // Delegated to lib/buybackDates.js (shared across all buyback scrapers) —
+  // handles "runs between X and Y" / "runs from X to Y" / "period X to Y"
+  // (all confirmed live on SEB-A and Schouw & Co.) plus "runs from X up to
+  // and including Y" (confirmed live on Gabriel Holding and Trifork, not
+  // previously covered here), year-inheritance when the first date has none,
+  // and the "Accumulated until DATE" table-caption false-positive exclusion.
+  // See that file's header for the full history of why each of these matters.
+  const { start: programStart, end: programEnd, matchIndex: periodMatchIndex, matchLength: periodMatchLength } = extractDateRange(text);
 
   // ── Execution date (period end) ───────────────────────────────────────────────
   // "Between 7 May 2026 and 8 May 2026"
   // "week 19"  → use publication date
   //
-  // Exclude whatever periodM already matched above — the whole-PROGRAM
-  // duration sentence ("running between 16 July and 20 October 2026") also
-  // starts with "between" and would otherwise match here too, wrongly
-  // overwriting execDate with the program's END date instead of leaving it
-  // as the publication-date fallback. Confirmed live: this is why SEB-A's
-  // 2026-07-27 weekly report had execution_date (and therefore, via the
-  // `program_start || execDate` fallback below, announced_date too) stored
-  // as 2026-10-20 — the program's end date, not this report's own date.
-  const textForExecDate = periodM
-    ? text.slice(0, periodM.index) + text.slice(periodM.index + periodM[0].length)
+  // Exclude whatever the program-date match above already consumed — the
+  // whole-PROGRAM duration sentence ("running between 16 July and 20 October
+  // 2026") also starts with "between" and would otherwise match here too,
+  // wrongly overwriting execDate with the program's END date instead of
+  // leaving it as the publication-date fallback. Confirmed live: this is why
+  // SEB-A's 2026-07-27 weekly report had execution_date (and therefore, via
+  // the `program_start || execDate` fallback below, announced_date too)
+  // stored as 2026-10-20 — the program's end date, not this report's own date.
+  const textForExecDate = periodMatchIndex != null
+    ? text.slice(0, periodMatchIndex) + text.slice(periodMatchIndex + periodMatchLength)
     : text;
   const betweenM = textForExecDate.match(/[Bb]etween\s+[\d\s\w]+\s+and\s+([\d]{1,2}\s+\w+\s+\d{4}|\d{1,2}[./]\d{1,2}[./]\d{4})/);
   let execDate = pub ? pub.slice(0, 10) : null;

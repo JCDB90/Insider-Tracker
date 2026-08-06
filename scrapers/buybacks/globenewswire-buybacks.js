@@ -30,6 +30,7 @@
 const https = require('https');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { htmlToText } = require('../lib/htmlToText');
+const { extractDateRange } = require('../lib/buybackDates');
 
 const SOURCE          = 'GlobeNewswire';
 const RETENTION_DAYS  = parseInt(process.env.LOOKBACK_DAYS || '30');
@@ -146,11 +147,22 @@ function parseArticleBody(text, pubDateIso) {
 
   // "commence on 1 October 2025" / "will start on 1 October 2025"
   const startM = text.match(/(?:commence|start(?:ed|ing)?)\s+(?:on\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
-  const programStart = startM ? parseProseDate(startM[1]) : null;
+  let programStart = startM ? parseProseDate(startM[1]) : null;
 
   // "run until 1 July 2026 at the latest" / "until 1 July 2026"
   const endM = text.match(/(?:run\s+until|until)\s+(\d{1,2}\s+\w+\s+\d{4})(?:\s+at\s+the\s+latest)?/i);
   let programEnd = endM ? parseProseDate(endM[1]) : null;
+
+  // Fallback to the shared multi-pattern extractor (lib/buybackDates.js) —
+  // covers "runs from X up to and including Y" and other phrasings (incl.
+  // Dutch, for AFM-adjacent NL press releases) this file's own commence/
+  // until patterns don't. Only fills in whichever of start/end is still
+  // missing, so it never overrides an already-correct extraction above.
+  if (!programStart || !programEnd) {
+    const shared = extractDateRange(text);
+    if (!programStart) programStart = shared.start;
+    if (!programEnd) programEnd = shared.end;
+  }
 
   // Same French standardized disclosure: authorizations are duration-based
   // ("for a period of 18 months", "not to exceed 18 months from this

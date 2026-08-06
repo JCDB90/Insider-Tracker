@@ -27,6 +27,7 @@
 const https   = require('https');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
 const { htmlToText } = require('../lib/htmlToText');
+const { extractDateRange } = require('../lib/buybackDates');
 
 const COUNTRY_CODE   = 'GB';
 const SOURCE         = 'FCA NSM';
@@ -200,6 +201,18 @@ function parseUKBuybackDoc(text, meta) {
   }
   if (startM) programStart = parseProseDate(startM[1]);
   if (endM)   programEnd   = parseProseDate(endM[1]);
+
+  // Fallback to the shared multi-pattern extractor (lib/buybackDates.js) —
+  // covers "runs from X up to and including Y" and other phrasings this
+  // file's own commence-on/end-on-or-before patterns don't. Deliberately
+  // still runs against `dateSearchText` (the progValueM-scoped window), not
+  // the full document — see the comment above on why an unscoped search on
+  // these combined-topic RNS filings is unsafe.
+  if (!programStart || !programEnd) {
+    const shared = extractDateRange(dateSearchText);
+    if (!programStart) programStart = shared.start;
+    if (!programEnd) programEnd = shared.end;
+  }
 
   // ── Cumulative spent from execution reports ───────────────────────────────
   // "cash amount... amounts to 2,829,295,540 Euros" (cumulative to date)

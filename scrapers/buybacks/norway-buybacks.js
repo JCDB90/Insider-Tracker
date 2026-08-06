@@ -22,6 +22,7 @@
 
 const https   = require('https');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
+const { extractDateRange } = require('../lib/buybackDates');
 
 const COUNTRY_CODE   = 'NO';
 const SOURCE         = 'Oslo Bors / Euronext Oslo';
@@ -158,33 +159,55 @@ function parseBuybackBody(body, issuerName, issuerSign, msgDate) {
   // false match was non-null, so it silently won over the (correct) "during
   // the period ... to ..." fallback below, which only fires when this
   // pattern found nothing at all.
+  //
+  // Also excludes "For the period 27 July until 31 July 2026" — the bare
+  // "until" branch has no cue that it's inside a *weekly execution window*
+  // statement rather than the program's own duration. Confirmed live: Vend
+  // Marketplaces ASA's program_end kept coming out as that week's report
+  // end date (validateBuybackProgram() even had to swap announced/end dates
+  // because the false end date preceded the execDate-derived announced
+  // date), while the real program dates ("announced: 30 April 2026",
+  // "finalised within 30 October 2026") were never even attempted by any
+  // pattern here. Reject when the match is immediately preceded by
+  // "period <day> <month>" (i.e. the first half of that same range).
   const endM = text.match(/(?<!Accumulated\s)(?:no\s+later\s+than|until|expire|end(?:ing)?(?:\s+(?:on|date))?)\s+(?:the\s+Company['']?s?\s+Annual\s+General\s+Meeting\s+on\s+)?(\d{1,2}\s+\w+\s+\d{4})/i);
-  let programEnd = endM ? parseProseDate(endM[1]) : null;
+  const endMPreceding = endM ? text.slice(Math.max(0, endM.index - 40), endM.index) : '';
+  const endMIsExecWindow = /period\s+\d{1,2}\s+\w+\s*$/i.test(endMPreceding);
+  let programEnd = (endM && !endMIsExecWindow) ? parseProseDate(endM[1]) : null;
 
-  // "during the period 2 January to 31 December 2026" (Aktieselskabet Schouw &
-  // Co. style — confirmed live, this company files its weekly buyback reports
-  // to Oslo Newsweb too, not just Nasdaq Nordic). The first date in this
-  // phrasing frequently has no year of its own (natural English only states
-  // it once, attached to the later date) — inherit it from the end date
-  // rather than letting parseProseDate silently fail. Only used as a
-  // fallback when the commenced-on/no-later-than patterns above didn't
-  // already find dates, so it never overrides an already-correct
-  // different-phrasing extraction.
+  // "Date on which the repurchase programme was announced: 30 April 2026" /
+  // "Date on which the buy-back tranche was announced: 4 February 2026"
+  // — a distinct Oslo Bors phrasing seen alongside the exec-window bug above
+  // (Vend Marketplaces ASA, Equinor ASA — Equinor's own filings say
+  // "tranche", not "programme", confirmed live: the "programme"-only regex
+  // missed it, leaving programStart null and falling back to that week's
+  // execDate, which validateBuybackProgram() then had to swap because it
+  // landed after the correctly-extracted program_end), not covered by the
+  // "commenced on" pattern.
+  if (!programStart) {
+    const announcedM = text.match(/(?:date\s+on\s+which\s+the\s+(?:repurchase|buy-?back)\s+(?:programme?|tranche)\s+was\s+announced|(?:program(?:me)?|tranche)\s+was\s+announced\s+on)\s*:?\s*(\d{1,2}\s+\w+\s+\d{4}|\d{1,2}[./]\d{1,2}[./]\d{4})/i);
+    if (announcedM) programStart = parseProseDate(announcedM[1]);
+  }
+
+  // "planned to be finalised within 30 October 2026" — program-end phrasing
+  // without "no later than"/"until"/"expire", also from the Vend filing.
+  if (!programEnd) {
+    const finalisedM = text.match(/finalis(?:ed|e)\s+within\s+(\d{1,2}\s+\w+\s+\d{4}|\d{1,2}[./]\d{1,2}[./]\d{4})/i);
+    if (finalisedM) programEnd = parseProseDate(finalisedM[1]);
+  }
+
+  // Fallback to the shared multi-pattern extractor (lib/buybackDates.js) when
+  // the Norway-specific commenced-on/no-later-than patterns above didn't
+  // find one or both dates — covers "during the period X to Y" (Aktieselskabet
+  // Schouw & Co. style — confirmed live, this company files its weekly
+  // buyback reports to Oslo Newsweb too, not just Nasdaq Nordic) plus "runs
+  // from X up to and including Y" and the other patterns that module
+  // handles. Only used as a fallback so it never overrides an
+  // already-correct different-phrasing extraction from above.
   if (!programStart || !programEnd) {
-    const periodM = text.match(/(?:during\s+)?(?:the\s+)?period\s+([\d\s\w]+?)\s+(?:to|through)\s+([\d\s\w]+\d{4})/i);
-    if (periodM) {
-      const end = parseProseDate(periodM[2]);
-      let startText = periodM[1].trim();
-      if (end && !/\d{4}/.test(startText)) startText = `${startText} ${end.slice(0, 4)}`;
-      let start = parseProseDate(startText);
-      // Year-boundary program — inherited year would land after the end
-      // date, so the start actually belongs to the prior year.
-      if (start && end && start > end) {
-        start = parseProseDate(`${periodM[1].trim()} ${Number(end.slice(0, 4)) - 1}`);
-      }
-      if (!programStart) programStart = start;
-      if (!programEnd) programEnd = end;
-    }
+    const shared = extractDateRange(text);
+    if (!programStart) programStart = shared.start;
+    if (!programEnd) programEnd = shared.end;
   }
 
   // ── Accumulated / cumulative row ───────────────────────────────────────────

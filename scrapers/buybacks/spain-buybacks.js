@@ -59,6 +59,7 @@ const path                         = require('path');
 const { execSync }                 = require('child_process');
 const puppeteer                    = require('puppeteer');
 const { saveBuybackPrograms, logScraperRun } = require('../lib/db');
+const { extractDateRange } = require('../lib/buybackDates');
 
 const COUNTRY_CODE   = 'ES';
 const SOURCE         = 'CNMV Spain';
@@ -355,6 +356,10 @@ function parseAutocarteraPdf(text) {
     const v = parseEsNum(maxValueM[1]);
     if (v) maxValue = maxValueM[2] ? Math.round(v * 1e6) : Math.round(v);
   }
+  // Same best-effort spirit for an explicit program end date — covers the
+  // Spanish "desde X hasta Y" / "del X al Y" phrasing when a filing happens
+  // to state it (rare — see the file header on why this is usually null).
+  const { start: programStart, end: programEndDate } = extractDateRange(addInfo);
 
   return {
     nif: nifM ? nifM[1] : null,
@@ -367,6 +372,8 @@ function parseAutocarteraPdf(text) {
     avgPrice: avgPrice ? Math.round(avgPrice * 10000) / 10000 : null,
     hasProgramMention,
     maxValue,
+    programStart,
+    programEnd: programEndDate,
   };
 }
 
@@ -470,7 +477,7 @@ async function scrapeESBuybacks() {
           company:        parsed.company || name,
           announced_date: notifDate,
           execution_date: parsed.lastTxDateIso || notifDate,
-          program_end:    null, // see file header — not structurally available from this source
+          program_end:    parsed.programEnd, // best-effort only — see file header, usually null
           total_value:    parsed.maxValue, // best-effort only, usually null
           shares_bought:  parsed.sharesBought,
           avg_price:      parsed.avgPrice,
