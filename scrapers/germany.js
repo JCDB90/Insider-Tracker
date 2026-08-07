@@ -134,6 +134,15 @@ const CLOSELY_RELATED_PERSON_MAP = {
   // https://www.eqs-news.com/news/directors-dealings/friedrich-vorwerk-group-se-mbb-capital-management-gmbh-buy/474fd182-471d-477a-8424-65ee098f0b45_en
   // https://www.eqs-news.com/news/directors-dealings/mbb-se-mbb-capital-management-gmbh-buy/785e69d3-6344-46e4-9970-279b49fa617b_en
   'mbb capital management gmbh': 'Dr. Christof Nesemeier',
+  // Rubean AG — Prof. Stefan Mittnik (Aufsichtsrat/supervisory board member).
+  // Confirmed via EQS-DD filing text:
+  // https://www.eqs-news.com/news/directors-dealings/rubean-ag-m2-venture-gmbh-buy/36cfffba-c8c8-403c-9f74-e3420d114107_de
+  // EQS's own filing title spells the entity singular ("M2 Venture GmbH"),
+  // while BaFin's CSV export (this scraper's actual source) has produced
+  // "M2 Ventures GmbH" (plural) in the live DB — both keyed here since the
+  // two sources don't agree on spelling.
+  'm2 venture gmbh':  'Prof. Stefan Mittnik',
+  'm2 ventures gmbh': 'Prof. Stefan Mittnik',
 };
 
 function getTicker(companyName) {

@@ -285,6 +285,22 @@ function parseNotificationText(text) {
     }
   }
 
+  // "Total number of shares: N" — the Aggregated-information section's own
+  // clean summary line, seen on filings whose 4c) "Price(s) and volume(s)"
+  // table puts the number BEFORE the currency ("375.00 DKK", not "DKK
+  // 375.00") on the value row, which the earlier tabular patterns above
+  // don't match (confirmed live: APMH Invest A/S / Danske Bank A/S — pdftotext
+  // extracts the PDF fine, but shares/price stayed null because every
+  // upstream pattern assumed currency-before-number). This section's own
+  // wording is unambiguous regardless of that ordering.
+  if (!shares) {
+    const totalSharesM = text.match(/Total\s+number\s+of\s+shares\s*:?\s*([\d,\.]+)/i);
+    if (totalSharesM) {
+      const sv = parseFloat(totalSharesM[1].replace(/,/g, ''));
+      if (!isNaN(sv) && sv > 0) shares = Math.round(sv);
+    }
+  }
+
   if (!shares) {
     const volRaw = grabAfter(text,
       /\bVolume\s*[:|]\s*([\d][\d\s,\.]*)/i,
@@ -308,6 +324,12 @@ function parseNotificationText(text) {
     /at\s+(?:a\s+price\s+of\s+)?(?:DKK|EUR|SEK|NOK)\s*([\d,\.]+)/i,
     /at\s+(?:a\s+(?:share\s+)?price\s+of\s+)?([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK)/i,
     /DKK\s*([\d,\.]+)\s+per\s+share/i,
+    // "Aggregated purchase volume: 3,514 shares, price 1,393.57 DKK." — DSV A/S,
+    // confirmed live: the 4c) table put the price/volume pair in a shape
+    // ("1,393.57 (purchase)   3,514.00" — annotated with the transaction verb,
+    // no currency on that line at all) none of the patterns above handle, but
+    // this Aggregated-information sentence states the same price unambiguously.
+    /Aggregated\s+(?:purchase|sale)\s+volume\s*:\s*[\d,\.]+\s+shares,?\s+price\s+([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)/i,
   );
   if (!priceRaw && _pdfPriceFromVol) price = _pdfPriceFromVol;
   if (priceRaw) {
@@ -325,6 +347,10 @@ function parseNotificationText(text) {
     /-\s*Price\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/im,             // PDF ESMA: "- Price   DKK X"
     /Aggregated\s+volume[^\n]*?\bPrice:\s*([\d,\.]+)\s*(?:DKK|EUR|SEK|NOK|CHF)/im,  // inline: "...Price: X DKK" (non-greedy to hit first match)
     /total\s+(?:amount|price|consideration)\s+of\s+(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
+    // "Total price: DKK 43,125.00" — Aggregated-information section's own
+    // colon-separated summary line (paired with "Total number of shares:"
+    // above), confirmed live on APMH Invest A/S / Danske Bank A/S.
+    /Total\s+price\s*:?\s*(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)/i,
     /(?:DKK|EUR|SEK|NOK|CHF)\s*([\d,\.]+)\s+(?:total|in total|aggregate)/i,
     /([\d,\.]+)\s+(?:DKK|EUR|SEK|NOK|CHF)\s*(?:total|in total)\b/i,
   );
@@ -696,4 +722,8 @@ async function scrapeDK() {
   return { saved: dbRows.length };
 }
 
-scrapeDK().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+if (require.main === module) {
+  scrapeDK().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });
+}
+
+module.exports = { parseNotificationText };

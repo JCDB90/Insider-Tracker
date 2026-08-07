@@ -322,10 +322,18 @@ function parseBody(raw) {
 
   // Strip the contact/footer section so "For further information, please contact: Name, Title"
   // is never mistaken for an insider. Also remove the boilerplate regulation notice.
+  // "Kontaktperson: Name, Title" is the same footer in Norwegian — without this,
+  // an all-Norwegian filing whose primary name-extraction patterns don't match its
+  // exact sentence shape falls through to whatever fallback picks up next, which
+  // ends up being this contact person instead of the real PDMR (confirmed live:
+  // Tinde Sparebank's actual insider, Rolf Erik Sandvær, was reported as
+  // "Kristin Henøen" — the press contact listed at the bottom — because nothing
+  // stripped "Kontaktperson: Kristin Henøen, Seniorrådgiver...").
   const stripped = raw
     .replace(/For further information[,\s]+please contact[\s\S]*/i, '')
     .replace(/This is information is pursuant[\s\S]*/i, '')
-    .replace(/For more information[\s\S]*/i, '');
+    .replace(/For more information[\s\S]*/i, '')
+    .replace(/Kontaktperson\s*:[\s\S]*/i, '');
 
   const text = stripped.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -341,7 +349,10 @@ function parseBody(raw) {
 
   // ── Shares ──
   let shares = null;
-  const sharesM = text.match(/([\d,. ]+)\s+(?:shares?|aksjer?)\b/i);
+  // "egenkapitalbevis" (equity certificates) — the Norwegian savings-bank
+  // equivalent of ordinary shares (confirmed live: Tinde Sparebank's own
+  // filings use this term exclusively, never "aksjer").
+  const sharesM = text.match(/([\d,. ]+)\s+(?:shares?|aksjer?|egenkapitalbevis)\b/i);
   if (sharesM) {
     const n = parseShares(sharesM[1]);
     if (n > 0) shares = n;
@@ -352,14 +363,31 @@ function parseBody(raw) {
   const priceM =
     // "at (a/an) (volume-weighted average) price of NOK X (per share)"
     text.match(/at\s+(?:a[n]?\s+)?(?:(?:volume[\s-]+weighted\s+)?average\s+)?(?:price\s+of\s+)?(?:NOK|EUR|SEK|DKK|USD|GBP)\s*([\d,.]+)\s*(?:per\s+share|each|per\s+aksje)?/i) ||
+    // "at (a/an) (volume-weighted average) price of X NOK (per share)" — same
+    // phrasing as the pattern above but with the currency AFTER the number
+    // instead of before it (confirmed live: "purchased 5,000 shares in
+    // Smartoptics Group ASA at an average price of 43.75 NOK per share" — all
+    // 6 patterns in this list required the currency code to come first, so this
+    // very common number-then-currency order fell through every one of them
+    // and left price null).
+    text.match(/at\s+(?:a[n]?\s+)?(?:(?:volume[\s-]+weighted\s+)?average\s+)?price\s+of\s+([\d,.]+)\s*(?:NOK|EUR|SEK|DKK|USD|GBP)\s*(?:per\s+share|each|per\s+aksje)?/i) ||
     // "NOK X per share"
     text.match(/(?:NOK|EUR|SEK|DKK|USD|GBP)\s*([\d,.]+)\s+per\s+(?:share|aksje)/i) ||
+    // "X NOK per share" (number-then-currency again, without the "at a price of" preamble)
+    text.match(/([\d,.]+)\s*(?:NOK|EUR|SEK|DKK|USD|GBP)\s+per\s+(?:share|aksje)/i) ||
     // "price/consideration/kurs of NOK X"
     text.match(/(?:price|consideration|kurs)\s+(?:of\s+)?(?:NOK|EUR|SEK|DKK|USD|GBP)\s*([\d,.]+)/i) ||
     // "for NOK X per share"
     text.match(/for\s+(?:NOK|EUR|SEK|DKK|USD|GBP)\s*([\d,.]+)\s+per\s+share/i) ||
-    // "til kurs NOK X" / "til NOK X per aksje" (Norwegian)
-    text.match(/til\s+(?:kurs\s+)?(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)\s*(?:per\s+aksje|kroner\s+per\s+aksje)?/i) ||
+    // "til kurs NOK X" / "til NOK X per aksje" (Norwegian). "kurs" (price) or a
+    // currency code / "per aksje" suffix is now mandatory — the previous version
+    // left the ENTIRE middle (currency, "kurs", suffix) optional, so a bare "til
+    // <number>" matched anything, including a date range's "til" ("until"): "...i
+    // perioden 12. juni 2026 til 6. juli 2026" (Tinde Sparebank, confirmed live)
+    // falsely produced price=6 from "til 6." — the day-of-month in "6. juli", not
+    // a price at all.
+    text.match(/til\s+kurs\s+(?:NOK|EUR|SEK|DKK)?\s*([\d,.]+)/i) ||
+    text.match(/til\s+(?:NOK|EUR|SEK|DKK)\s*([\d,.]+)\s*(?:per\s+aksje|kroner\s+per\s+aksje)/i) ||
     // "at NUMBER per share" with no currency (e.g. "purchased at 161,44 per share")
     text.match(/\bat\s+([\d]+[.,][\d]+)\s+per\s+(?:share|aksje)\b/i);
   if (priceM) {

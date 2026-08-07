@@ -133,14 +133,31 @@ function grabAfter(text, ...patterns) {
 function parsePrice(priceStr) {
   if (!priceStr) return null;
   const s = priceStr.trim();
-  // pence: "21p", "21.5p"
-  let m = s.match(/^([\d,\.]+)p$/i);
+  // pence: "21p", "21.5p", "698 p" (space between number and unit — confirmed
+  // live: Tatton Asset Management's "Price Volume 698 p 751" table layout
+  // separates them, which this branch's original no-space-allowed anchor
+  // silently failed to match, dropping the price entirely)
+  let m = s.match(/^([\d,\.]+)\s*p$/i);
   if (m) return parseFloat(m[1].replace(/,/g, '')) / 100;  // convert pence to GBP
   // GBp or GBX (pence): "GBp 21.5" or "GBX 21.5"
   m = s.match(/(?:GBp|GBX|GBX)\s+([\d,\.]+)/i);
   if (m) return parseFloat(m[1].replace(/,/g, '')) / 100;
   // Sterling: "£21.50" or "GBP 21.50"
   m = s.match(/(?:£|GBP)\s*([\d,\.]+)/i);
+  if (m) return parseFloat(m[1].replace(/,/g, ''));
+  // Euro: "€55.82" — some LSE-listed companies' PDMR filings are EUR-denominated
+  // (e.g. Unilever PLC's separate EUR share line, traded on Euronext Amsterdam;
+  // confirmed live). Not in any of the branches above — [£$€]? in the calling
+  // pattern's char class already lets Pattern B/etc capture a euro-prefixed
+  // price string correctly, but this function itself had nothing that
+  // recognised the symbol, so every such price fell through to null instead
+  // of the final "raw number" branch (which requires the ENTIRE string to be
+  // digits only, with no currency symbol at all).
+  m = s.match(/€\s*([\d,\.]+)/);
+  if (m) return parseFloat(m[1].replace(/,/g, ''));
+  // Dollar: "$0.970" — same gap, same fix, for USD-denominated ADR-style lines
+  // (confirmed live: BIOPHARMA CREDIT PLC).
+  m = s.match(/\$\s*([\d,\.]+)/);
   if (m) return parseFloat(m[1].replace(/,/g, ''));
   // "200 pence"
   m = s.match(/([\d,\.]+)\s+pence/i);
@@ -243,12 +260,23 @@ function parseDocumentContent(content, meta) {
     /\bb\)\s*Nature\s+of\s+the\s+transaction\s+([\s\S]+?)\s+(?:d\)|e\)|f\))/i
   );
 
-  // Price and volume from section c)
+  // Price and volume — usually section c), but NOT hardcoded to that letter:
+  // some filings insert an extra sub-section before it (e.g. "c) Currency
+  // GBP" ahead of "d) Price(s) and volume(s)" — confirmed live: TESCO PLC's
+  // Share Incentive Plan purchases use this shifted lettering, so the
+  // previous hardcoded "\bc\)" open / "\bd\)" close never matched at all,
+  // leaving price/volume null on every one of them. Both boundaries now
+  // match ANY single lettered section marker instead of one specific letter.
   // Formats vary:
   //   "c)   Price(s) and volume(s)   Price(s) 56.22 pence       Volume(s) 35,000       d)"
   //   "c)   Price(s) and volume(s) Price(s) Volume(s) 21p 26,000 d)"
   //   "c)   Price(s) and volume(s) Price(s) Volume(s) CNY38.957 12800 d)"
-  const priceVolBlock = t.match(/\bc\)\s*Price\(s\)\s*and\s*volume\(s\)([\s\S]+?)\bd\)/i)?.[1] || '';
+  //   "d)   Price(s) and volume(s) Price(s) £4.8842 Volume(s) 28 e)" (TESCO PLC)
+  // "(s)" on both words is now optional too — "c) Price and Volume" (no "(s)"
+  // anywhere at all, confirmed live: JPMorgan European Discovery Trust plc)
+  // previously never even reached the block-capture stage, since the outer
+  // header match itself required the literal "(s)" substring.
+  const priceVolBlock = t.match(/\b[a-h]\)\s*Price(?:\(s\))?\s*and\s*volume(?:\(s\))?([\s\S]+?)\b[a-h]\)/i)?.[1] || '';
 
   // Date of transaction
   const transDateStr = grabAfter(t,
@@ -296,25 +324,70 @@ function parseDocumentContent(content, meta) {
       }
     }
 
-    // Pattern A: "Price(s) <price> Volume(s) <volume>" — table with labels
-    if (!price && !volume) {
+    // Pattern A-unit: "Price(s) - <unit> Volume(s) <price-num> <volume-num>" — the
+    // unit is given as its own standalone placeholder (no digit attached) right
+    // after the Price(s) label, e.g. "Price(s) - pence Volume(s) 1,294.2662 768"
+    // (CVS Group plc, confirmed live). Without this, Pattern A below matches "-
+    // pence" as if it WERE the price (its price-group has no digit requirement),
+    // dropping the real 1,294.2662 price entirely and misreading part of it as
+    // the volume instead (parseVolume("1,294.2662") stops at the first non-digit
+    // run, silently truncating to 1,294 shares — the real volume, 768, is never
+    // even looked at).
+    if (price === null && volume === null) {
+      const unitOnlyM = pvStr.match(/Price\(s\)\s*-\s*(pence|GBp|GBX|GBP|£|EUR|USD|CNY|SEK|NOK|CHF)\s+Volume\(s\)\s+([\d,\.]+)\s+([\d,\s]+)/i);
+      if (unitOnlyM) {
+        const unit = unitOnlyM[1];
+        const priceText = /^pence$/i.test(unit) ? `${unitOnlyM[2].trim()}p` : `${unit} ${unitOnlyM[2].trim()}`;
+        price = parsePrice(priceText);
+        volume = parseVolume(unitOnlyM[3].trim());
+      }
+    }
+
+    // Pattern A: "Price(s) <price> Volume(s) <volume>" — table with labels.
+    // Price-group requires an actual digit — otherwise a unit-only placeholder
+    // like "- pence" (see Pattern A-unit above, which handles that shape
+    // properly) would "match" here first and win, since this pattern runs
+    // before the more general Pattern B/fallbacks below.
+    if (price === null && volume === null) {
       const labelM = pvStr.match(/Price\(s\)\s+([\S]+(?:\s+\S+)?)\s+Volume\(s\)\s+([\d,\s]+)/i);
-      if (labelM) {
+      if (labelM && /\d/.test(labelM[1])) {
         price = parsePrice(labelM[1].trim());
         volume = parseVolume(labelM[2].trim());
       }
     }
 
-    if (!price && !volume) {
-      // Pattern B: "<price_with_currency> <volume>" — "21p 26,000" or "GBP 1.50 5000" or "CNY38.957 12800"
-      const pvMatch = pvStr.match(/([A-Z]{0,3}[£$€]?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b|CNY\b|SEK\b|NOK\b|CHF\b)?)\s+([\d,\s]{2,})/i);
+    // Pattern A-colon: "Price: <price> Volume: <volume>" — colon-separated
+    // singular labels, no "(s)" at all (confirmed live: Bytes Technology
+    // Group plc — "Price: 407.47p Volume: 23").
+    if (price === null && volume === null) {
+      const colonM = pvStr.match(/Price\s*:\s*([\S]+(?:\s+\S+)?)\s+Volume\s*:\s*([\d,\s]+)/i);
+      if (colonM && /\d/.test(colonM[1])) {
+        price = parsePrice(colonM[1].trim());
+        volume = parseVolume(colonM[2].trim());
+      }
+    }
+
+    if (price === null && volume === null) {
+      // Pattern B: "<price_with_currency> <volume>" — "21p 26,000" or "GBP 1.50 5000" or "CNY38.957 12800".
+      // Also the fallback for stacked labels with no value between them — "Price(s)
+      // Volume(s) £43.86 4" (British American Tobacco) / "Price(s) Volume(s) GBP
+      // 18.37 8" (Avon Technologies) both confirmed live — Pattern A above requires
+      // the price-group to sit BETWEEN "Price(s)" and "Volume(s)", so it never
+      // matches when both labels are adjacent with the actual values following
+      // afterward; this pattern just searches for the first price-like token
+      // anywhere in the block and the number after it, which works regardless of
+      // label position. Volume group has no artificial minimum length (was
+      // "{2,}", requiring 2+ characters) — that silently failed to match any
+      // SINGLE-DIGIT volume sitting at the very end of the (already .trim()'d)
+      // string, which is exactly BAT's "4" and Avon's "8" above.
+      const pvMatch = pvStr.match(/([A-Z]{0,3}[£$€]?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b|CNY\b|SEK\b|NOK\b|CHF\b)?)\s+([\d,\s]+)/i);
       if (pvMatch) {
         price = parsePrice(pvMatch[1].trim());
         volume = parseVolume(pvMatch[2].trim());
       }
     }
 
-    if (!price && !volume) {
+    if (price === null && volume === null) {
       // Pattern C: "<N> Ordinary Shares at £<price>" — narrative purchase/sale
       // format, e.g. "Purchase: 2,880 Ordinary Shares at £3.43500 Sale: 400
       // Ordinary Shares at £3.40451". Takes the first share block only —
@@ -327,6 +400,26 @@ function parseDocumentContent(content, meta) {
       if (atM) {
         volume = parseVolume(atM[1].trim());
         price = parseFloat(atM[2].replace(/,/g, ''));
+      }
+    }
+
+    if (price === null && volume === null) {
+      // Pattern D: "£<price> per share <volume>" — the reverse order from Pattern
+      // C above, seen on dividend-reinvestment-plan purchases, e.g. "£1.8576 per
+      // share 96" (Lowland Investment Company plc, confirmed live) / "£2.508 per
+      // share 384 £2.508 per share 32" (Polar Capital Global Financials Trust —
+      // two same-price tranches, takes the first only, same "first block wins"
+      // precedent as Pattern C). Without this, Pattern B's price-group swallows
+      // "£1.8576" with no unit suffix to stop at (since "per" doesn't match the
+      // "p\b" pence-suffix branhighlightch — no word boundary after a lone "p" inside
+      // "per"), then fails to find a volume right after ("per share 96" doesn't
+      // start with a digit), falling all the way to the last-resort "any 3+ digit
+      // number" regex below — which matches "8576" (the DECIMAL DIGITS of the
+      // price!) as if it were the share count.
+      const perShareM = pvStr.match(/([A-Z]{0,3}[£$€]?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b)?)\s*per\s+share\s+([\d,]+)/i);
+      if (perShareM) {
+        price = parsePrice(perShareM[1].trim());
+        volume = parseVolume(perShareM[2].trim());
       }
     }
 
@@ -371,7 +464,16 @@ function parseDocumentContent(content, meta) {
     return null;
   })();
 
-  if (!price && volume && totalConsidGBP) {
+  // price === null (not "!price"): a genuinely-determined price of exactly 0 (a
+  // free LTIP/nil-cost grant, e.g. Pattern B correctly parsing "Price(s)
+  // Volume(s) 0 118,773" from a "Nil"-priced allocation) is falsy in JS and was
+  // being silently overwritten here — this fallback searches the ENTIRE document
+  // text for ANY "aggregate/total consideration £X" phrase, which can match an
+  // unrelated figure elsewhere in the filing when the real price is legitimately
+  // zero, producing a bogus non-zero price (confirmed live: Vesuvius plc's VSP
+  // share award — "Price(s) Volume(s) Nil 118,773" — correctly parsed as price=0
+  // by Pattern B, then immediately overwritten to £0.000031/share by this block).
+  if (price === null && volume && totalConsidGBP) {
     const derived = parseFloat((totalConsidGBP / volume).toFixed(6));
     // Sanity cap: no UK-listed stock trades above £500/share.
     // If the derived price exceeds this, the aggregate consideration was likely
@@ -686,7 +788,11 @@ async function scrapeUK() {
   }
 }
 
-scrapeUK().catch(e => {
-  console.error('Fatal:', e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  scrapeUK().catch(e => {
+    console.error('Fatal:', e.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { parseDocumentContent };
