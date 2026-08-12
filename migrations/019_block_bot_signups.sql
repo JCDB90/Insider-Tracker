@@ -45,7 +45,7 @@ DECLARE
     'trashmail.com', 'trashmail.me', 'trashmail.net', 'dispostable.com',
     'example.com', 'example.org', 'example.net',
     'test.com', 'fake.com', 'invalid.com',
-    'web-library.net', 'cursor.dev'
+    'web-library.net', 'cursor.dev', 'emalupe.com'
   ];
 BEGIN
   -- NULL email (e.g. some SSO flows) — nothing to check, let it through.

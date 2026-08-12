@@ -4,15 +4,25 @@
  * or a local .env file during development).
  *
  * Required env vars:
- *   SUPABASE_URL  - e.g. https://xxxx.supabase.co
- *   SUPABASE_KEY  - service_role or anon key
+ *   SUPABASE_URL              - e.g. https://xxxx.supabase.co
+ *   SUPABASE_SERVICE_ROLE_KEY - service_role key (preferred; bypasses RLS,
+ *                                needed now that insider_transactions has
+ *                                anon/authenticated INSERT/UPDATE/DELETE
+ *                                blocked by RLS policy)
+ *   SUPABASE_KEY               - fallback, kept for existing CI secrets that
+ *                                may already hold the service_role key under
+ *                                this older name. Do NOT put the anon key
+ *                                here for scrapers — it can no longer write.
  */
 
+require('dotenv').config();
 const { createClient }   = require('@supabase/supabase-js');
 const { looksLikeCorp, looksLikeAddress } = require('./entityUtils');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_KEY
+  || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('❌ Missing SUPABASE_URL or SUPABASE_KEY environment variables');
@@ -20,6 +30,29 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Defense-in-depth: strip markup/script content from free-text fields before
+// they reach the DB. The frontend already escapes output correctly (React),
+// so this isn't closing an XSS hole that exists today — it's a second layer
+// in case a future consumer (email digest HTML, exported CSV opened in a
+// tool that renders markup, etc.) doesn't escape as carefully.
+function sanitizeString(str) {
+  if (typeof str !== 'string' || !str) return str;
+  return str
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .trim();
+}
+
+const SANITIZE_FIELDS = ['company', 'insider_name', 'via_entity', 'insider_role'];
+function sanitizeRow(row) {
+  for (const field of SANITIZE_FIELDS) {
+    if (row[field]) row[field] = sanitizeString(row[field]);
+  }
+  return row;
+}
 
 // Lazy check: does the via_entity column exist in the DB yet?
 let _viaEntityChecked = false;
@@ -209,9 +242,10 @@ async function saveInsiderTransactions(rows, options = {}) {
 
   // Strip via_entity from rows if the column doesn't exist yet (avoids DB errors)
   const viaExists = await hasViaEntityColumn();
-  const upsertRows = viaExists
+  const upsertRows = (viaExists
     ? complete
-    : complete.map(({ via_entity, ...rest }) => rest);
+    : complete.map(({ via_entity, ...rest }) => rest)
+  ).map(sanitizeRow);
 
   const { data, error } = await supabase
     .from('insider_transactions')
@@ -305,7 +339,7 @@ function validateBuybackProgram(row) {
 async function saveBuybackPrograms(rows) {
   if (!rows || rows.length === 0) return { inserted: 0 };
 
-  const validated = rows.map(validateBuybackProgram).filter(r => r.announced_date != null);
+  const validated = rows.map(validateBuybackProgram).map(sanitizeRow).filter(r => r.announced_date != null);
   if (validated.length < rows.length) {
     console.warn(`  ⚠  Dropped ${rows.length - validated.length} row(s) with unrecoverable announced_date`);
   }

@@ -147,7 +147,7 @@ const BLOCKED_DOMAINS = [
   'example.com', 'example.org', 'example.net',
   'test.com', 'fake.com', 'invalid.com',
   // AppSec scanner infrastructure
-  'web-library.net', 'cursor.dev',
+  'web-library.net', 'cursor.dev', 'emalupe.com',
 ];
 
 // Pattern-based block: catches bot probes that use non-disposable domains

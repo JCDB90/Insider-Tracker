@@ -9,8 +9,9 @@
 # Runtime:  ~388 tickers × 220ms = ~4 min
 #
 # Secrets required:
-#   SUPABASE_URL      — Supabase project URL
-#   SUPABASE_KEY      — service_role key (bypasses RLS for writes)
+#   SUPABASE_URL                — Supabase project URL
+#   SUPABASE_SERVICE_ROLE_KEY   — service_role key (bypasses RLS for writes)
+#   SUPABASE_KEY                — older name, still read as a fallback
 #   FINNHUB_API_KEY   — finnhub.io free API key
 #   FMP_API_KEY       — financialmodelingprep.com key (currently unused; FMP
 #                       free tier has no per-company EU endpoint)
@@ -25,8 +26,9 @@ on:
   workflow_dispatch:        # Manual trigger from Actions tab
 
 env:
-  SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
-  SUPABASE_KEY:      ${{ secrets.SUPABASE_KEY }}
+  SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  SUPABASE_KEY:               ${{ secrets.SUPABASE_KEY }}
   FINNHUB_API_KEY:   ${{ secrets.FINNHUB_API_KEY }}
   FMP_API_KEY:       ${{ secrets.FMP_API_KEY }}
   NODE_ENV: production
