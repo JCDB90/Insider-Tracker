@@ -499,7 +499,7 @@ function KpiCard({ label, value, sub, color }) {
 
 export default function CompanyPage({
   ticker, company, countryCode, yahooTicker,
-  trades, watchlist, onBack, onInsiderClick, backLabel, access,
+  watchlist, onBack, onInsiderClick, backLabel, access,
 }) {
   const [chartData,     setChartData]     = useState([]);
   const [chartRange,    setChartRange]    = useState('1y');
@@ -514,20 +514,24 @@ export default function CompanyPage({
   const [earningsDates,  setEarningsDates]  = useState(null);
   const [earningsNoData, setEarningsNoData] = useState(false); // true once fetch complete + empty
 
-  // Filter all transactions for this company.
+  // Full per-company transaction history, fetched directly rather than filtered
+  // from the homepage's `trades` prop — that prop is now a recent-only slice
+  // (see App.jsx fetchAll cutoff), but company pages promise unlimited history
+  // on paid plans (kpis.largest below needs the all-time largest trade, not
+  // just one within whatever window the homepage happens to have loaded).
   // When both ticker and countryCode are known, require both to match — prevents
   // cross-listing collisions (e.g. VID = Vidrala ES AND Videndum GB).
-  const companyTrades = useMemo(() =>
-    trades
-      .filter(t => {
-        if (ticker && countryCode) {
-          return t.ticker === ticker && t.country_code === countryCode;
-        }
-        return (t.ticker && t.ticker === ticker) || t.company === company;
-      })
-      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
-    [trades, ticker, company, countryCode]
-  );
+  const [companyTrades, setCompanyTrades] = useState([]);
+  useEffect(() => {
+    if (!ticker && !company) return;
+    let query = supabase.from('insider_transactions').select('*');
+    query = (ticker && countryCode) ? query.eq('ticker', ticker).eq('country_code', countryCode)
+          : ticker                  ? query.eq('ticker', ticker)
+          :                           query.eq('company', company);
+    query.order('transaction_date', { ascending: false }).then(({ data, error }) => {
+      setCompanyTrades(error ? [] : (data || []));
+    });
+  }, [ticker, company, countryCode]);
 
   // Build ordered list of Yahoo Finance symbol candidates (proxy tries each in sequence)
   const yahooSymbols = useMemo(() => {

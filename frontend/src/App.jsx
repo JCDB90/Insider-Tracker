@@ -4,6 +4,24 @@ import { supabase } from './supabase.js';
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
 
+// Paginates through a whole table (or, with `sinceDate`, everything from that
+// date forward) in 1000-row pages — Supabase caps a single response at 1000.
+async function fetchAll(table, orderCol, sinceDate) {
+  const PAGE = 1000;
+  const all = [];
+  let from = 0;
+  while (true) {
+    let query = supabase.from(table).select('*').order(orderCol, { ascending: false });
+    if (sinceDate) query = query.gte(orderCol, sinceDate);
+    const { data, error } = await query.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
 // ─── Analytics helpers ────────────────────────────────────────────────────────
 function track(eventName, params) {
   try { window.gtag?.('event', eventName, params); } catch {}
@@ -2479,12 +2497,18 @@ function DashboardPage({
 
 // ─── InsiderProfilePage ───────────────────────────────────────────────────────
 
-function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompanyClick, backLabel }) {
-  const myTrades = useMemo(() =>
-    trades.filter(t => t.insider_name === insiderName)
-      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)),
-    [trades, insiderName]
-  );
+function InsiderProfilePage({ insiderName, performance, onBack, onCompanyClick, backLabel }) {
+  // Full per-insider trade history, fetched directly rather than filtered from
+  // the homepage's `trades` prop — that prop is now a recent-only slice, but an
+  // insider's total invested / trade count here needs their entire history.
+  const [myTrades, setMyTrades] = useState([]);
+  useEffect(() => {
+    if (!insiderName) return;
+    supabase.from('insider_transactions').select('*')
+      .eq('insider_name', insiderName)
+      .order('transaction_date', { ascending: false })
+      .then(({ data, error }) => setMyTrades(error ? [] : (data || [])));
+  }, [insiderName]);
 
   const myBuys = useMemo(() =>
     myTrades.filter(t => ['BUY', 'PURCHASE'].includes((t.transaction_type || '').toUpperCase())),
@@ -2770,7 +2794,20 @@ function InsiderProfilePage({ insiderName, trades, performance, onBack, onCompan
 
 // ─── InsidersPage ─────────────────────────────────────────────────────────────
 
-function InsidersPage({ trades, performance, tradesLoading, perfLoading, onInsiderClick, onCompanyClick, access, onUpgrade }) {
+function InsidersPage({ performance, perfLoading, onInsiderClick, onCompanyClick, access, onUpgrade }) {
+  // Ranking every insider needs their full trade history (most insiders trade
+  // only a few times a year, so a recent-only slice would leave the leaderboard
+  // nearly empty) — fetched lazily here, only when this page is actually opened,
+  // rather than loading it unconditionally on every homepage visit.
+  const [trades, setTrades] = useState([]);
+  const [tradesLoading, setTradesLoading] = useState(true);
+  useEffect(() => {
+    fetchAll('insider_transactions', 'transaction_date').then(data => {
+      setTrades(data);
+      setTradesLoading(false);
+    });
+  }, []);
+
   const leaderboard = useMemo(() =>
     tradesLoading ? [] : computeInsiderScorecard(trades, performance),
     [trades, performance, tradesLoading]
@@ -5567,26 +5604,15 @@ export default function App() {
     setStripeCustomerId(null);
   }
 
-
-  async function fetchAll(table, orderCol) {
-    const PAGE = 1000;
-    const all = [];
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from(table).select('*')
-        .order(orderCol, { ascending: false })
-        .range(from, from + PAGE - 1);
-      if (error || !data || data.length === 0) break;
-      all.push(...data);
-      if (data.length < PAGE) break;
-      from += PAGE;
-    }
-    return all;
-  }
-
   useEffect(() => {
-    fetchAll('insider_transactions', 'transaction_date').then(data => {
+    // Homepage feed only needs recent activity (matches the "Full 180 days"
+    // paid-plan promise) — full per-entity history is fetched on demand by
+    // CompanyPage/InsiderProfilePage/InsidersPage instead. insider_transactions
+    // has grown past 16k rows; fetching it all on every homepage load was the
+    // actual cause of slow loading (RLS's SELECT policy is a no-op `USING (true)`,
+    // not the bottleneck).
+    const cutoff180d = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
+    fetchAll('insider_transactions', 'transaction_date', cutoff180d).then(data => {
       setTrades(data);
       setTradesLoading(false);
     });
@@ -5833,7 +5859,6 @@ export default function App() {
         {page === 'insiders' && selectedInsider ? (
           <InsiderProfilePage
             insiderName={selectedInsider}
-            trades={trades}
             performance={performance}
             onBack={handleBack}
             backLabel={backLabel}
@@ -5841,9 +5866,7 @@ export default function App() {
           />
         ) : page === 'insiders' && (
           <InsidersPage
-            trades={trades}
             performance={performance}
-            tradesLoading={tradesLoading}
             perfLoading={perfLoading}
             onInsiderClick={handleInsiderClick}
             onCompanyClick={handleCompanyClick}
@@ -5867,7 +5890,6 @@ export default function App() {
               company={selectedCompany.company}
               countryCode={selectedCompany.countryCode}
               yahooTicker={selectedCompany.yahooTicker}
-              trades={trades}
               watchlist={watchlist}
               onBack={handleBack}
               backLabel={backLabel}
