@@ -223,7 +223,14 @@ function parseDocumentContent(content, meta) {
   if (!content) return [];
 
   // Normalise whitespace
-  const t = content.replace(/\s+/g, ' ').trim();
+  // Also collapse stray whitespace around a decimal point ("1 . 6684" → "1.6684")
+  // — an artefact of some filings' table layout (confirmed live: Tritax Big Box
+  // REIT's "£1 . 6684" price cell). Without this, parsePrice's regexes only
+  // capture the digits before the space ("1"), leaving price wrong/null and
+  // volume parsing falls through to the last-resort "any 3+ digit run" regex,
+  // which then grabs the price's OWN decimal digits ("6684") as if they were
+  // the share count — a 5x undercounted volume with no price at all.
+  const t = content.replace(/\s+/g, ' ').replace(/(\d)\s+\.\s+(\d)/g, '$1.$2').trim();
 
   // Extract section 1: person name(s)
   // "1 Details of the person discharging managerial responsibilities ... a) Name <name> 2 Reason"
@@ -501,7 +508,20 @@ function parseDocumentContent(content, meta) {
   }
 
   const transDate = parseDate(transDateStr);
-  const txType = mapType(nature || '');
+  // mapType() reads the "Nature of the transaction" free text, which often
+  // describes a COMPOUND event ("Exercise of options ... and related sale")
+  // covering both an option-exercise leg AND a subsequent sale leg — but the
+  // price/volume actually captured above for THIS row can correspond to just
+  // one specific leg. When that leg's price is nil-cost (0), it is always an
+  // acquisition of shares (option exercise, RSU/PSU vesting, share award) —
+  // nobody sells shares for zero consideration — so a nil price overrides
+  // whatever mapType() concluded from the combined nature text. Confirmed
+  // live: AO World's "Exercise of options ... and related sale" and IMI's
+  // vesting-then-sale filings both matched mapType()'s SELL branch (the
+  // nature text mentions "sale") even though the row's own price/volume
+  // (Nil / 358,435 and Nil / 28,347 respectively) represent the Exercise/
+  // vesting leg, not the sale leg — mislabeling a share acquisition as a SELL.
+  const txType = (price === 0) ? 'BUY' : mapType(nature || '');
 
   // Handle multiple PDMRs in one document
   // Names might be "1. Katie Worgan 2. Emma Holden" or "Katie Worgan"

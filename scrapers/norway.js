@@ -341,9 +341,19 @@ function parseBody(raw) {
   const txType = (() => {
     const l = text.toLowerCase();
     // BUY: purchased/bought/acquired/subscribed + Norwegian: kjøpte/kjøpt/ervervet/kjøp
-    if (/\b(purchased?|bought|acqui|subscri|kjøpte?|kjøpt|ervervet|kjøp|erverv)\b/.test(l)) return 'BUY';
+    // NOTE: no trailing \b on prefix fragments (acqui/subscri/erverv) — they're
+    // meant to match as PREFIXES of "acquire(d)"/"subscri(bed/ption)"/"erverv(et)",
+    // but a trailing \b requires a non-word char immediately after, which never
+    // happens mid-word. Confirmed live: StrongPoint ASA's "today acquired 3,479
+    // shares" never matched \bacqui\b (boundary fails between "acqui" and "red"),
+    // so classification fell through to the SELL check below, which matched
+    // "sold" from an unrelated sentence later in the same bulletin ("StrongPoint
+    // ASA has today sold 15,770 shares" — the company's own treasury sale) and
+    // mislabeled a board member's purchase as a SELL.
+    if (/\b(purchased?|bought|acqui|subscri|kjøpte?|kjøpt|ervervet|kjøp|erverv)/.test(l)) return 'BUY';
     // SELL: sold/disposed/divested + Norwegian: salg/solgte/solgt/avhendet
-    if (/\b(sold?|disposed?|divest|salg|solgte?|solgt|avhendet)\b/.test(l)) return 'SELL';
+    // Same fix: "divest" is a prefix of "divested" and needs no trailing \b either.
+    if (/\b(sold?|disposed?|divest|salg|solgte?|solgt|avhendet)/.test(l)) return 'SELL';
     return 'OTHER';
   })();
 
@@ -645,8 +655,10 @@ async function scrapeNO() {
     // Determine transaction type: from body, fall back to title
     const txTypeFromTitle = (() => {
       const t = (m.title || '').toLowerCase();
-      if (/\b(kjøp|buy|acqui|purchase)\b/.test(t)) return 'BUY';
-      if (/\b(salg|sell|dispos)\b/.test(t)) return 'SELL';
+      // Same prefix-matching fix as parseBody's txType above — no trailing \b
+      // on "acqui"/"dispos", which are prefixes, not whole words.
+      if (/\b(kjøp|buy|acqui|purchase)/.test(t)) return 'BUY';
+      if (/\b(salg|sell|dispos)/.test(t)) return 'SELL';
       return 'OTHER';
     })();
     const txType = (parsed.txType && parsed.txType !== 'OTHER') ? parsed.txType : txTypeFromTitle;
