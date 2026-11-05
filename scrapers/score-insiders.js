@@ -19,13 +19,14 @@
  *   cluster_start DATE, cluster_end DATE
  */
 
+require('dotenv').config();
 const { createClient }           = require('@supabase/supabase-js');
 const { fetchYahooRange }        = require('./lib/yahooFinance');
 const { getSuffixesForCountry }  = require('./lib/tickerMap');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
-  process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
 );
 
 const BATCH_SIZE  = 50;

@@ -10,11 +10,12 @@
  * 5. Move corporate entity names to via_entity, null out insider_name
  */
 
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
-  process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
 );
 
 // Corporate suffixes / patterns that indicate an entity, not a person

@@ -35,6 +35,18 @@ const SOURCE       = 'Finansinspektionen Sweden';
 // 2-day tx window = ~20–30 rows / 2–3 pages → no rate-limit issues.
 // Set LOOKBACK_DAYS=14 (or higher) for backfills.
 const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '2');
+// FI "Intrument type" values (column 7) that are not the issuer's equity. Their
+// price is an option premium / warrant price / bond nominal, not a share price
+// (e.g. Latour's "Köpoption Latour B 2026/2030" incentive call options at SEK
+// 19.90 beside B-shares at SEK 202), so they poison price-based signals.
+// BTA/BTU/Interim share (paid-subscribed shares in a share issue) and Depositary
+// receipt (SDRs, real share prices) are deliberately not listed here.
+const NON_EQUITY_INSTRUMENTS = new Set([
+  'Option', 'Call option', 'Put option', 'Synthetic option', 'Warrant',
+  'Subcription warrant', 'Subscription warrant', 'Subscription right/Unit right',
+  'Swap', 'Future/Forward', 'Other derivative contracts',
+  'Bond', 'Convertible', 'Capital equity', 'Redemption share',
+]);
 const DELAY_MS      = 1200;  // ~8 reqs/min — avoids ECONNRESET rate-limit on AJAX endpoint
 const BASE          = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const AJAX_BASE     = `${BASE}/Insyn`;
@@ -397,7 +409,7 @@ async function fetchPage(from, to, page) {
     }
     rows.push({
       company: c[1], insider: c[2], position: c[3], closely: c[4] || null,
-      nature:  c[5], isin:    c[8], txDateStr: c[9],
+      nature:  c[5], instrumentType: c[7], isin: c[8], txDateStr: c[9],
       volume:  c[10], price:  c[12], currency: c[13] || 'SEK',
     });
   });
@@ -515,8 +527,9 @@ async function scrapeSE() {
   const { looksLikeCorp } = require('./lib/entityUtils');
   const seen = new Set();
   const dbRows = [];
-  let corpFilings = 0;
+  let corpFilings = 0, nonEquity = 0;
   for (const r of allRaw) {
+    if (NON_EQUITY_INSTRUMENTS.has(r.instrumentType)) { nonEquity++; continue; }
     const txDate = parseSEDate(r.txDateStr);
     // No transaction-date cutoff: pub-date is the time anchor.  Skip only if unparseable.
     if (!txDate) continue;
@@ -575,6 +588,7 @@ async function scrapeSE() {
       is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
     });
   }
+  if (nonEquity) console.log(`  ℹ  ${nonEquity} non-equity instrument rows skipped (options/warrants/bonds/etc.)`);
   if (corpFilings) console.log(`  ℹ  ${corpFilings} corporate-entity insider rows detected (kept via via_entity)`);
 
   console.log(`  ${dbRows.length} unique rows`);

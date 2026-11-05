@@ -13,6 +13,7 @@
  * Processes all eligible rows per run (no cap). Daily run via cron/GitHub Actions.
  */
 
+require('dotenv').config();
 const { createClient }                     = require('@supabase/supabase-js');
 const { fetchYahooRange, findClosestPrice } = require('./lib/yahooFinance');
 const { getSuffixesForCountry, SPECIFIC_OVERRIDES } = require('./lib/tickerMap');
@@ -20,7 +21,7 @@ const { PriceCache }                        = require('./lib/priceCache');
 
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
-  process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
 );
 
 const TODAY = new Date().toISOString().slice(0, 10);

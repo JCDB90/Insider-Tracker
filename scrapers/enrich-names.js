@@ -21,10 +21,11 @@ const { execSync }= require('child_process');
 const os          = require('os');
 const fs          = require('fs');
 const path        = require('path');
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const DELAY = ms => new Promise(r => setTimeout(r, ms));
