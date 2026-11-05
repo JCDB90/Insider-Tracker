@@ -16,6 +16,8 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { toEUR } = require('./lib/currency');
+const { SUBSCRIPTION_INSTRUMENTS } = require('./lib/instrumentTypes');
+const { assertWritten } = require('./lib/verifyWrite');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -67,7 +69,7 @@ async function loadAllBuys() {
   while (true) {
     const { data, error } = await sb
       .from('insider_transactions')
-      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, shares, currency, is_unusual_price')
+      .select('id, company, ticker, country_code, insider_name, transaction_date, price_drawdown, price_per_share, shares, currency, is_unusual_price, raw_data')
       .in('transaction_type', ['BUY', 'PURCHASE'])
       .not('transaction_date', 'is', null)
       .not('insider_name', 'is', null)
@@ -200,6 +202,9 @@ function computeSignals(buys, priceReference, chartDataSet = new Set()) {
     // option exercised at a nominal sub-1 price on a stock that trades much
     // higher.
     let isUnusualPrice = t.price_per_share === 0;
+    // Instrument type recorded by the scraper (SE: BTA/BTU/interim shares bought
+    // at a share issue's subscription price) — known at source, not inferred.
+    if (SUBSCRIPTION_INSTRUMENTS.has(t.raw_data?.instrument_type)) isUnusualPrice = true;
 
     const tEUR = toEUR(t.price_per_share, t.currency);
 
@@ -463,12 +468,13 @@ async function upsertSignals(results, rawRows) {
     // Process in chunks of BATCH_SIZE to avoid PostgREST URL length limits
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
       const chunk = ids.slice(i, i + BATCH_SIZE);
-      const { error } = await sb
+      const res = await sb
         .from('insider_transactions')
         .update(flags)
-        .in('id', chunk);
-      if (error) {
-        console.error(`  ❌ Update chunk: ${error.message}`);
+        .in('id', chunk)
+        .select('id');
+      if (assertWritten(res, chunk.length, 'flag-signals update') === null) {
+        console.error(`  ❌ Update chunk: ${res.error.message}`);
       } else {
         updated += chunk.length;
       }

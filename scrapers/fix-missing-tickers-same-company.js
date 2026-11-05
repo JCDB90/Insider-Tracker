@@ -23,7 +23,7 @@ const { createClient } = require('@supabase/supabase-js');
 const DRY_RUN = !process.argv.includes('--write');
 const supabase = createClient(
   process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co',
-  process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt'
 );
 
 const isISIN = t => /^[A-Z]{2}[A-Z0-9]{10}$/.test(t);

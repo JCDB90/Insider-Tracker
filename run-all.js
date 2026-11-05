@@ -24,7 +24,9 @@ const fs         = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 const _sb = (() => {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_KEY;
+  // scraper_runs is what daily-health-check.js's silent-failure alert reads —
+  // prefer the service-role key so RLS can never quietly drop these rows.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
   if (!url || !key) return null;
   return createClient(url, key);
 })();
@@ -107,7 +109,9 @@ function timestamp() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
-const DEFAULT_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes default
+// SCRAPER_TIMEOUT_MS raises the per-market floor (GitHub Actions has its own
+// 90-min job cap and previously ran scrapers with no per-market timeout at all).
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.SCRAPER_TIMEOUT_MS || '', 10) || 8 * 60 * 1000;
 
 function runScript(scriptPath, label, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return new Promise((resolve) => {
@@ -183,18 +187,25 @@ async function main() {
     }
 
     console.log(`\n[${market.code}] ${market.name}`);
-    const result = await runScript(scriptPath, market.code, market.timeoutMs);
+    const result = await runScript(scriptPath, market.code, Math.max(market.timeoutMs || 0, DEFAULT_TIMEOUT_MS));
     results.push(result);
 
     // Log to scraper_runs so health-check can tell the difference between
     // "scraper ran but found nothing new" vs "scraper never ran".
-    // Parse rows_saved from the scraper's stdout: look for "N saved" or "N rows saved".
+    // rows_saved = sum of lib/db.js's DB-confirmed "[db] ... written=N" lines;
+    // falls back to the scraper's own "N saved" line for scrapers that don't
+    // go through saveInsiderTransactions.
+    const dbWritten = result.lines
+      .map(l => l.match(/\[db\] insider_transactions written=(\d+)/))
+      .filter(Boolean);
     const savedMatch = result.lines
       .slice()
       .reverse()
       .map(l => l.match(/(\d+)\s+(?:rows?\s+)?saved/i))
       .find(Boolean);
-    const rowsSaved = savedMatch ? parseInt(savedMatch[1], 10) : 0;
+    const rowsSaved = dbWritten.length
+      ? dbWritten.reduce((sum, m) => sum + parseInt(m[1], 10), 0)
+      : (savedMatch ? parseInt(savedMatch[1], 10) : 0);
 
     await logRun(
       market.code,

@@ -47,6 +47,10 @@ jobs:
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '' }}
+      # Market steps go through run-all.js so every run lands in scraper_runs
+      # (daily-health-check.js alerts on missing/zero-row runs); 30 min floor
+      # per market since these steps previously had no per-scraper timeout.
+      SCRAPER_TIMEOUT_MS: '1800000'
 
     steps:
       # ── Setup ──────────────────────────────────────────────────────────────
@@ -70,96 +74,96 @@ jobs:
       - name: 🇳🇱 Netherlands (AFM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NL' }}
         continue-on-error: true
-        run: node scrapers/netherlands.js
+        run: node run-all.js NL
 
       - name: 🇩🇪 Germany (BaFin)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'DE' }}
         continue-on-error: true
-        run: node scrapers/germany.js
+        run: node run-all.js DE
 
       - name: 🇩🇰 Denmark (Finanstilsynet)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'DK' }}
         continue-on-error: true
-        run: node scrapers/denmark.js
+        run: node run-all.js DK
 
       - name: 🇸🇪 Sweden (Finansinspektionen)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SE' }}
         continue-on-error: true
-        run: node scrapers/sweden.js
+        run: node run-all.js SE
 
 
       - name: 🇫🇷 France (AMF)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FR' }}
         continue-on-error: true
         timeout-minutes: 15   # PDF-heavy — many AMF documents to download
-        run: node scrapers/france.js
+        run: node run-all.js FR
 
       - name: 🇫🇮 Finland (FIN-FSA)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'FI' }}
         continue-on-error: true
-        run: node scrapers/finland.js
+        run: node run-all.js FI
 
       - name: 🇪🇸 Spain (CNMV)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'ES' }}
         continue-on-error: true
-        run: node scrapers/spain.js
+        run: node run-all.js ES
 
       - name: 🇵🇹 Portugal (CMVM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'PT' }}
         continue-on-error: true
         timeout-minutes: 12   # Puppeteer can hang — cap it so NO/CH/KR aren't starved
-        run: node scrapers/portugal.js
+        run: node run-all.js PT
 
       - name: 🇧🇪 Belgium (FSMA)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'BE' }}
         continue-on-error: true
-        run: node scrapers/belgium.js
+        run: node run-all.js BE
 
       - name: 🇱🇺 Luxembourg (LuxSE)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'LU' }}
         continue-on-error: true
         timeout-minutes: 12   # PDF downloads from LuxSE
-        run: node scrapers/luxembourg.js
+        run: node run-all.js LU
 
       - name: 🇦🇹 Austria (OeKB)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'AT' }}
         continue-on-error: true
         timeout-minutes: 12   # PDF downloads from OeKB
-        run: node scrapers/austria.js
+        run: node run-all.js AT
 
       - name: 🇬🇧 United Kingdom (FCA NSM)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
         continue-on-error: true
         timeout-minutes: 15   # Many FCA PDF fetches
-        run: node scrapers/uk.js
+        run: node run-all.js GB
 
       - name: 🇮🇹 Italy (CONSOB)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'IT' }}
         continue-on-error: true
-        run: node scrapers/italy.js
+        run: node run-all.js IT
 
       - name: 🇨🇭 Switzerland (FINMA)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'CH' }}
         continue-on-error: true
-        run: node scrapers/switzerland.js
+        run: node run-all.js CH
 
       - name: 🇳🇴 Norway (Finanstilsynet)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'NO' }}
         continue-on-error: true
-        run: node scrapers/norway.js
+        run: node run-all.js NO
 
       # ── Asia-Pacific ────────────────────────────────────────────────────────
       - name: 🇰🇷 South Korea (FSS)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'KR' }}
         continue-on-error: true
         timeout-minutes: 15   # DART API + ZIP downloads
-        run: node scrapers/southkorea.js
+        run: node run-all.js KR
 
       - name: 🇸🇬 Singapore (SGX)
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'SG' }}
         continue-on-error: true
         timeout-minutes: 15   # Puppeteer listing + per-filing PDF downloads
-        run: node scrapers/singapore.js
+        run: node run-all.js SG
 
       # ── Maintenance ─────────────────────────────────────────────────────────
       - name: 🧹 Cleanup records older than 90 days
@@ -168,6 +172,15 @@ jobs:
         run: node scrapers/cleanup.js
 
       # ── Scoring & Performance ────────────────────────────────────────────────
+      # flag-signals MUST run before score-insiders (see scripts/run-daily.sh):
+      # scoring only (re)scores rows with conviction_normalized IS NULL and
+      # treats is_unusual_price IS NULL as "not unusual", so scoring first
+      # permanently scores option exercises / RSU vestings as real buys.
+      - name: 🚩 Flag signals (cluster, repetitive, pre-earnings, price dip)
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scrapers/flag-signals.js
+
       - name: 🎯 Score insider conviction
         if: ${{ github.event.inputs.country == '' }}  # Only on full runs
         continue-on-error: true
@@ -177,11 +190,6 @@ jobs:
         if: ${{ github.event.inputs.country == '' }}  # Only on full runs
         continue-on-error: true
         run: node scrapers/track-performance.js
-
-      - name: 🚩 Flag signals (cluster, repetitive, pre-earnings, price dip)
-        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
-        continue-on-error: true
-        run: node scrapers/flag-signals.js
 
       # ── Buyback Programs ────────────────────────────────────────────────────
       - name: 🇳🇴 Norway Buybacks (Oslo Bors cat 1007)
@@ -193,6 +201,17 @@ jobs:
         if: ${{ github.event.inputs.country == '' || github.event.inputs.country == 'GB' }}
         continue-on-error: true
         run: node scrapers/buybacks/uk-buybacks.js
+
+      # ── Health check ────────────────────────────────────────────────────────
+      # Emails jcdeboer@yahoo.com (Resend) on silent scraper failures (no
+      # scraper_runs entry for 36h / 0 rows saved twice in a row) and data-
+      # quality issues. Needs the RESEND_API_KEY repo secret.
+      - name: 🩺 Health check & silent-failure alert
+        if: ${{ always() && github.event.inputs.country == '' }}
+        continue-on-error: true
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node scrapers/daily-health-check.js
 
       # ── Summary ─────────────────────────────────────────────────────────────
       - name: 📊 Run summary

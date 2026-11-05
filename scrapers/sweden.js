@@ -35,18 +35,7 @@ const SOURCE       = 'Finansinspektionen Sweden';
 // 2-day tx window = ~20–30 rows / 2–3 pages → no rate-limit issues.
 // Set LOOKBACK_DAYS=14 (or higher) for backfills.
 const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '2');
-// FI "Intrument type" values (column 7) that are not the issuer's equity. Their
-// price is an option premium / warrant price / bond nominal, not a share price
-// (e.g. Latour's "Köpoption Latour B 2026/2030" incentive call options at SEK
-// 19.90 beside B-shares at SEK 202), so they poison price-based signals.
-// BTA/BTU/Interim share (paid-subscribed shares in a share issue) and Depositary
-// receipt (SDRs, real share prices) are deliberately not listed here.
-const NON_EQUITY_INSTRUMENTS = new Set([
-  'Option', 'Call option', 'Put option', 'Synthetic option', 'Warrant',
-  'Subcription warrant', 'Subscription warrant', 'Subscription right/Unit right',
-  'Swap', 'Future/Forward', 'Other derivative contracts',
-  'Bond', 'Convertible', 'Capital equity', 'Redemption share',
-]);
+const { NON_EQUITY_INSTRUMENTS, SUBSCRIPTION_INSTRUMENTS } = require('./lib/instrumentTypes');
 const DELAY_MS      = 1200;  // ~8 reqs/min — avoids ECONNRESET rate-limit on AJAX endpoint
 const BASE          = 'https://marknadssok.fi.se/Publiceringsklient/en-GB/Search/Search';
 const AJAX_BASE     = `${BASE}/Insyn`;
@@ -585,7 +574,8 @@ async function scrapeSE() {
       // is the only signal available at scrape time. flag-signals.js re-derives this
       // daily with fuller cross-company context; this just makes the row correct
       // immediately after scraping.
-      is_unusual_price: isAbsoluteUnusualPrice(price) ? true : null,
+      is_unusual_price: (SUBSCRIPTION_INSTRUMENTS.has(r.instrumentType) || isAbsoluteUnusualPrice(price)) ? true : null,
+      raw_data: r.instrumentType ? { instrument_type: r.instrumentType } : null,
     });
   }
   if (nonEquity) console.log(`  ℹ  ${nonEquity} non-equity instrument rows skipped (options/warrants/bonds/etc.)`);

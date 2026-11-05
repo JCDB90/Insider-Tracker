@@ -9,6 +9,7 @@
  *   d) Duplicate transactions
  *   e) Bilateral transfer pairs
  *   f) Transaction price vs company-peer prices (unusual price proxy)
+ *   g) Silent scraper failures (no run in 36h / 0 rows saved twice in a row)
  *
  * Sends an email to ALERT_EMAIL only when issues are found.
  * Silent if all checks pass.
@@ -20,7 +21,8 @@ const { createClient } = require('@supabase/supabase-js');
 const { toEUR } = require('./lib/currency');
 
 const SUPABASE_URL     = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
-const SUPABASE_KEY     = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
+// Service key: an RLS-blocked read returns [] silently, which would hide alerts.
+const SUPABASE_KEY     = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
 const RESEND_API_KEY   = process.env.RESEND_API_KEY;
 const ALERT_EMAIL      = 'jcdeboer@yahoo.com';
 const FROM_EMAIL       = 'hello@insidersalpha.com';
@@ -33,14 +35,15 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 async function sendAlert(subject, html) {
   if (!RESEND_API_KEY) {
     console.warn('  ⚠  RESEND_API_KEY not set — skipping alert email');
-    return;
+    return false;
   }
   const res = await fetch('https://api.resend.com/emails', {
     method:  'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify({ from: FROM_EMAIL, to: ALERT_EMAIL, subject, html }),
   });
-  if (!res.ok) console.error('  ❌ Resend error:', res.status, await res.text());
+  if (!res.ok) { console.error('  ❌ Resend error:', res.status, await res.text()); return false; }
+  return true;
 }
 
 function tableHtml(headers, rows) {
@@ -206,57 +209,47 @@ async function checkUnusualPrices(since) {
   return flagged;
 }
 
-// ── Check g): Stale scrapers ──────────────────────────────────────────────────
-// Uses scraper_runs table (populated by run-all.js) to detect scrapers that
-// genuinely didn't run — as opposed to scrapers that ran but found nothing new.
-// Falls back to insider_transactions.created_at if scraper_runs has no data yet.
-const STALE_HOURS = 48; // alert if a market hasn't run in 2 days
-const CORE_MARKETS = ['DE','FR','SE','NO','DK','FI','NL','BE','ES','IT','CH','GB','PT','LU','KR'];
-// PL excluded — Poland removed from platform
+// ── Check g): Silent scraper failures ─────────────────────────────────────────
+// Reads scraper_runs (written by run-all.js for every market run — both the
+// Hetzner cron and the GitHub Actions workflow go through it) and flags:
+//   • no run at all for STALE_HOURS (cron/workflow stopped, or logging broke)
+//   • the last ZERO_RUNS runs all saved 0 rows (rows_saved is the DB-confirmed
+//     write count from lib/db.js — an RLS-blocked or broken scraper shows up
+//     here even when it exits 0)
+const STALE_HOURS = 36;
+const ZERO_RUNS   = 2;
+const CORE_MARKETS = ['NL','DE','DK','SE','FR','FI','ES','PT','BE','LU','AT','GB','IT','CH','NO','KR','SG'];
 
-async function checkStaleScrapers() {
+async function checkSilentFailures() {
   const now = Date.now();
-
-  // Primary: check scraper_runs table
-  const { data: runs } = await sb
+  const since = new Date(now - 14 * 86400000).toISOString();
+  const { data: runs, error } = await sb
     .from('scraper_runs')
-    .select('country_code, ran_at, status')
+    .select('country_code, ran_at, rows_saved, status')
     .in('country_code', CORE_MARKETS)
-    .order('ran_at', { ascending: false });
+    .gte('ran_at', since)
+    .order('ran_at', { ascending: false })
+    .limit(5000);
+  if (error) {
+    return [{ country_code: 'ALL', problem: `scraper_runs unreadable: ${error.message}`, last_seen: '-' }];
+  }
 
-  // Fallback: newest created_at per market from insider_transactions
-  const { data: txRows } = await sb
-    .from('insider_transactions')
-    .select('country_code, created_at')
-    .in('country_code', CORE_MARKETS)
-    .order('created_at', { ascending: false });
+  const byMarket = {};
+  for (const r of runs) (byMarket[r.country_code] ||= []).push(r);
 
-  const latestRun = {};   // from scraper_runs
-  const latestTx  = {};   // from insider_transactions (fallback)
-
-  for (const r of runs   || []) if (!latestRun[r.country_code]) latestRun[r.country_code] = r.ran_at;
-  for (const r of txRows || []) if (!latestTx[r.country_code])  latestTx[r.country_code]  = r.created_at;
-
-  const hasRunData = Object.keys(latestRun).length > 0;
-
-  const stale = [];
+  const failures = [];
   for (const cc of CORE_MARKETS) {
-    const lastTimestamp = hasRunData
-      ? (latestRun[cc] || null)        // use scraper_runs if available
-      : (latestTx[cc]  || null);       // fall back to created_at
-    const hoursAgo = lastTimestamp
-      ? Math.round((now - new Date(lastTimestamp).getTime()) / 3600000)
-      : 9999;
-    if (hoursAgo >= STALE_HOURS) {
-      stale.push({
-        country_code: cc,
-        hours_ago:    hoursAgo,
-        last_seen:    lastTimestamp?.slice(0, 16) || 'never',
-        source:       hasRunData ? 'scraper_runs' : 'tx_created_at',
-      });
+    const recent = byMarket[cc] || [];
+    const last = recent[0];
+    const hoursAgo = last ? Math.round((now - new Date(last.ran_at).getTime()) / 3600000) : null;
+    if (!last || hoursAgo >= STALE_HOURS) {
+      failures.push({ country_code: cc, problem: last ? `no run for ${hoursAgo}h` : 'no run in 14 days', last_seen: last?.ran_at.slice(0, 16) || 'never' });
+    } else if (recent.length >= ZERO_RUNS && recent.slice(0, ZERO_RUNS).every(r => !r.rows_saved)) {
+      const statuses = recent.slice(0, ZERO_RUNS).map(r => r.status).join(', ');
+      failures.push({ country_code: cc, problem: `0 rows saved in last ${ZERO_RUNS} runs (${statuses})`, last_seen: last.ran_at.slice(0, 16) });
     }
   }
-  return stale;
+  return failures;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -266,7 +259,7 @@ async function main() {
   const since  = cutoffDate(LOOKBACK_DAYS);
   const today  = new Date().toISOString().slice(0, 10);
 
-  const [priceAnomalies, missingFields, suspiciousNames, duplicates, bilateralTransfers, unusualPrices, staleScrapers] =
+  const [priceAnomalies, missingFields, suspiciousNames, duplicates, bilateralTransfers, unusualPrices, silentFailures] =
     await Promise.all([
       checkPriceAnomalies(since),
       checkMissingFields(since),
@@ -274,13 +267,13 @@ async function main() {
       checkDuplicates(since),
       checkBilateralTransfers(since),
       checkUnusualPrices(since),
-      checkStaleScrapers(),
+      checkSilentFailures(),
     ]);
 
   const missingCount  = Object.values(missingFields).reduce((s, n) => s + n, 0);
   const totalIssues   = priceAnomalies.length + missingCount + suspiciousNames.length +
                         duplicates.length + bilateralTransfers.length + unusualPrices.length +
-                        staleScrapers.length;
+                        silentFailures.length;
 
   // Log summary
   console.log(`  a) Price anomalies:       ${priceAnomalies.length}`);
@@ -289,7 +282,7 @@ async function main() {
   console.log(`  d) Duplicates:            ${duplicates.length}`);
   console.log(`  e) Bilateral transfers:   ${bilateralTransfers.length}`);
   console.log(`  f) Unusual prices:        ${unusualPrices.length}`);
-  console.log(`  g) Stale scrapers (>${STALE_HOURS}h): ${staleScrapers.length}${staleScrapers.length?(' — '+staleScrapers.map(s=>s.country_code+'('+s.hours_ago+'h)').join(', ')):''}`);
+  console.log(`  g) Silent failures:       ${silentFailures.length}${silentFailures.length?(' — '+silentFailures.map(s=>s.country_code+' ('+s.problem+')').join(', ')):''}`);
   console.log(`  Total issues:             ${totalIssues}`);
 
   if (totalIssues === 0) {
@@ -303,7 +296,7 @@ async function main() {
     ...Object.keys(missingFields),
     ...suspiciousNames.map(r=>r.country_code),
     ...unusualPrices.map(r=>r.country),
-    ...staleScrapers.map(r=>r.country_code),
+    ...silentFailures.map(r=>r.country_code),
   ])].join(', ') || 'various';
 
   const html = `
@@ -333,16 +326,24 @@ async function main() {
   <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Transaction price &lt; 75% of company peer median, excluding rows already flagged as unusual (option exercises, dual-class shares) — review manually</p>
   ${tableHtml(['Company','Country','Insider','Tx Price','Peer Median','Ratio','Date'],unusualPrices.map(r=>[r.company,r.country,r.insider,r.tx_price,r.peer_median,r.ratio,r.date]))}
 
-  <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">g) Stale Scrapers — no new data in ${STALE_HOURS}h+ (${staleScrapers.length})</h3>
-  <p style="font-size:12px;color:#6B7280;margin:0 0 8px">Markets whose scraper may have hung or failed silently</p>
-  ${tableHtml(['Market','Hours Since Last Row','Last Seen'],staleScrapers.map(r=>[r.country_code,r.hours_ago+'h',r.last_seen]))}
+  <h3 style="font-size:14px;font-weight:700;margin:16px 0 8px">g) Silent Scraper Failures (${silentFailures.length})</h3>
+  <p style="font-size:12px;color:#6B7280;margin:0 0 8px">No scraper_runs entry for ${STALE_HOURS}h+, or 0 DB-confirmed rows saved in the last ${ZERO_RUNS} runs</p>
+  ${tableHtml(['Market','Problem','Last Run (UTC)'],silentFailures.map(r=>[r.country_code,r.problem,r.last_seen]))}
 
   <hr style="margin:24px 0;border:none;border-top:1px solid #f0f0f0">
   <p style="font-size:11px;color:#9CA3AF">InsidersAlpha automated health check · <a href="https://www.insidersalpha.com" style="color:#9CA3AF">insidersalpha.com</a></p>
 </body></html>`.trim();
 
-  await sendAlert(`⚠️ InsidersAlpha Data Quality Report — ${today} (${totalIssues} issues)`, html);
-  console.log(`  📧 Alert email sent to ${ALERT_EMAIL}`);
+  const subject = silentFailures.length
+    ? `🚨 InsidersAlpha silent scraper failure: ${silentFailures.map(r=>r.country_code).join(', ')} — ${today}`
+    : `⚠️ InsidersAlpha Data Quality Report — ${today} (${totalIssues} issues)`;
+  if (await sendAlert(subject, html)) {
+    console.log(`  📧 Alert email sent to ${ALERT_EMAIL}`);
+  } else {
+    // An alert that can't be delivered must not look like a passing check.
+    console.error('  ❌ Alert email NOT sent');
+    process.exitCode = 1;
+  }
 }
 
 main().catch(err => { console.error('❌ Fatal:', err.message); process.exit(1); });

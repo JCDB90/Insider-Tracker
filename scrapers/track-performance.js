@@ -14,6 +14,7 @@
  */
 
 require('dotenv').config();
+const { assertWritten, WriteBlockedError } = require('./lib/verifyWrite');
 const { createClient }                     = require('@supabase/supabase-js');
 const { fetchYahooRange, findClosestPrice } = require('./lib/yahooFinance');
 const { getSuffixesForCountry, SPECIFIC_OVERRIDES } = require('./lib/tickerMap');
@@ -226,25 +227,28 @@ async function main() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error: upErr } = await supabase
+      const res = await supabase
         .from('insider_performance')
-        .upsert(perfRow, { onConflict: 'transaction_id' });
+        .upsert(perfRow, { onConflict: 'transaction_id' })
+        .select('id');
 
-      if (upErr) { skip.dbError++; continue; }
+      if (assertWritten(res, 1, 'insider_performance upsert') === null) { skip.dbError++; continue; }
       upserted++;
 
       // Backfill price_return_30d on the transaction row
       if (r30 !== null) {
-        await supabase
+        assertWritten(await supabase
           .from('insider_transactions')
           .update({ price_return_30d: r30 })
-          .eq('id', row.id);
+          .eq('id', row.id)
+          .select('id'), 1, 'price_return_30d update');
       }
 
       if (upserted % 50 === 0 && upserted > 0) {
         console.log(`  Progress: ${upserted}/${toProcess.length}…`);
       }
     } catch (err) {
+      if (err instanceof WriteBlockedError) throw err;
       skip.fetchError++;
     }
   }

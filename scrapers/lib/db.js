@@ -18,6 +18,7 @@
 require('dotenv').config();
 const { createClient }   = require('@supabase/supabase-js');
 const { looksLikeCorp, looksLikeAddress } = require('./entityUtils');
+const { assertWritten } = require('./verifyWrite');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -247,9 +248,13 @@ async function saveInsiderTransactions(rows, options = {}) {
     : complete.map(({ via_entity, ...rest }) => rest)
   ).map(sanitizeRow);
 
-  const { data, error } = await supabase
+  const res = await supabase
     .from('insider_transactions')
-    .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: false });
+    .upsert(upsertRows, { onConflict: 'filing_id', ignoreDuplicates: false })
+    .select('id');
+  const { error } = res;
+  // Throws on an RLS-denied / silently-dropped write instead of reporting success.
+  assertWritten(res, upsertRows.length, 'insider_transactions upsert');
 
   if (error) {
     // Unique constraint violation: content-hash ID matched an existing row's natural key,
@@ -268,9 +273,12 @@ async function saveInsiderTransactions(rows, options = {}) {
       console.log('  ℹ  Within-batch unique conflict — retrying row-by-row');
       let saved = 0;
       for (const row of upsertRows) {
-        let { error: rowErr } = await supabase
+        const rowRes = await supabase
           .from('insider_transactions')
-          .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: false });
+          .upsert([row], { onConflict: 'filing_id', ignoreDuplicates: false })
+          .select('id');
+        assertWritten(rowRes, 1, 'insider_transactions row upsert');
+        let rowErr = rowRes.error;
         if (rowErr && rowErr.code === '23505') {
           // This row's new values collide with a DIFFERENT existing row on the natural-key
           // index (not just its own filing_id) — skip it rather than block the batch.
@@ -284,12 +292,20 @@ async function saveInsiderTransactions(rows, options = {}) {
           console.warn(`  ⚠  Row upsert failed (${row.company}): ${rowErr.code} ${rowErr.message}`);
         }
       }
+      logSaveResult(saved, upsertRows.length);
       return { inserted: saved, drops };
     }
     console.error('  DB error (insider_transactions):', error.message);
     return { inserted: 0, error, drops };
   }
-  return { inserted: complete.length, drops };
+  logSaveResult(res.data.length, upsertRows.length);
+  return { inserted: res.data.length, drops };
+}
+
+// Machine-readable line run-all.js parses for scraper_runs.rows_saved, so the
+// logged count is what the DB confirmed, not what the scraper submitted.
+function logSaveResult(written, submitted) {
+  console.log(`[db] insider_transactions written=${written} submitted=${submitted}`);
 }
 
 /**

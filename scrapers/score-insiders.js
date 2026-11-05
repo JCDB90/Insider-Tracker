@@ -20,6 +20,7 @@
  */
 
 require('dotenv').config();
+const { assertWritten, WriteBlockedError } = require('./lib/verifyWrite');
 const { createClient }           = require('@supabase/supabase-js');
 const { fetchYahooRange }        = require('./lib/yahooFinance');
 const { getSuffixesForCountry }  = require('./lib/tickerMap');
@@ -323,7 +324,7 @@ async function main() {
         const convictionScore      = Math.round(convictionNormalized) / 100; // keep 0-1 float for compat
         const label                = scoreLabel(convictionNormalized);
 
-        const { error: upErr } = await supabase
+        const res = await supabase
           .from('insider_transactions')
           .update({
             conviction_score:      convictionScore,
@@ -335,12 +336,14 @@ async function main() {
             cluster_end:           clusterEnd,
             price_drawdown:        priceResult?.drawdown ?? null,
           })
-          .eq('id', row.id);
+          .eq('id', row.id)
+          .select('id');
 
-        if (upErr) { skip(`db error: ${upErr.message}`); }
+        if (assertWritten(res, 1, 'score-insiders update') === null) { skip(`db error: ${res.error.message}`); }
         else { scored++; }
 
       } catch (err) {
+        if (err instanceof WriteBlockedError) throw err;
         skip(`exception: ${err.message?.slice(0, 60)}`);
       }
     }
