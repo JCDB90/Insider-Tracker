@@ -499,7 +499,7 @@ function KpiCard({ label, value, sub, color }) {
 
 export default function CompanyPage({
   ticker, company, countryCode, yahooTicker,
-  watchlist, onBack, onInsiderClick, backLabel, access, onWatch,
+  watchlist, onBack, onInsiderClick, backLabel, access, onWatch, onUpgrade,
 }) {
   const isWatched = !!watchlist?.some(w => w.ticker === ticker && w.country_code === countryCode);
   const [watchBusy, setWatchBusy] = useState(false);
@@ -980,7 +980,7 @@ export default function CompanyPage({
                   {companyTrades.length - 3} more transaction{companyTrades.length - 3 !== 1 ? 's' : ''} hidden
                 </div>
                 <div style={{ fontSize: 12, color: '#9CA3AF' }}>Full history with Pro — from €19/month</div>
-                <a href="#pricing" onClick={e => { e.preventDefault(); }} style={{
+                <a href="/#pricing" onClick={e => { if (onUpgrade) { e.preventDefault(); onUpgrade(); } }} style={{
                   background: ACCENT, color: '#fff', border: 'none', borderRadius: 7,
                   padding: '7px 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                   fontFamily: "'Inter', sans-serif", textDecoration: 'none', marginTop: 4,

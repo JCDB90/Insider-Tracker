@@ -142,6 +142,15 @@ if (typeof window !== 'undefined') {
   SIGNUP_DEEPLINK_MODE = captureSignupDeepLink();
 }
 
+// App tabs that static pages may link to as /#<tab> (e.g. /#pricing,
+// /#watchlist). Without this the hash was ignored and every such link just
+// showed the dashboard.
+const HASH_TABS = new Set(['dashboard', 'watchlist', 'insiders', 'insights', 'pricing']);
+function tabFromHash() {
+  const tab = (window.location.hash || '').replace(/^#\/?/, '').toLowerCase();
+  return HASH_TABS.has(tab) ? tab : null;
+}
+
 // Where an auth/watchlist action started, for GA4 event params.
 function currentSource(appPage) {
   const pending = getPendingWatch();
@@ -5719,6 +5728,8 @@ export default function App() {
     // Deep-link support for marketing/article CTAs, e.g. /?page=insights&tab=performance
     // — same pattern as the ?country= pre-select below.
     try {
+      const fromHash = tabFromHash();
+      if (fromHash) return fromHash;
       const p = new URLSearchParams(window.location.search).get('page');
       return p === 'insights' ? 'insights' : 'dashboard';
     } catch { return 'dashboard'; }
@@ -5756,6 +5767,21 @@ export default function App() {
   const [watchNotice, setWatchNotice] = useState(null); // { kind: 'added'|'limit'|'duplicate'|'error', name }
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
   const [tickerMeta, setTickerMeta] = useState([]);
+
+  // /#pricing etc.: open the tab (on load via useState above, and for in-page
+  // hash links), then drop the hash so a refresh after navigating elsewhere
+  // doesn't jump back to it.
+  useEffect(() => {
+    const apply = () => {
+      const tab = tabFromHash();
+      if (!tab) return;
+      setPage(tab);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
 
   // ── Dynamic meta tags ──────────────────────────────────────────────────────
   useMetaTags(page, selectedCompany, selectedInsider);
@@ -6235,6 +6261,7 @@ export default function App() {
               onInsiderClick={handleInsiderClick}
               access={access}
               onWatch={() => handleWatchCompany(selectedCompany)}
+              onUpgrade={() => setPage('pricing')}
             />
           </Suspense>
         )}
