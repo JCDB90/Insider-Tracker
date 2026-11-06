@@ -33,11 +33,13 @@ const GENERATED = ['stocks', 'insiders', 'company', 'signals', 'sitemap.xml']
   .map(p => path.join(PUBLIC, p))
   .concat(path.join(FRONTEND, 'vercel.json'));
 
-// Order matters: stock pages link to insider pages; signal pages only link to
-// stock pages that exist.
+// Order matters: pages only link to pages that exist on disk. Insider pages
+// run twice — first so stock pages can link to them, then again so they can
+// link to stock pages created in this run. Signal pages link to stock pages.
 const GENERATORS = [
   ['generate-insider-pages.js', ['--limit', '1000']],
   ['generate-stock-pages.js', ['--limit', '100000']],
+  ['generate-insider-pages.js', ['--limit', '1000']],
   ['generate-company-pages.js', []],
   ['generate-signal-pages.js', []],
 ];

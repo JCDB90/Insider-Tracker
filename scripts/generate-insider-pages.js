@@ -7,6 +7,10 @@ try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const {
+  readTickerPages, readInsiderPages, insiderKey, preferredSlug, aliasHeadTags,
+  writeSitemapSection, listedSlugs, repairKeptLinks,
+} = require('./lib/pageRegistry');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -338,7 +342,7 @@ function isPricePlausible(row, companyMedians) {
 
 // ── Aggregate ─────────────────────────────────────────────────────────────────
 
-function aggregateInsiders(rawRows, perfById) {
+function aggregateInsiders(rawRows, perfById, existingKeys = new Set()) {
   const companyMedians = buildCompanyMedianPrices(rawRows);
   const rows = rawRows.filter(r =>
     !looksLikeEntity(r.insider_name) &&
@@ -346,16 +350,19 @@ function aggregateInsiders(rawRows, perfById) {
     isPricePlausible(r, companyMedians));
   normalizeNamesPerCompany(rows);
 
-  const groups = new Map(); // `${name}|${company}|${cc}` -> { name, company, cc, txns:[] }
+  // Grouped case-insensitively ("AB VOLVO" / "AB Volvo" filings are the same
+  // company) — the same key the page registry uses, so one person = one page.
+  const groups = new Map(); // insiderKey(name, company, cc) -> { name, company, cc, txns:[] }
   for (const r of rows) {
-    const key = `${r.insider_name}|${r.company}|${r.country_code}`;
+    const key = insiderKey(r.insider_name, r.company, r.country_code);
     if (!groups.has(key)) groups.set(key, { name: r.insider_name, company: r.company, cc: r.country_code, ticker: r.ticker, txns: [] });
     groups.get(key).txns.push(r);
   }
 
   const qualifying = [];
   for (const g of groups.values()) {
-    if (g.txns.length < 3) continue;
+    const hasPage = existingKeys.has(insiderKey(g.name, g.company, g.cc));
+    if (g.txns.length < 3 && !hasPage) continue;
     const sorted = [...g.txns].sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''));
     const buys  = sorted.filter(t => (t.transaction_type || '').toUpperCase() === 'BUY');
     const sells = sorted.filter(t => (t.transaction_type || '').toUpperCase() === 'SELL');
@@ -379,7 +386,7 @@ function aggregateInsiders(rawRows, perfById) {
     };
 
     qualifying.push({
-      name: g.name, company: g.company, cc: g.cc, ticker: g.ticker,
+      name: g.name, company: g.company, cc: g.cc, ticker: g.ticker, hasPage,
       txns: sorted, buys, sells,
       totalValueEur, totalBuyValueEur, totalSellValueEur,
       latestRole: sorted[0].insider_role || '',
@@ -397,22 +404,43 @@ function aggregateInsiders(rawRows, perfById) {
     });
   }
 
-  // Slugs: bare name-slug when a name maps to exactly one company among
-  // qualifying groups, else disambiguate with the company slug.
+  // New pages: 3+ transactions, top LIMIT by value. Existing pages: always.
+  qualifying.sort((a, b) => b.totalValueEur - a.totalValueEur);
+  const top = qualifying.filter(q => q.txns.length >= 3).slice(0, LIMIT);
+  const topSet = new Set(top);
+  return [...top, ...qualifying.filter(q => q.hasPage && !topSet.has(q))];
+}
+
+// Slugs. Existing page → its slug (extra files for the same person become
+// aliases). New page → bare name slug when the name maps to one company among
+// everything selected and the slug is free, else name-company; processed by
+// first transaction date so the choice doesn't flip as data arrives.
+function assignSlugs(insiders, existing, listed) {
+  const aliasInsiders = [];
+  const taken = new Set(existing.bySlug.keys());
+  for (const q of insiders) {
+    const slugs = existing.byKey.get(insiderKey(q.name, q.company, q.cc));
+    if (!slugs) continue;
+    q.slug = preferredSlug(slugs, existing.aliases, listed);
+    for (const other of slugs.filter(x => x !== q.slug)) aliasInsiders.push({ ...q, slug: other, canonicalSlug: q.slug });
+  }
   const nameCompanyCount = new Map();
-  for (const q of qualifying) {
+  for (const q of insiders) {
     const k = q.name.toLowerCase();
     if (!nameCompanyCount.has(k)) nameCompanyCount.set(k, new Set());
     nameCompanyCount.get(k).add(`${q.company}|${q.cc}`);
   }
-  for (const q of qualifying) {
+  const fresh = insiders.filter(q => !q.slug)
+    .sort((a, b) => (a.earliestDate || '').localeCompare(b.earliestDate || '') || insiderKey(a.name, a.company, a.cc).localeCompare(insiderKey(b.name, b.company, b.cc)));
+  for (const q of fresh) {
     const nameSlug = makeNameSlug(q.name);
-    const companies = nameCompanyCount.get(q.name.toLowerCase());
-    q.slug = companies.size > 1 ? `${nameSlug}-${makeCompanySlug(q.company)}` : nameSlug;
+    const withCo = `${nameSlug}-${makeCompanySlug(q.company)}`;
+    const unique = nameCompanyCount.get(q.name.toLowerCase()).size === 1;
+    const candidates = [...(unique ? [nameSlug] : []), withCo, `${withCo}-${q.cc.toLowerCase()}`];
+    q.slug = candidates.find(c => !taken.has(c)) || candidates[candidates.length - 1];
+    taken.add(q.slug);
   }
-
-  qualifying.sort((a, b) => b.totalValueEur - a.totalValueEur);
-  return qualifying.slice(0, LIMIT);
+  return { aliasInsiders, freshCount: fresh.length };
 }
 
 // ── HTML generator ────────────────────────────────────────────────────────────
@@ -421,9 +449,12 @@ function generateHTML(ins) {
   const ctry = COUNTRY[ins.cc] || { name: ins.cc, flag: '', regulator: ins.cc, mktSlug: ins.cc.toLowerCase() };
   const currency = currencyOf(ins.txns[0]);
   const role = simplifyRole(ins.latestRole);
-  const companySlug = makeCompanySlug(ins.company);
-  const companyUrl = `${BASE_URL}/stocks/${companySlug}-insider-transactions`;
-  const canonUrl = `${BASE_URL}/insiders/${ins.slug}`;
+  // Company links go to the company's stock page only if it exists on disk —
+  // the old makeCompanySlug() guess often named a page that was never built.
+  const companyUrl = ins.stockSlug ? `${BASE_URL}/stocks/${ins.stockSlug}-insider-transactions` : null;
+  const companyLink = (cls = '') => companyUrl
+    ? `<a href="${companyUrl.replace(BASE_URL,'')}"${cls}>${esc(ins.company)}</a>` : esc(ins.company);
+  const canonUrl = `${BASE_URL}/insiders/${ins.canonicalSlug || ins.slug}`;
   const ratio = (ins.buys.length + ins.sells.length) > 0 ? Math.round(ins.buys.length / (ins.buys.length + ins.sells.length) * 100) : 0;
 
   const metaDesc = `${ins.name} (${role} at ${ins.company}) insider trading history: ${ins.txns.length} transactions, ${valuePhrase(ins.buys.length, ins.totalBuyValueEur, 'purchase')}. Free MAR Article 19 data, updated daily.`;
@@ -482,8 +513,8 @@ function generateHTML(ins) {
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'InsidersAlpha', item: BASE_URL },
       { '@type': 'ListItem', position: 2, name: ctry.name, item: `${BASE_URL}/market/${ctry.mktSlug}-insider-transactions` },
-      { '@type': 'ListItem', position: 3, name: ins.company, item: companyUrl },
-      { '@type': 'ListItem', position: 4, name: ins.name, item: canonUrl },
+      ...(companyUrl ? [{ '@type': 'ListItem', position: 3, name: ins.company, item: companyUrl }] : []),
+      { '@type': 'ListItem', position: companyUrl ? 4 : 3, name: ins.name, item: canonUrl },
     ],
   });
 
@@ -532,6 +563,7 @@ function generateHTML(ins) {
   <meta property="og:type" content="profile">
   <meta name="twitter:card" content="summary">
   <link rel="canonical" href="${canonUrl}">
+  <meta name="ia-page-key" content="${esc(insiderKey(ins.name, ins.company, ins.cc))}">${ins.canonicalSlug ? `\n  ${aliasHeadTags(canonUrl)}` : ''}
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -613,12 +645,12 @@ function generateHTML(ins) {
   <nav class="breadcrumb" aria-label="Breadcrumb">
     <a href="/">InsidersAlpha</a><span>›</span>
     <a href="/market/${ctry.mktSlug}-insider-transactions">${ctry.flag} ${ctry.name}</a><span>›</span>
-    <a href="${companyUrl.replace(BASE_URL,'')}">${esc(ins.company)}</a><span>›</span>
+    ${companyLink()}<span>›</span>
     ${esc(ins.name)}
   </nav>
 
   <h1>${esc(ins.name)} Insider Trading</h1>
-  <p class="hero-sub">${esc(role)} at <a href="${companyUrl.replace(BASE_URL,'')}">${esc(ins.company)}</a> ${ctry.flag} — ${ins.txns.length} insider transactions tracked from official ${ctry.regulator} filings.</p>
+  <p class="hero-sub">${esc(role)} at ${companyLink()} ${ctry.flag} — ${ins.txns.length} insider transactions tracked from official ${ctry.regulator} filings.</p>
   <p class="updated-note">Last updated: ${TODAY} · Data sourced from MAR Article 19 regulatory disclosures</p>
 
   <div class="header-badges">
@@ -669,7 +701,7 @@ function generateHTML(ins) {
 
   <h2>Related pages</h2>
   <div class="header-badges">
-    <a href="${companyUrl.replace(BASE_URL,'')}" class="hbadge">🏢 ${esc(ins.company)} insider transactions</a>
+    ${companyUrl ? `<a href="${companyUrl.replace(BASE_URL,'')}" class="hbadge">🏢 ${esc(ins.company)} insider transactions</a>` : ''}
     <a href="/market/${ctry.mktSlug}-insider-transactions" class="hbadge">${ctry.flag} All ${ctry.name} insider transactions</a>
     <a href="/methodology" class="hbadge">How signals are calculated</a>
   </div>
@@ -691,18 +723,18 @@ function generateHTML(ins) {
 
 // ── Sitemap ───────────────────────────────────────────────────────────────────
 
-function updateSitemap(insiders) {
-  let xml = fs.readFileSync(SITEMAP, 'utf8');
-  xml = xml.replace(/<url>\s*<loc>[^<]*\/insiders\/[^<]*<\/loc>[\s\S]*?<\/url>/g, '');
-  const newEntries = insiders.map(ins => `  <url>
+function updateSitemap(insiders, aliases) {
+  const freshEntries = insiders.map(ins => ({ slug: ins.slug, xml: `  <url>
     <loc>${BASE_URL}/insiders/${ins.slug}</loc>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
     <lastmod>${ins.latestDate || TODAY}</lastmod>
-  </url>`).join('\n');
-  xml = xml.replace('</urlset>', `${newEntries}\n</urlset>`);
-  xml = xml.replace(/\n{3,}/g, '\n\n');
-  fs.writeFileSync(SITEMAP, xml, 'utf8');
+  </url>` }));
+  return writeSitemapSection({
+    sitemapPath: SITEMAP, dir: OUT_DIR, section: 'insiders', aliases, freshEntries,
+    urlFor: slug => `${BASE_URL}/insiders/${slug}`,
+    slugOf: file => file.replace(/\.html$/, ''),
+  });
 }
 
 // ── vercel.json ───────────────────────────────────────────────────────────────
@@ -732,21 +764,37 @@ async function main() {
   const perfById = await fetchAllPerformance();
   console.log(`${perfById.size} rows`);
 
-  const insiders = aggregateInsiders(rawRows, perfById);
-  console.log(`  ${insiders.length} insiders qualify (3+ transactions, top ${LIMIT} by value)\n`);
-
+  // Existing pages keep their slug and keep being regenerated (see
+  // scripts/lib/pageRegistry.js). IA_LISTED_SITEMAP: one-time duplicate cleanup.
+  const MKT_TO_CC = Object.fromEntries(Object.entries(COUNTRY).map(([c, v]) => [v.mktSlug, c]));
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  const existing = readInsiderPages(OUT_DIR, MKT_TO_CC);
+  const listed = listedSlugs(process.env.IA_LISTED_SITEMAP || SITEMAP, 'insiders', p => p);
+  const stockPages = readTickerPages(path.resolve(__dirname, '../frontend/public/stocks'), MKT_TO_CC);
+
+  const insiders = aggregateInsiders(rawRows, perfById, new Set(existing.byKey.keys()));
+  const { aliasInsiders, freshCount } = assignSlugs(insiders, existing, listed);
+  console.log(`  ${insiders.length} insiders (${insiders.filter(i => i.hasPage).length} existing pages with data, ${freshCount} new), ${aliasInsiders.length} duplicate files written as aliases\n`);
+
   let generated = 0;
-  for (const ins of insiders) {
+  for (const ins of [...insiders, ...aliasInsiders]) {
+    const stockSlugs = ins.ticker ? stockPages.byKey.get(`${ins.ticker}|${ins.cc}`) : null;
+    ins.stockSlug = stockSlugs ? preferredSlug(stockSlugs, stockPages.aliases) : null;
     const html = generateHTML(ins);
     fs.writeFileSync(path.join(OUT_DIR, `${ins.slug}.html`), html, 'utf8');
     generated++;
   }
   console.log(`  Generated: ${generated} pages`);
 
+  const regenerated = new Set([...insiders, ...aliasInsiders].map(i => i.slug));
+  const unlinked = repairKeptLinks({ dir: OUT_DIR, publicDir: path.resolve(__dirname, '../frontend/public'),
+    keep: slug => !regenerated.has(slug), slugOf: f => f.replace(/\.html$/, '') });
+  console.log(`  Kept pages: ${unlinked} links to missing pages turned into text`);
+
   process.stdout.write('  Updating sitemap.xml… ');
-  updateSitemap(insiders);
-  console.log('done');
+  const aliases = new Set([...existing.aliases, ...aliasInsiders.map(a => a.slug)]);
+  const sm = updateSitemap(insiders, aliases);
+  console.log(`done — ${sm.fresh} refreshed + ${sm.kept} kept (page file, no current data)`);
 
   process.stdout.write('  Updating vercel.json… ');
   const added = updateVercelJson();

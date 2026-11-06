@@ -415,13 +415,21 @@ async function main() {
     const fp = path.join(OUT_DIR, 'cluster-buying.html');
     let html = fs.readFileSync(fp, 'utf8');
     const marker = '<h2>Frequently asked questions</h2>';
-    // Strip every prior copy of the examples block (a non-anchored /g pass,
-    // not "must be immediately followed by the FAQ heading" — that
-    // assumption broke as soon as two copies existed back to back, since
-    // the first copy is then followed by another copy, not by FAQ, so nothing
-    // matched and re-runs kept appending instead of replacing).
-    html = html.replace(/\n  <div class="divider"><\/div>\n  <h2>Recent cluster buys<\/h2>[\s\S]*?<\/p>\n/g, '\n');
-    html = html.replace(marker, `${examplesBlock.trim()}\n\n  <div class="divider"></div>\n\n  ${marker}`);
+    // The examples live between explicit start/end comments and are replaced
+    // as a whole. Matching the block by its own text left the divider that
+    // follows it behind, so every run added one more divider.
+    const START = '<!-- ia:cluster-examples -->';
+    const END = '<!-- /ia:cluster-examples -->';
+    const section = `${START}\n  ${examplesBlock.trim()}\n\n  <div class="divider"></div>\n  ${END}\n\n  `;
+    if (html.includes(START)) {
+      html = html.replace(/<!-- ia:cluster-examples -->[\s\S]*?<!-- \/ia:cluster-examples -->\s*/, section);
+    } else {
+      // One-time migration from the unmarked layout: drop old example blocks
+      // and the dividers they left stacked in front of the FAQ.
+      html = html.replace(/\n  <div class="divider"><\/div>\n  <h2>Recent cluster buys<\/h2>[\s\S]*?<\/p>\n/g, '\n');
+      html = html.replace(/(?:\s*<div class="divider"><\/div>)+\s*(?=<h2>Frequently asked questions<\/h2>)/, '\n\n  ');
+      html = html.replace(marker, section + marker);
+    }
     fs.writeFileSync(fp, html, 'utf8');
     console.log(`  ✓ cluster-buying.html refreshed with ${rows.length} live examples`);
   }

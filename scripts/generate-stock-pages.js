@@ -8,7 +8,11 @@ try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-const { makeNameSlug, makeCompanySlug } = require('./generate-insider-pages');
+const { makeCompanySlug } = require('./generate-insider-pages');
+const {
+  readTickerPages, readInsiderPages, insiderKey, preferredSlug, aliasHeadTags,
+  writeSitemapSection, listedSlugs, repairKeptLinks,
+} = require('./lib/pageRegistry');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -193,7 +197,7 @@ async function fetchAllTransactions() {
 
 // ── Aggregate companies ───────────────────────────────────────────────────────
 
-function aggregateCompanies(rows, limit) {
+function aggregateCompanies(rows, limit, existingKeys = new Set()) {
   const map = new Map();
   for (const r of rows) {
     const key = `${r.ticker}|${r.country_code}`;
@@ -238,12 +242,18 @@ function aggregateCompanies(rows, limit) {
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
 
-  // Merge: priorities first, then rest (deduplicated)
+  // Merge: priorities first, then rest (deduplicated), then every listing that
+  // already has a page — existing pages keep being refreshed while they have
+  // data, even below the 3+ bar that applies to new pages.
   const merged = [...priorities];
   const seen = new Set(priorities.map(c => `${c.ticker}|${c.country_code}`));
   for (const c of rest) {
     const k = `${c.ticker}|${c.country_code}`;
     if (!seen.has(k)) { merged.push(c); seen.add(k); }
+  }
+  for (const c of all) {
+    const k = `${c.ticker}|${c.country_code}`;
+    if (existingKeys.has(k) && !seen.has(k)) { merged.push(c); seen.add(k); }
   }
 
   return merged;
@@ -251,29 +261,17 @@ function aggregateCompanies(rows, limit) {
 
 // ── HTML generator ────────────────────────────────────────────────────────────
 
-function generateHTML(co, txns, insiderNameCompanyCount) {
+function generateHTML(co, txns, insiderSlugFor) {
   const cc    = co.country_code;
   // Alert CTA deep link — the app remembers the ticker and adds it to the
   // watchlist once the visitor has signed up/in (see captureSignupDeepLink).
   const signupUrl = `/signup?ticker=${encodeURIComponent(co.ticker)}&amp;country=${encodeURIComponent(cc)}&amp;company=${encodeURIComponent(co.company || '')}`;
-  // Real insider profile pages live at /insiders/{slug} (plural, no suffix) —
-  // bare name-slug when the name maps to exactly one company among insider
-  // pages actually generated, else disambiguated with the company slug (see
-  // generate-insider-pages.js's own identical rule). Confirmed live: every
-  // stock page previously linked to a nonexistent /insider/{slug}-insider-
-  // trading (singular, bogus suffix) — Google crawled these, hit the SPA's
-  // catch-all rewrite (200 + generic content), and flagged them as duplicate-
-  // without-canonical. insiderNameCompanyCount is built from ALL transactions
-  // (not just insiders who clear generate-insider-pages.js's 3+ transaction
-  // bar), so it may occasionally disambiguate a name that generator wouldn't
-  // bother to — but for a name below that bar there's no real page to link
-  // to either way, so this is strictly safer than the pre-fix state, never worse.
-  const resolveInsiderSlug = (insiderName) => {
-    if (!insiderName) return null;
-    const nameSlug = makeNameSlug(insiderName);
-    const companies = insiderNameCompanyCount.get(insiderName.toLowerCase());
-    return companies && companies.size > 1 ? `${nameSlug}-${makeCompanySlug(co.company)}` : nameSlug;
-  };
+  // Insider links only point at insider pages that exist on disk for this
+  // exact person + company + market (generate-insider-pages.js runs first).
+  // Guessing the slug from the name used to produce links to pages that were
+  // never generated, which the SPA catch-all then served as the dashboard.
+  const resolveInsiderSlug = (insiderName, company) =>
+    insiderName ? insiderSlugFor(insiderKey(insiderName, company || co.company, cc)) : null;
   const ctry  = COUNTRY[cc] || { name: cc, flag: '', exchange: cc, regulator: cc, mktSlug: cc.toLowerCase() };
 
   const sorted   = [...txns].sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''));
@@ -286,7 +284,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
   for (const t of sorted) {
     if (!t.insider_name || t.insider_name === 'Not disclosed') continue;
     if (!insiderMap.has(t.insider_name)) {
-      insiderMap.set(t.insider_name, { name: t.insider_name, role: t.insider_role || '', total: 0, buys: 0 });
+      insiderMap.set(t.insider_name, { name: t.insider_name, company: t.company, role: t.insider_role || '', total: 0, buys: 0 });
     }
     const ins = insiderMap.get(t.insider_name);
     ins.total++;
@@ -308,7 +306,9 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
   const trend = buyTrend(co.buys, co.sells, co.buys6mo, co.buyVal6mo);
   const ratio = co.buys + co.sells > 0 ? (co.buys / (co.buys + co.sells) * 100).toFixed(0) : 0;
   const lastAgo = daysAgo(co.last);
-  const canonUrl = `${BASE_URL}/stocks/${co.slug}-insider-transactions`;
+  // Duplicate page files for the same listing point their canonical at the
+  // one real page (see pageRegistry.preferredSlug).
+  const canonUrl = `${BASE_URL}/stocks/${co.canonicalSlug || co.slug}-insider-transactions`;
 
   const metaDesc = latestBuy
     ? `Track insider buying at ${co.company} (${co.ticker}). ${co.total} transactions tracked since ${co.earliest || '—'}. Latest: ${(latestBuy.insider_name || 'An insider').slice(0,40)} ${latestBuy.transaction_type === 'SELL' || latestBuy.transaction_type === 'SALE' ? 'sold' : 'bought'} ${formatValue(latestBuy.total_value, cc)} on ${latestBuy.transaction_date}. Official MAR Art.19 data.`
@@ -330,7 +330,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
     const tp    = (t.transaction_type || '').toUpperCase();
     const isBuy = tp === 'BUY' || tp === 'PURCHASE';
     const insName = t.insider_name || (t.via_entity ? `Via ${t.via_entity}` : 'Undisclosed');
-    const insSlug = resolveInsiderSlug(t.insider_name);
+    const insSlug = resolveInsiderSlug(t.insider_name, t.company);
     const badges = [
       t.is_cluster_buy    ? '<span title="Cluster buy">🔄</span>'    : '',
       t.is_price_dip      ? '<span title="Price dip buy">📉</span>'  : '',
@@ -352,7 +352,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
   // Key insiders list
   const insiderRows = namedInsiders.map(ins => {
     const initials = ins.name.split(' ').map(n=>n[0]).filter(Boolean).join('').slice(0,2).toUpperCase();
-    const slug = resolveInsiderSlug(ins.name);
+    const slug = resolveInsiderSlug(ins.name, ins.company);
     return `<div class="insider-row">
           <div class="insider-avatar">${esc(initials)}</div>
           <div class="insider-info" style="flex:1">
@@ -360,7 +360,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
             ${ins.role ? `<div class="insider-role">${esc(ins.role)}</div>` : ''}
             <div class="insider-stats">${ins.total} filing${ins.total!==1?'s':''} · ${ins.buys} buy${ins.buys!==1?'s':''}</div>
           </div>
-          <a href="/insiders/${slug}" class="view-link">View profile →</a>
+          ${slug ? `<a href="/insiders/${slug}" class="view-link">View profile →</a>` : ''}
         </div>`;
   }).join('\n');
 
@@ -455,6 +455,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
   <meta property="og:type" content="article">
   <meta name="twitter:card" content="summary">
   <link rel="canonical" href="${canonUrl}">
+  <meta name="ia-page-key" content="${esc(co.ticker)}|${cc}">${co.canonicalSlug ? `\n  ${aliasHeadTags(canonUrl)}` : ''}
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -756,29 +757,25 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
 
 // ── Sitemap update ────────────────────────────────────────────────────────────
 
-function updateSitemap(companies) {
-  let xml = fs.readFileSync(SITEMAP, 'utf8');
-
-  // Remove existing /stocks/ entries
-  xml = xml.replace(/<url>\s*<loc>[^<]*\/stocks\/[^<]*<\/loc>[\s\S]*?<\/url>/g, '');
-
+function updateSitemap(companies, aliases) {
   const CUTOFF_90D_PRIO = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-  const newEntries = companies.map(co => {
+  const freshEntries = companies.filter(co => !co.canonicalSlug).map(co => {
     const last = co.last || TODAY;
     let priority = '0.5';
     if (last >= CUTOFF_30D)       priority = '0.9';
     else if (last >= CUTOFF_90D_PRIO) priority = '0.7';
-    return `  <url>
+    return { slug: co.slug, xml: `  <url>
     <loc>${BASE_URL}/stocks/${co.slug}-insider-transactions</loc>
     <changefreq>weekly</changefreq>
     <priority>${priority}</priority>
     <lastmod>${last}</lastmod>
-  </url>`;
-  }).join('\n');
-
-  xml = xml.replace('</urlset>', `${newEntries}\n</urlset>`);
-  xml = xml.replace(/\n{3,}/g, '\n\n');
-  fs.writeFileSync(SITEMAP, xml, 'utf8');
+  </url>` };
+  });
+  return writeSitemapSection({
+    sitemapPath: SITEMAP, dir: OUT_DIR, section: 'stocks', aliases, freshEntries,
+    urlFor: slug => `${BASE_URL}/stocks/${slug}-insider-transactions`,
+    slugOf: file => file.replace(/-insider-transactions\.html$/, ''),
+  });
 }
 
 // ── vercel.json update ────────────────────────────────────────────────────────
@@ -815,38 +812,50 @@ async function main() {
   const allTxns = await fetchAllTransactions();
   console.log(`${allTxns.length} rows`);
 
-  // Which insider names appear at more than one company — used to decide
-  // whether a stock page's insider links need the disambiguating company
-  // slug generate-insider-pages.js's own pages use (see resolveInsiderSlug).
-  const insiderNameCompanyCount = new Map();
-  for (const t of allTxns) {
-    if (!t.insider_name) continue;
-    const key = t.insider_name.toLowerCase();
-    if (!insiderNameCompanyCount.has(key)) insiderNameCompanyCount.set(key, new Set());
-    insiderNameCompanyCount.get(key).add(`${t.company}|${t.country_code}`);
-  }
+  // Existing pages: their slug is kept and they keep being regenerated.
+  // IA_LISTED_SITEMAP (optional) names an older sitemap to settle which of
+  // several duplicate files for one listing is the real page — only needed
+  // for the one-time cleanup; afterwards the alias markers decide.
+  const MKT_TO_CC = Object.fromEntries(Object.entries(COUNTRY).map(([c, v]) => [v.mktSlug, c]));
+  const existing = readTickerPages(OUT_DIR, MKT_TO_CC);
+  const listed = listedSlugs(process.env.IA_LISTED_SITEMAP || SITEMAP, 'stocks', p => p.replace(/-insider-transactions$/, ''));
+  console.log(`  ${existing.bySlug.size} existing page files (${existing.byKey.size} listings, ${existing.aliases.size} aliases)`);
 
-  const companies = aggregateCompanies(allTxns, LIMIT);
+  // Insider pages on disk, for linking (generate-insider-pages.js runs first).
+  const insiderPages = readInsiderPages(path.resolve(__dirname, '../frontend/public/insiders'), MKT_TO_CC);
+  const insiderSlugFor = key => {
+    const slugs = insiderPages.byKey.get(key);
+    return slugs ? preferredSlug(slugs, insiderPages.aliases) : null;
+  };
+
+  const companies = aggregateCompanies(allTxns, LIMIT, new Set(existing.byKey.keys()));
   console.log(`  ${companies.length} companies identified (${companies.filter(c=>c.isPriority).length} priority)\n`);
 
-  // Assign slugs from company name with collision detection
-  const slugCounts = {};
+  // Slugs. Existing listing → its existing slug (extra files for the same
+  // listing become aliases). New listing → name slug, or name-cc when that slug
+  // is taken by another listing's page or by an older new listing (by first
+  // transaction date, so the choice doesn't flip as data arrives).
+  const aliasCompanies = [];
+  const aliasSlugs = new Set(existing.aliases);
+  const taken = new Set(existing.bySlug.keys());
   for (const co of companies) {
-    const s = makeSlugFromName(co.company);
-    slugCounts[s] = (slugCounts[s] || 0) + 1;
-  }
-  const slugAssigned = {};
-  for (const co of companies) {
-    const s = makeSlugFromName(co.company);
-    if (slugCounts[s] > 1) {
-      // Disambiguate: append country code
-      const candidate = `${s}-${co.country_code.toLowerCase()}`;
-      co.slug = candidate;
-    } else {
-      co.slug = s;
+    const slugs = existing.byKey.get(`${co.ticker}|${co.country_code}`);
+    if (!slugs) continue;
+    co.slug = preferredSlug(slugs, existing.aliases, listed);
+    for (const other of slugs.filter(x => x !== co.slug)) {
+      aliasCompanies.push({ ...co, slug: other, canonicalSlug: co.slug });
+      aliasSlugs.add(other);
     }
-    slugAssigned[co.slug] = (slugAssigned[co.slug] || 0) + 1;
   }
+  const fresh = companies.filter(co => !co.slug)
+    .sort((a, b) => (a.earliest || '').localeCompare(b.earliest || '') || `${a.ticker}|${a.country_code}`.localeCompare(`${b.ticker}|${b.country_code}`));
+  for (const co of fresh) {
+    const base = makeSlugFromName(co.company);
+    const candidates = [base, `${base}-${co.country_code.toLowerCase()}`, `${base}-${co.country_code.toLowerCase()}-${makeSlugFromName(co.ticker)}`];
+    co.slug = candidates.find(c => !taken.has(c)) || candidates[2];
+    taken.add(co.slug);
+  }
+  console.log(`  ${fresh.length} new pages, ${aliasCompanies.length} duplicate files written as aliases`);
 
   // Group transactions by ticker+country
   const txnMap = new Map();
@@ -860,21 +869,25 @@ async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   let generated = 0;
 
-  for (const co of companies) {
+  for (const co of [...companies, ...aliasCompanies]) {
     const key  = `${co.ticker}|${co.country_code}`;
     const txns = txnMap.get(key) || [];
-    const html = generateHTML(co, txns, insiderNameCompanyCount);
+    const html = generateHTML(co, txns, insiderSlugFor);
     const file = path.join(OUT_DIR, `${co.slug}-insider-transactions.html`);
     fs.writeFileSync(file, html, 'utf8');
     generated++;
-    process.stdout.write(`  ✓ ${co.slug}-insider-transactions.html\n`);
   }
 
   console.log(`\n  Generated: ${generated} pages`);
 
+  const regenerated = new Set([...companies, ...aliasCompanies].map(c => c.slug));
+  const unlinked = repairKeptLinks({ dir: OUT_DIR, publicDir: path.resolve(__dirname, '../frontend/public'),
+    keep: slug => !regenerated.has(slug), slugOf: f => f.replace(/-insider-transactions\.html$/, '') });
+  console.log(`  Kept pages: ${unlinked} links to missing pages turned into text`);
+
   process.stdout.write('  Updating sitemap.xml… ');
-  updateSitemap(companies);
-  console.log('done');
+  const sm = updateSitemap(companies, aliasSlugs);
+  console.log(`done — ${sm.fresh} refreshed + ${sm.kept} kept (page file, no current data)`);
 
   process.stdout.write('  Updating vercel.json… ');
   const added = updateVercelJson();

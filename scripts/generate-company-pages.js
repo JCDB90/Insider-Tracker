@@ -8,6 +8,7 @@ try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const { readTickerPages, writeSitemapSection, repairKeptLinks } = require('./lib/pageRegistry');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
@@ -39,6 +40,9 @@ const COUNTRY = {
   PT: { name: 'Portugal',       flag: '🇵🇹', exchange: 'Euronext Lisbon',        regulator: 'CMVM',               mktSlug: 'portugal' },
   LU: { name: 'Luxembourg',     flag: '🇱🇺', exchange: 'Luxembourg SE',          regulator: 'CSSF',               mktSlug: 'luxembourg' },
   KR: { name: 'South Korea',    flag: '🇰🇷', exchange: 'Korea Exchange',         regulator: 'FSC/FSS',            mktSlug: 'south-korea' },
+  PL: { name: 'Poland',         flag: '🇵🇱', exchange: 'Warsaw Stock Exchange',  regulator: 'GPW/KNF',            mktSlug: 'poland' },
+  AT: { name: 'Austria',        flag: '🇦🇹', exchange: 'Vienna Stock Exchange',  regulator: 'OeKB',               mktSlug: 'austria' },
+  SG: { name: 'Singapore',      flag: '🇸🇬', exchange: 'Singapore Exchange (SGX)', regulator: 'MAS/SGX',          mktSlug: 'singapore' },
 };
 
 const CURRENCY = {
@@ -113,7 +117,7 @@ async function fetchAllTransactions() {
 
 // ── Aggregate top companies ───────────────────────────────────────────────────
 
-function aggregateCompanies(rows, limit) {
+function aggregateCompanies(rows, limit, hasPage = () => false) {
   const map = new Map();
   for (const r of rows) {
     const key = `${r.ticker}|${r.country_code}`;
@@ -129,10 +133,12 @@ function aggregateCompanies(rows, limit) {
     if ((r.transaction_date || '') > g.last) g.last = r.transaction_date;
     g.totalVal += Number(r.total_value || 0);
   }
-  return [...map.values()]
-    .filter(r => r.total >= 3)
-    .sort((a, b) => b.totalVal - a.totalVal)
-    .slice(0, limit);
+  // New pages: 3+ transactions, top `limit` by value. Existing pages: always
+  // regenerated while they have data.
+  const all = [...map.values()];
+  const top = all.filter(r => r.total >= 3).sort((a, b) => b.totalVal - a.totalVal).slice(0, limit);
+  const topSet = new Set(top);
+  return [...top, ...all.filter(r => !topSet.has(r) && hasPage(r))];
 }
 
 // ── HTML generator ────────────────────────────────────────────────────────────
@@ -277,6 +283,7 @@ function generateHTML(co, txns) {
   <meta property="og:type" content="article">
   <meta name="twitter:card" content="summary">
   <link rel="canonical" href="${BASE_URL}/company/${co.slug}-insider-transactions">
+  <meta name="ia-page-key" content="${esc(co.ticker)}|${co.country_code}">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -511,29 +518,20 @@ function generateHTML(co, txns) {
 // ── Sitemap update ────────────────────────────────────────────────────────────
 
 function updateSitemap(companies) {
-  let xml = fs.readFileSync(SITEMAP, 'utf8');
-
-  // Remove existing company entries (all <url> blocks containing /company/)
-  xml = xml.replace(/<url>\s*<loc>[^<]*\/company\/[^<]*<\/loc>[\s\S]*?<\/url>/g, '');
-
-  // Build new company entries
-  const newEntries = companies.map(co => {
+  const freshEntries = companies.map(co => {
     const isRecent = (co.last || '') >= CUTOFF_30D;
-    return `  <url>
+    return { slug: co.slug, xml: `  <url>
     <loc>${BASE_URL}/company/${co.slug}-insider-transactions</loc>
     <changefreq>weekly</changefreq>
     <priority>${isRecent ? '0.9' : '0.7'}</priority>
     <lastmod>${co.last || TODAY}</lastmod>
-  </url>`;
-  }).join('\n');
-
-  // Insert before </urlset>
-  xml = xml.replace('</urlset>', `${newEntries}\n</urlset>`);
-
-  // Clean up any blank lines left from removal
-  xml = xml.replace(/\n{3,}/g, '\n\n');
-
-  fs.writeFileSync(SITEMAP, xml, 'utf8');
+  </url>` };
+  });
+  return writeSitemapSection({
+    sitemapPath: SITEMAP, dir: OUT_DIR, section: 'company', freshEntries,
+    urlFor: slug => `${BASE_URL}/company/${slug}-insider-transactions`,
+    slugOf: file => file.replace(/-insider-transactions\.html$/, ''),
+  });
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -549,19 +547,37 @@ async function main() {
   const allTxns = await fetchAllTransactions();
   console.log(`${allTxns.length} rows`);
 
-  // 2. Determine top companies
-  const companies = aggregateCompanies(allTxns, LIMIT);
-  console.log(`  Top ${companies.length} companies identified\n`);
+  // 2. Existing pages keep their slug and keep being regenerated. Company
+  // slugs come from the ticker (+ -cc on collision); a page file belongs to a
+  // listing when its ia-page-key / market link says so.
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const MKT_TO_CC = Object.fromEntries(Object.entries(COUNTRY).map(([c, v]) => [v.mktSlug, c]));
+  const existing = readTickerPages(OUT_DIR, MKT_TO_CC);
+  const files = new Set(fs.readdirSync(OUT_DIR).map(f => f.replace(/-insider-transactions\.html$/, '')));
+  const marketOf = slug => {
+    const m = /href="\/market\/([a-z0-9-]+)-insider-transactions"/.exec(fs.readFileSync(path.join(OUT_DIR, `${slug}-insider-transactions.html`), 'utf8'));
+    return m ? MKT_TO_CC[m[1]] : null;
+  };
+  const existingSlugFor = co => {
+    const key = `${co.ticker}|${co.country_code}`;
+    for (const slug of [makeSlug(co.ticker), `${makeSlug(co.ticker)}-${co.country_code.toLowerCase()}`]) {
+      if (!files.has(slug)) continue;
+      const fileKey = existing.bySlug.get(slug);
+      if (fileKey ? fileKey === key : marketOf(slug) === co.country_code) return slug;
+    }
+    return null;
+  };
 
-  // 3. Assign slugs (detect collisions → add country suffix)
-  const slugCounts = {};
-  for (const co of companies) {
+  const companies = aggregateCompanies(allTxns, LIMIT, co => !!existingSlugFor(co));
+  console.log(`  ${companies.length} companies (top ${LIMIT} + existing pages)\n`);
+
+  // 3. Slugs: existing page → its slug; new → ticker slug, -cc if taken.
+  const taken = new Set(files);
+  for (const co of companies) { co.slug = existingSlugFor(co); }
+  for (const co of companies.filter(c => !c.slug)) {
     const s = makeSlug(co.ticker);
-    slugCounts[s] = (slugCounts[s] || 0) + 1;
-  }
-  for (const co of companies) {
-    const s = makeSlug(co.ticker);
-    co.slug = slugCounts[s] > 1 ? `${s}-${co.country_code.toLowerCase()}` : s;
+    co.slug = taken.has(s) ? `${s}-${co.country_code.toLowerCase()}` : s;
+    taken.add(co.slug);
   }
 
   // 4. Group transactions by ticker+country
@@ -583,15 +599,18 @@ async function main() {
     const file = path.join(OUT_DIR, `${co.slug}-insider-transactions.html`);
     fs.writeFileSync(file, html, 'utf8');
     generated++;
-    process.stdout.write(`  ✓ ${co.slug}-insider-transactions.html\n`);
   }
 
   console.log(`\n  Generated: ${generated} pages`);
 
   // 6. Update sitemap
   process.stdout.write('  Updating sitemap.xml… ');
-  updateSitemap(companies);
-  console.log('done');
+  const regenerated = new Set(companies.map(c => c.slug));
+  const unlinked = repairKeptLinks({ dir: OUT_DIR, publicDir: path.resolve(__dirname, '../frontend/public'),
+    keep: slug => !regenerated.has(slug), slugOf: f => f.replace(/-insider-transactions\.html$/, '') });
+  console.log(`  Kept pages: ${unlinked} links to missing pages turned into text`);
+  const sm = updateSitemap(companies);
+  console.log(`done — ${sm.fresh} refreshed + ${sm.kept} kept (page file, no current data)`);
 
   console.log(`\n── Done ────────────────────────────────────────────────────\n`);
 }
