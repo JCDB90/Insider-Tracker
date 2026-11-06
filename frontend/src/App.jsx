@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
+import { PRICES, eur, FROM_PRICE, annualSavingPct } from './pricing.js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
@@ -184,7 +185,7 @@ function useMetaTags(page, selectedCompany, selectedInsider) {
       title = 'Admin — InsidersAlpha';
     } else if (page === 'pricing') {
       title = 'Pricing — InsidersAlpha';
-      desc  = 'InsidersAlpha plans: Free, Pro (€9.99/mo), Elite (€19.99/mo). Unlock full European insider trading data.';
+      desc  = `InsidersAlpha plans: Free, Pro (${eur(PRICES.pro.annualMonthly)}/mo), Elite (${eur(PRICES.elite.annualMonthly)}/mo), billed annually. Unlock full European insider trading data.`;
     } else if (page === 'insights') {
       title = 'Insights & Tools — InsidersAlpha';
       desc  = 'Tax calculators, broker guides, and education for European investors. Danish ETF lagerbeskatning, Swedish ISK, and more.';
@@ -642,7 +643,7 @@ function DashboardUpgradeBanner({ onLogin, onUpgrade }) {
           🔒 Unlock full data access
         </div>
         <div style={{ fontSize: 12, color: '#6B7280' }}>
-          Pro from €19/month — unlimited transactions, all signals, full history
+          Pro from {eur(FROM_PRICE)}/month — unlimited transactions, all signals, full history
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -3547,7 +3548,7 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
           ))}
           <UpgradeGate
             title={`Unlock ${totalCount} alerts`}
-            sub="High conviction buys, cluster signals, large purchases — Pro from €19/month"
+            sub={`High conviction buys, cluster signals, large purchases — Pro from ${eur(FROM_PRICE)}/month`}
             onUpgrade={onUpgrade}
           />
         </div>
@@ -5169,7 +5170,8 @@ function AdminPage({ session }) {
   const total  = users.length;
   const pros   = users.filter(u => u.plan === 'pro').length;
   const elites = users.filter(u => u.plan === 'elite').length;
-  const mrr    = (pros * 9.99 + elites * 14.99).toFixed(2);
+  // Estimate at the annual-plan monthly rate (the plan's own subscription data isn't loaded here).
+  const mrr    = (pros * PRICES.pro.annualMonthly + elites * PRICES.elite.annualMonthly).toFixed(2);
 
   const cardStyle = {
     background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10,
@@ -5207,8 +5209,8 @@ function AdminPage({ session }) {
             <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
               {[
                 { label: 'Total users',      value: loading ? '…' : total,        sub: 'registered accounts' },
-                { label: 'Pro subscribers',  value: loading ? '…' : pros,         sub: '€9.99/mo' },
-                { label: 'Elite subscribers',value: loading ? '…' : elites,       sub: '€14.99/mo' },
+                { label: 'Pro subscribers',  value: loading ? '…' : pros,         sub: `${eur(PRICES.pro.annualMonthly)}/mo annual · ${eur(PRICES.pro.monthly)} monthly` },
+                { label: 'Elite subscribers',value: loading ? '…' : elites,       sub: `${eur(PRICES.elite.annualMonthly)}/mo annual · ${eur(PRICES.elite.monthly)} monthly` },
                 { label: 'Est. MRR',         value: loading ? '…' : `€${mrr}`,    sub: 'monthly recurring revenue' },
               ].map(c => (
                 <div key={c.label} style={cardStyle}>
@@ -5319,6 +5321,7 @@ const PLAN_FEATURES_GRID = [
     { label: 'Alerts feed',                 analyst: false,           strategist: true,         terminal: true },
     { label: 'Cluster buy detection',       analyst: false,           strategist: true,         terminal: true },
     { label: 'Daily watchlist email alerts',analyst: true,            strategist: true,         terminal: true },
+    { label: 'One-click alerts from stock pages', analyst: true,      strategist: true,         terminal: true },
   ]},
   { category: 'Tools & Research', rows: [
     { label: 'Top Insiders leaderboard', analyst: 'Top 10',      strategist: 'Full',           terminal: 'Full' },
@@ -5362,6 +5365,51 @@ function FAQItem({ q, a }) {
   );
 }
 
+// Pricing page: how watchlist alerts work. Limits come from WATCHLIST_LIMITS,
+// the same numbers addToWatchlist and the migrations/018 trigger enforce.
+function WatchlistAlertsExplainer({ session, onLogin }) {
+  const steps = [
+    { n: '1', title: 'Pick a stock', text: 'On any stock page, click "Get an email when someone buys". Or add it from your watchlist in the app.' },
+    { n: '2', title: 'Confirm your email', text: 'A free account is all it takes. The stock is added to your watchlist as soon as you sign in.' },
+    { n: '3', title: 'Get the filing', text: 'When an insider buys or sells a stock you watch, you get one email that day with who traded, how much and at what price.' },
+  ];
+  return (
+    <div style={{ marginBottom: 80 }}>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9CA3AF', fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 }}>
+          Watchlist alerts
+        </div>
+        <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.025em', color: '#0C0F1A' }}>🔔 Know the day an insider trades your stocks.</h2>
+        <p style={{ fontSize: 14, color: '#6B7280', marginTop: 10 }}>
+          Free for {WATCHLIST_LIMITS.free} stocks. Unlimited stocks on Pro and Elite.
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        {steps.map(s => (
+          <div key={s.n} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12, padding: '22px 20px' }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 14, background: ACCENT, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, marginBottom: 12,
+            }}>{s.n}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#0C0F1A', marginBottom: 6 }}>{s.title}</div>
+            <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{s.text}</div>
+          </div>
+        ))}
+      </div>
+      {!session && (
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <button onClick={() => onLogin && onLogin('signup')} style={{
+            background: ACCENT, color: '#fff', border: 'none', borderRadius: 8,
+            padding: '10px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            fontFamily: "'Inter', sans-serif",
+          }}>Start with {WATCHLIST_LIMITS.free} free alerts →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PricingPage({ session, onLogin }) {
   const [billing,      setBilling]      = useState('annual');
   const [hoveredPlan,  setHoveredPlan]  = useState(null);
@@ -5372,10 +5420,10 @@ function PricingPage({ session, onLogin }) {
       item_list_id:   'pricing',
       item_list_name: 'Pricing Plans',
       items: [
-        { item_id: 'pro_annual',   item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Annual',   price: 9.99,  quantity: 1 },
-        { item_id: 'pro_monthly',  item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Monthly',  price: 12,    quantity: 1 },
-        { item_id: 'elite_annual', item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Annual',   price: 14.99, quantity: 1 },
-        { item_id: 'elite_monthly',item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Monthly',  price: 18,    quantity: 1 },
+        { item_id: 'pro_annual',   item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Annual',   price: PRICES.pro.annualMonthly,   quantity: 1 },
+        { item_id: 'pro_monthly',  item_name: 'Pro Plan',   item_category: 'Subscription', item_variant: 'Monthly',  price: PRICES.pro.monthly,         quantity: 1 },
+        { item_id: 'elite_annual', item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Annual',   price: PRICES.elite.annualMonthly, quantity: 1 },
+        { item_id: 'elite_monthly',item_name: 'Elite Plan', item_category: 'Subscription', item_variant: 'Monthly',  price: PRICES.elite.monthly,       quantity: 1 },
       ],
     });
   }, []);
@@ -5425,7 +5473,7 @@ function PricingPage({ session, onLogin }) {
         'Last 3 transactions on company pages',
         'Top 10 insiders on leaderboard',
         'Personal watchlist (up to 3 stocks)',
-        'Daily email alerts when insiders buy your stocks',
+        'Daily email when insiders buy or sell your stocks',
         'Stock charts with trade markers',
         'All tax calculators & education',
         '18 markets',
@@ -5434,7 +5482,7 @@ function PricingPage({ session, onLogin }) {
     {
       id: 'pro', tier: 'Pro',
       tagline: 'For investors who want the full picture',
-      monthly: 12, annual: 9.99, annualBilled: 119.88, highlight: true,
+      monthly: PRICES.pro.monthly, annual: PRICES.pro.annualMonthly, annualBilled: PRICES.pro.annualBilled, highlight: true,
       bullets: [
         'Unlimited insider transactions (180 days)',
         'Full company transaction history',
@@ -5461,7 +5509,7 @@ function PricingPage({ session, onLogin }) {
     {
       id: 'elite', tier: 'Elite',
       tagline: 'For power users who need everything',
-      monthly: 18, annual: 14.99, annualBilled: 179.88, highlight: false,
+      monthly: PRICES.elite.monthly, annual: PRICES.elite.annualMonthly, annualBilled: PRICES.elite.annualBilled, highlight: false,
       bullets: [
         'Everything in Pro',
         'CSV data export',
@@ -5471,7 +5519,7 @@ function PricingPage({ session, onLogin }) {
     },
   ];
 
-  const annualSave = 17; // ~17% saving: €9.99/mo vs €12/mo
+  const annualSave = annualSavingPct('pro');
 
   const proofItems = [
     // Kept in sync with /api/performance-stats' stats_with_signals['90d'] — see
@@ -5632,6 +5680,9 @@ function PricingPage({ session, onLogin }) {
             );
           })}
         </div>
+
+        {/* Watchlist alerts */}
+        <WatchlistAlertsExplainer session={session} onLogin={onLogin} />
 
         {/* Proof of Performance */}
         <div style={{ marginBottom: 80 }}>

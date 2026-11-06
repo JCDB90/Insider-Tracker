@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createChart, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { supabase } from './supabase.js';
+import { eur, FROM_PRICE } from './pricing.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -979,7 +980,7 @@ export default function CompanyPage({
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#111318' }}>
                   {companyTrades.length - 3} more transaction{companyTrades.length - 3 !== 1 ? 's' : ''} hidden
                 </div>
-                <div style={{ fontSize: 12, color: '#9CA3AF' }}>Full history with Pro — from €19/month</div>
+                <div style={{ fontSize: 12, color: '#9CA3AF' }}>Full history with Pro — from {eur(FROM_PRICE)}/month</div>
                 <a href="/#pricing" onClick={e => { if (onUpgrade) { e.preventDefault(); onUpgrade(); } }} style={{
                   background: ACCENT, color: '#fff', border: 'none', borderRadius: 7,
                   padding: '7px 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
