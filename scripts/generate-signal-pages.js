@@ -232,7 +232,7 @@ function pageShell({ slug, badge, emoji, title, metaTitle, metaDesc, lead, howIt
 <main class="wrap">
   <nav class="breadcrumb" aria-label="Breadcrumb">
     <a href="/">InsidersAlpha</a><span>›</span>
-    <a href="/methodology">Signals</a><span>›</span>
+    <span>Signals</span><span>›</span>
     ${esc(title)}
   </nav>
 

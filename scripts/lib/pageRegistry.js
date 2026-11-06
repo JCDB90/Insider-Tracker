@@ -151,7 +151,8 @@ function writeSitemapSection({ sitemapPath, dir, section, urlFor, slugOf, freshE
  * Pages kept without current data aren't regenerated, so their links were
  * built by older templates — some point at insider/stock/market pages that
  * were never generated (the SPA catch-all then shows the dashboard). Turn
- * every such link into its plain text. Returns the number of links removed.
+ * every such link into its plain text, and point the old "Log in" button at
+ * the sign-in deep link. Returns the number of links changed.
  */
 function repairKeptLinks({ dir, publicDir, keep, slugOf }) {
   const targetFile = href => {
@@ -165,12 +166,20 @@ function repairKeptLinks({ dir, publicDir, keep, slugOf }) {
     if (!keep(slugOf(file))) continue;
     const full = path.join(dir, file);
     const html = fs.readFileSync(full, 'utf8');
-    const fixed = html.replace(/<a\b[^>]*\bhref="([^"#?]+)"[^>]*>([\s\S]*?)<\/a>/g, (whole, href, inner) => {
+    let fixed = html.replace(/<a\b[^>]*\bhref="([^"#?]+)"[^>]*>([\s\S]*?)<\/a>/g, (whole, href, inner) => {
       const target = targetFile(href);
       if (!target || fs.existsSync(target)) return whole;
       removed++;
       return inner;
     });
+    // Old alert CTA: "Log in" went to /#watchlist (no sign-in form). Point it
+    // at the sign-in deep link for this page's own ticker instead.
+    const signup = /href="\/signup\?ticker=([^&"]+)&(?:amp;)?country=([A-Z]{2})"/.exec(fixed);
+    const relinked = signup
+      ? fixed.replace('<a href="/#watchlist">Log in</a>', `<a href="/signup?ticker=${signup[1]}&amp;country=${signup[2]}&amp;mode=signin">Log in</a>`)
+      : fixed;
+    if (relinked !== fixed) removed++;
+    fixed = relinked;
     if (fixed !== html) fs.writeFileSync(full, fixed, 'utf8');
   }
   return removed;

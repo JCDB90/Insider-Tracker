@@ -608,7 +608,7 @@ async function main() {
   const regenerated = new Set(companies.map(c => c.slug));
   const unlinked = repairKeptLinks({ dir: OUT_DIR, publicDir: path.resolve(__dirname, '../frontend/public'),
     keep: slug => !regenerated.has(slug), slugOf: f => f.replace(/-insider-transactions\.html$/, '') });
-  console.log(`  Kept pages: ${unlinked} links to missing pages turned into text`);
+  console.log(`  Kept pages: ${unlinked} dead or outdated links repaired`);
   const sm = updateSitemap(companies);
   console.log(`done — ${sm.fresh} refreshed + ${sm.kept} kept (page file, no current data)`);
 
