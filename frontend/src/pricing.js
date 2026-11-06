@@ -1,5 +1,5 @@
 // Plan prices — edit frontend/src/pricing.json, never a hardcoded "€" amount.
-// Static pages get the same values via scripts/sync-prices.cjs at build time.
+// Static pages get the same values via scripts/sync-constants.cjs at build time.
 import PRICES from './pricing.json';
 
 export { PRICES };

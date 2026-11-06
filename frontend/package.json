@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/sync-prices.cjs && node scripts/build-pages.cjs && vite build",
+    "build": "node scripts/sync-constants.cjs && node scripts/build-pages.cjs && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

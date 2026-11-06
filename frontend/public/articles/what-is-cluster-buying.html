@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>What is Cluster Buying? Multiple Insiders Buying Together | InsidersAlpha</title>
-  <meta name="description" content="Cluster buying occurs when two or more insiders at the same company buy shares within 14 days. Research shows it outperforms single-insider buys by ~4% on a 90-day horizon. Here's how to use the signal.">
+  <meta name="description" content="Cluster buying occurs when two or more insiders at the same company buy shares within 7 days. Research shows it outperforms single-insider buys by ~4% on a 90-day horizon. Here's how to use the signal.">
   <meta property="og:title" content="What is Cluster Buying? How Multiple Insiders Buying Together Signals Conviction">
-  <meta property="og:description" content="Cluster buying occurs when two or more insiders at the same company buy shares within 14 days. Research shows it outperforms single-insider buys by ~4% on a 90-day horizon.">
+  <meta property="og:description" content="Cluster buying occurs when two or more insiders at the same company buy shares within 7 days. Research shows it outperforms single-insider buys by ~4% on a 90-day horizon.">
   <meta property="og:url" content="https://www.insidersalpha.com/articles/what-is-cluster-buying">
   <meta property="og:type" content="article">
   <link rel="canonical" href="https://www.insidersalpha.com/articles/what-is-cluster-buying">
@@ -20,7 +20,7 @@
     "@context": "https://schema.org",
     "@type": "Article",
     "headline": "What is Cluster Buying? How Multiple Insiders Buying Together Signals Conviction",
-    "description": "Cluster buying occurs when two or more insiders at the same company buy shares within 14 days. Research shows it outperforms single-insider buys on a 90-day horizon.",
+    "description": "Cluster buying occurs when two or more insiders at the same company buy shares within 7 days. Research shows it outperforms single-insider buys on a 90-day horizon.",
     "url": "https://www.insidersalpha.com/articles/what-is-cluster-buying",
     "publisher": {"@type": "Organization", "name": "InsidersAlpha", "url": "https://www.insidersalpha.com"},
     "datePublished": "2026-05-01",
@@ -117,12 +117,12 @@
 
   <h2>The definition</h2>
 
-  <p>Cluster buying refers to two or more distinct insiders at the same company executing purchase transactions within a compressed time window — typically 14 calendar days. The insiders need not coordinate: they may be unaware of each other's purchases at the time of filing. What makes the signal significant is precisely that independent agents with shared information access are reaching the same conclusion simultaneously.</p>
+  <p>Cluster buying refers to two or more distinct insiders at the same company executing purchase transactions within a short time window. There is no single standard: research and data providers use windows from a few days to a few weeks. The insiders need not coordinate: they may be unaware of each other's purchases at the time of filing. What makes the signal significant is precisely that independent agents with shared information access are reaching the same conclusion simultaneously.</p>
 
   <p>This is different from a single insider making multiple purchases (that is <a href="/signals/repeated-insider-buying">repetitive buying</a>) and different from a single large transaction. The cluster signal requires separate individuals — a CEO and a board member, or three non-executive directors — each independently deciding to deploy personal capital at roughly the same time.</p>
 
   <div class="callout">
-    <strong>InsidersAlpha definition:</strong> A cluster buy fires when two or more named individual insiders at the same company have purchase transaction dates within 14 calendar days of each other. Corporate entity transactions without an identified individual do not count toward the threshold.
+    <strong>InsidersAlpha definition:</strong> A cluster buy fires when two or more named individual insiders at the same company have purchase transaction dates within <span data-signal="cluster.windowDays">7</span> calendar days of each other. Corporate entity transactions without an identified individual do not count toward the threshold.
   </div>
 
   <h2>Why it works: the coordination-without-communication problem</h2>
@@ -205,7 +205,7 @@
 
   <h2>How InsidersAlpha detects cluster buying</h2>
 
-  <p>InsidersAlpha processes every new filing as it appears in the relevant regulatory database. When a new buy transaction is added, the system checks whether any other buy transactions from different named individuals at the same company appear within the preceding or following 14 days. If they do, all qualifying transactions receive the cluster badge.</p>
+  <p>InsidersAlpha processes every new filing as it appears in the relevant regulatory database. When a new buy transaction is added, the system checks whether any other buy transactions from different named individuals at the same company appear within the preceding or following <span data-signal="cluster.windowDays">7</span> days. If they do, all qualifying transactions receive the cluster badge.</p>
 
   <p>The check runs on <code style="font-family:'JetBrains Mono',monospace;font-size:14px;background:#f8f8f8;padding:1px 6px;border-radius:3px">transaction_date</code> (the date the trade executed, not the filing date). This matters because insiders have three business days to file — a transaction executed on a Monday might not appear in the database until Thursday. Using execution date rather than filing date gives a more accurate picture of when the buying actually happened.</p>
 

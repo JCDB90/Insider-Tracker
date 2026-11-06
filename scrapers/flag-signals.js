@@ -5,7 +5,8 @@
  * Computes 4 boolean signal flags for every BUY transaction and writes them
  * to insider_transactions.  Run after score-insiders.js in the daily pipeline.
  *
- *   is_cluster_buy      — ≥1 OTHER named insider at same company bought within 7 days
+ *   is_cluster_buy      — ≥1 OTHER named insider at same company bought within
+ *                         cluster.windowDays (frontend/src/signals.json, currently 7)
  *   is_repetitive_buy   — same insider at same company bought again, 4–14 days later
  *                         (gap < 4d = tranche execution, not a separate decision)
  *   is_pre_blackout_buy — transaction falls in the 7-day window just before an estimated
@@ -23,7 +24,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.s
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || 'sb_publishable_wL5qlj7xHeE6-y2cXaRKfw_39-iEoUt';
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CLUSTER_WINDOW   = 7;    // days — different insiders, same company
+// Shared with the site copy (app + static pages) so the text can't drift from the rule.
+const SIGNAL_RULES     = require('../frontend/src/signals.json');
+const CLUSTER_WINDOW   = SIGNAL_RULES.cluster.windowDays;    // days — different insiders, same company
 const REP_MIN_GAP      = 4;    // days — exclude 1–3 day tranche executions
 const REP_MAX_GAP      = 14;   // days — same insider "came back" window
 const DIP_MIN          = 0.10; // 10 % minimum drawdown
@@ -399,7 +402,7 @@ function computeSignals(buys, priceReference, chartDataSet = new Set()) {
       continue;
     }
 
-    // ── CLUSTER: different named insiders, same company, within 7 days ────────
+    // ── CLUSTER: different named insiders, same company, within CLUSTER_WINDOW ─
     // Exclude unusual-price peers — an option exercise must not trigger a cluster
     // signal on a legitimate open-market purchase by another insider.
     const clusterPeers = peers.filter(p => {

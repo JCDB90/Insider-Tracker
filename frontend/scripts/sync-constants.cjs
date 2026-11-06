@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * Writes plan prices from src/pricing.json into the static pages, so a price
- * changes in one place only. Runs before every build (package.json "build").
+ * Writes shared site constants into the static pages, so a price or a signal
+ * rule changes in one place only. Runs before every build (package.json "build").
  *
- * In HTML, each of our own prices is marked:
- *   <span data-price="pro.annualMonthly">€9.99</span>
- * and gets its text replaced. JSON-LD can't hold markup, so FAQ answers there
- * use the phrase "Pro from €X/mo" / "Elite from €X/mo", which is rewritten too.
+ *   src/pricing.json → <span data-price="pro.annualMonthly">€9.99</span>
+ *   src/signals.json → <span data-signal="cluster.windowDays">7</span>
+ *
+ * Meta tags and JSON-LD can't hold markup, so there:
+ *   - "Pro from €X/mo" / "Elite from €X/mo" (JSON-LD) get the price,
+ *   - in sentences about cluster buying (not repetitive buying), window
+ *     phrasings like "within N days" / "N-day window" get the cluster window.
  *
  * Also warns about unmarked € amounts equal to one of our prices — likely a
  * new hand-typed price. Never fails the build.
@@ -18,7 +21,10 @@ const path = require('path');
 
 const FRONTEND = path.resolve(__dirname, '..');
 const PUBLIC = path.join(FRONTEND, 'public');
-const GENERATED_DIRS = new Set(['stocks', 'insiders', 'company']); // no prices in generated pages
+const GENERATED_DIRS = new Set(['stocks', 'insiders', 'company']); // their templates read the constants directly
+// Pages whose numbers describe a past study, not the live rule: never rewritten.
+const FROZEN = new Set(['articles/european-insider-trading-performance-analysis.html']);
+
 function htmlFiles(dir) {
   const out = [];
   for (const f of fs.readdirSync(dir)) {
@@ -30,27 +36,43 @@ function htmlFiles(dir) {
 }
 
 try {
-  const PRICES = JSON.parse(fs.readFileSync(path.join(FRONTEND, 'src', 'pricing.json'), 'utf8'));
+  const read = f => JSON.parse(fs.readFileSync(path.join(FRONTEND, 'src', f), 'utf8'));
+  const PRICES = read('pricing.json');
+  const SIGNALS = read('signals.json');
   const eur = n => `€${Number.isInteger(n) ? n : n.toFixed(2)}`;
+  const lookup = (obj, key, what) => {
+    const [group, field] = key.split('.');
+    const v = obj[group] && obj[group][field];
+    if (typeof v !== 'number') throw new Error(`unknown ${what} "${key}"`);
+    return v;
+  };
   // Our prices + previously wrong ones ("from €19/month", Elite "€19.99").
   const SUSPECT = new Set([
     ...Object.values(PRICES).filter(v => typeof v === 'object').flatMap(p => Object.values(p)).map(v => (Number.isInteger(v) ? String(v) : v.toFixed(2))),
     '19', '19.99',
   ]);
-  const priceOf = key => {
-    const [plan, field] = key.split('.');
-    const v = PRICES[plan] && PRICES[plan][field];
-    if (typeof v !== 'number') throw new Error(`unknown data-price "${key}"`);
-    return eur(v);
-  };
+
+  // Cluster-sentence rewrite for text that can't carry spans. Only window
+  // phrasings ("within 14 days", "within a 14-day window", "following 14
+  // days") — never "180-day history", "at 30, 90 and 180 days" etc.
+  const WINDOW_PHRASE = /(\bwithin (?:a |the )?|\bfollowing )\d+(?=(?: calendar)?[ -]days?\b|-day window\b)/gi;
+  const clusterDays = text => text.replace(/[^.!?"]*[.!?]?/g, sentence =>
+    /cluster/i.test(sentence) && !/repetitive|same insider/i.test(sentence)
+      ? sentence.replace(WINDOW_PHRASE, (m, pre) => `${pre}${SIGNALS.cluster.windowDays}`)
+      : sentence);
+
   let changed = 0;
   const warnings = [];
   for (const file of htmlFiles(PUBLIC)) {
+    const rel = path.relative(PUBLIC, file).split(path.sep).join('/');
+    if (FROZEN.has(rel)) continue;
     const html = fs.readFileSync(file, 'utf8');
-    let out = html.replace(/(<span data-price="([a-z]+\.[a-zA-Z]+)">)[^<]*(<\/span>)/g,
-      (_, open, key, close) => `${open}${priceOf(key)}${close}`);
-    out = out.replace(/(<script type="application\/ld\+json">)([\s\S]*?)(<\/script>)/g, (_, a, json, b) =>
-      a + json.replace(/\b(Pro|Elite) from €[0-9.,]+\/mo/g, (m, plan) => `${plan} from ${eur(PRICES[plan.toLowerCase()].annualMonthly)}/mo`) + b);
+    let out = html
+      .replace(/(<span data-price="([a-z]+\.[a-zA-Z]+)">)[^<]*(<\/span>)/g, (_, open, key, close) => `${open}${eur(lookup(PRICES, key, 'data-price'))}${close}`)
+      .replace(/(<span data-signal="([a-z]+\.[a-zA-Z]+)">)[^<]*(<\/span>)/g, (_, open, key, close) => `${open}${lookup(SIGNALS, key, 'data-signal')}${close}`)
+      .replace(/(<script type="application\/ld\+json">)([\s\S]*?)(<\/script>)/g, (_, a, json, b) =>
+        a + clusterDays(json.replace(/\b(Pro|Elite) from €[0-9.,]+\/mo/g, (m, plan) => `${plan} from ${eur(PRICES[plan.toLowerCase()].annualMonthly)}/mo`)) + b)
+      .replace(/(<meta\b[^>]*\bcontent=")([^"]*)(")/g, (_, a, content, b) => a + clusterDays(content) + b);
     if (out !== html) { fs.writeFileSync(file, out, 'utf8'); changed++; }
 
     // Drift check: an unmarked € amount equal to one of our prices (or a
@@ -62,12 +84,12 @@ try {
     for (const m of visible.matchAll(/€\s?(\d+(?:[.,]\d{2})?)(?![\d,.])/g)) {
       if (SUSPECT.has(m[1].replace(',', '.'))) {
         const ctx = visible.slice(Math.max(0, m.index - 50), m.index + 20).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        warnings.push(`${path.relative(PUBLIC, file)}: …${ctx}…`);
+        warnings.push(`${rel}: …${ctx}…`);
       }
     }
   }
-  console.log(`[sync-prices] ${changed} page(s) updated from src/pricing.json`);
-  for (const w of warnings) console.log(`[sync-prices] WARNING unmarked price? ${w}`);
+  console.log(`[sync-constants] ${changed} page(s) updated from src/pricing.json + src/signals.json`);
+  for (const w of warnings) console.log(`[sync-constants] WARNING unmarked price? ${w}`);
 } catch (e) {
-  console.log(`[sync-prices] WARNING: ${e.message} — static prices left as they are`);
+  console.log(`[sync-constants] WARNING: ${e.message} — static pages left as they are`);
 }

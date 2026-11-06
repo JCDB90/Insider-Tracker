@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { createChart, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { supabase } from './supabase.js';
 import { eur, FROM_PRICE } from './pricing.js';
+import SIGNALS from './signals.json';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,7 @@ function TxSignalBadges({ t, blackout }) {
     color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB',
   });
   if (t.is_cluster_buy) badges.push({
-    key: 'cluster', icon: <IcoUsers />, title: 'Multiple insiders at this company bought within 14 days',
+    key: 'cluster', icon: <IcoUsers />, title: `Multiple insiders at this company bought within ${SIGNALS.cluster.windowDays} days`,
     color: '#4338CA', bg: '#EEF2FF', border: '#C7D2FE',
   });
   if (t.is_pre_earnings || blackout?.isNear) badges.push({

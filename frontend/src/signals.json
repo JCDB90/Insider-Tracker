@@ -1,0 +1,4 @@
+{
+  "_comment": "Signal rules shared by scrapers/flag-signals.js (the computation), the app (src/*.jsx) and the static pages (scripts/sync-constants.cjs fills <span data-signal=\"cluster.windowDays\">). Change a rule here, not in copy.",
+  "cluster": { "windowDays": 7, "minInsiders": 2 }
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
 import { PRICES, eur, FROM_PRICE, annualSavingPct } from './pricing.js';
+import SIGNALS from './signals.json';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
 const CompanyPage = lazy(() => import('./CompanyPage.jsx'));
@@ -867,7 +868,7 @@ function SignalBadges({ t, inline = true }) {
   if (t.is_cluster_buy) badges.push({
     key: 'cluster',
     icon: <IcoUsers />,
-    title: 'Multiple insiders at this company bought within 14 days',
+    title: `Multiple insiders at this company bought within ${SIGNALS.cluster.windowDays} days`,
     color: '#4338CA',
     bg: '#EEF2FF',
     border: '#C7D2FE',
@@ -933,7 +934,7 @@ function SignalBadgesFull({ t }) {
     key: 'cluster',
     icon: <IcoUsers />,
     label: 'Cluster buy',
-    title: 'Multiple insiders at this company bought within 14 days',
+    title: `Multiple insiders at this company bought within ${SIGNALS.cluster.windowDays} days`,
     color: '#4338CA', bg: '#EEF2FF', border: '#C7D2FE',
   });
   if (t.is_pre_blackout_buy) badges.push({
@@ -3322,8 +3323,10 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
       if (!map[key]) map[key] = { company: t.company, ticker: t.ticker, country_code: t.country_code, trades: [] };
       map[key].trades.push(t);
     }
+    // Count people, not rows: one insider buying in tranches is not a cluster.
+    for (const g of Object.values(map)) g.insiders = new Set(g.trades.map(t => (t.insider_name || '').toLowerCase()).filter(Boolean)).size;
     return Object.values(map)
-      .filter(g => g.trades.length >= 2)
+      .filter(g => g.insiders >= SIGNALS.cluster.minInsiders)
       .sort((a, b) => {
         const av = a.trades.reduce((s, t) => s + Number(t.total_value || 0), 0);
         const bv = b.trades.reduce((s, t) => s + Number(t.total_value || 0), 0);
@@ -3652,8 +3655,8 @@ function AlertsPage({ trades, tradesLoading, watchlist, watchlistTickers, onComp
                         {g.country_code && <><span style={{ color: '#9CA3AF', margin: '0 4px' }}>·</span><Flag code={g.country_code} /></>}
                       </div>
                       <div style={{ fontSize: 12, color: '#6B7280' }}>
-                        <span style={{ fontWeight: 500, color: '#374151' }}>{g.trades.length} insiders</span>
-                        {' '}bought within 7 days
+                        <span style={{ fontWeight: 500, color: '#374151' }}>{g.insiders} insiders</span>
+                        {' '}bought in the last 7 days
                         {totalVal > 0 && <> · Total <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: '#111318' }}>{formatValue(totalVal, currency)}</span></>}
                       </div>
                       {insiders.length > 0 && (
@@ -3827,7 +3830,7 @@ const EDUCATION_ITEMS = [
   },
   {
     title: 'Understanding Cluster Buying',
-    body: 'A cluster signal fires when 2 or more insiders at the same company buy within a 14-day window. Academic research shows cluster buys outperform single-insider buys by ~4% on a 90-day horizon.',
+    body: `A cluster signal fires when ${SIGNALS.cluster.minInsiders} or more insiders at the same company buy within a ${SIGNALS.cluster.windowDays}-day window. Academic research shows cluster buys outperform single-insider buys by ~4% on a 90-day horizon.`,
     tag: 'Signals',
   },
   {
@@ -5761,7 +5764,7 @@ function PricingPage({ session, onLogin }) {
               { q: 'How many markets do you cover?', a: '18 markets: Austria, Belgium, Switzerland, Denmark, Spain, Finland, France, Germany, Italy, Luxembourg, Poland, Portugal, Singapore, South Korea, Netherlands, Norway, Sweden, and the United Kingdom. All filings come from official national regulators (AFM, AMF, BaFin, CMVM, CNMV, CSSF, Finanstilsynet, FCA, FSMA, GPW/KNF, MAS/SGX, OeKB, SKAT, etc.).' },
               { q: 'How far back does data go?', a: 'We maintain a 180-day rolling window of insider transactions across all covered markets. Data is refreshed daily via automated scrapers.' },
               { q: 'How often is data updated?', a: 'Daily — automated scrapers run every night via GitHub Actions, processing filings published by regulators within the previous 24 hours.' },
-              { q: 'What signals do you track?', a: 'Four signals: Conviction score (trade size × role seniority × timing), Cluster buying (2+ insiders at the same company within 14 days), Repetitive buying (same insider buying multiple times within 14 days), and Price dip (insider bought after a significant drawdown).' },
+              { q: 'What signals do you track?', a: `Four signals: Conviction score (trade size × role seniority × timing), Cluster buying (${SIGNALS.cluster.minInsiders}+ insiders at the same company within ${SIGNALS.cluster.windowDays} days), Repetitive buying (same insider buying multiple times within 14 days), and Price dip (insider bought after a significant drawdown).` },
               { q: 'How is the Conviction Score calculated?', a: 'It weights transaction size, ownership change percentage, role seniority (CEO/CFO score higher than board members), and whether the purchase followed a price decline. Scores are visible on all trades for Pro and Elite users.' },
               { q: 'Can I cancel at any time?', a: 'Yes. Cancel any time from your account settings. No long-term commitment required.' },
             ].map((item, i) => <FAQItem key={i} q={item.q} a={item.a} />)}

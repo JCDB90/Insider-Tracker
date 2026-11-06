@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for plan prices (EUR). Used by src/pricing.js (app) and scripts/sync-prices.cjs (static pages: data-price spans). Must match the Stripe prices behind VITE_STRIPE_PRICE_*.",
+  "_comment": "Single source of truth for plan prices (EUR). Used by src/pricing.js (app) and scripts/sync-constants.cjs (static pages: data-price spans). Must match the Stripe prices behind VITE_STRIPE_PRICE_*.",
   "pro":   { "monthly": 12, "annualMonthly": 9.99,  "annualBilled": 119.88 },
   "elite": { "monthly": 18, "annualMonthly": 14.99, "annualBilled": 179.88 }
 }
