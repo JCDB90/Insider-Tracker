@@ -179,7 +179,11 @@ function repairKeptLinks({ dir, publicDir, keep, slugOf }) {
       ? fixed.replace('<a href="/#watchlist">Log in</a>', `<a href="/signup?ticker=${signup[1]}&amp;country=${signup[2]}&amp;mode=signin">Log in</a>`)
       : fixed;
     if (relinked !== fixed) removed++;
-    fixed = relinked;
+    // Old cluster badge "(N insiders, last 14 days)": counted rows, and on a
+    // page without current data "last 14 days" is no longer true. Drop it.
+    const debadged = relinked.replace(/ \(\d+ insiders, last 14 days\)/g, '');
+    if (debadged !== relinked) removed++;
+    fixed = debadged;
     if (fixed !== html) fs.writeFileSync(full, fixed, 'utf8');
   }
   return removed;

@@ -9,6 +9,7 @@ const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const { makeCompanySlug } = require('./generate-insider-pages');
+const SIGNALS = require('../frontend/src/signals.json');
 const {
   readTickerPages, readInsiderPages, insiderKey, preferredSlug, aliasHeadTags,
   writeSitemapSection, listedSlugs, repairKeptLinks,
@@ -25,6 +26,7 @@ const VERCEL_JSON = path.resolve(__dirname, '../frontend/vercel.json');
 const BASE_URL   = 'https://www.insidersalpha.com';
 const YEAR       = new Date().getFullYear();
 const TODAY      = new Date().toISOString().slice(0, 10);
+const CLUSTER_BADGE_RECENT_DAYS = 14; // show the insider count only for a cluster this recent
 const CUTOFF_30D  = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 const CUTOFF_90D  = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
 const CUTOFF_6MO  = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
@@ -301,7 +303,20 @@ function generateHTML(co, txns, insiderSlugFor) {
   const hasPriceDip    = recent90.some(t => t.is_price_dip);
   const hasPreEarnings = recent90.some(t => t.is_pre_earnings);
   const hasRepetitive  = recent90.some(t => t.is_repetitive_buy);
-  const cluster14d     = txns.filter(t => t.is_cluster_buy && (t.transaction_date||'') >= new Date(Date.now()-14*86400000).toISOString().slice(0,10));
+  // Cluster badge: distinct named insiders in the most recent cluster (flagged
+  // buys within the cluster window of the latest one), shown only when that
+  // cluster is recent. Counting flagged rows used to show "3 insiders" for one
+  // insider's three tranches, and "1 insiders" for clusters matched via another
+  // share class of the same company.
+  const clusterInsiders = (() => {
+    const flagged = txns.filter(t => t.is_cluster_buy && t.insider_name && t.transaction_date);
+    if (!flagged.length) return 0;
+    const latest = flagged.map(t => t.transaction_date).sort().pop();
+    if (latest < new Date(Date.now() - CLUSTER_BADGE_RECENT_DAYS * 86400000).toISOString().slice(0, 10)) return 0;
+    const from = new Date(new Date(latest).getTime() - SIGNALS.cluster.windowDays * 86400000).toISOString().slice(0, 10);
+    const names = new Set(flagged.filter(t => t.transaction_date >= from).map(t => t.insider_name.toLowerCase()));
+    return names.size >= SIGNALS.cluster.minInsiders ? names.size : 0;
+  })();
 
   const trend = buyTrend(co.buys, co.sells, co.buys6mo, co.buyVal6mo);
   const ratio = co.buys + co.sells > 0 ? (co.buys / (co.buys + co.sells) * 100).toFixed(0) : 0;
@@ -366,7 +381,7 @@ function generateHTML(co, txns, insiderSlugFor) {
 
   // Signal badges
   const sigBadges = [
-    hasCluster     && `<span class="sig sig-cluster">🔄 Cluster buying${cluster14d.length ? ` (${cluster14d.length} insiders, last 14 days)` : ''}</span>`,
+    hasCluster     && `<span class="sig sig-cluster">🔄 Cluster buying${clusterInsiders ? ` (${clusterInsiders} insiders bought within ${SIGNALS.cluster.windowDays} days)` : ''}</span>`,
     hasPriceDip    && '<span class="sig sig-dip">📉 Bought after price decline</span>',
     hasPreEarnings && '<span class="sig sig-earnings">📅 Pre-earnings buying activity</span>',
     hasRepetitive  && '<span class="sig sig-repeat">🔁 Repeat buyer activity</span>',
