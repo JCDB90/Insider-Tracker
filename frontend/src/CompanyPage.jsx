@@ -499,8 +499,10 @@ function KpiCard({ label, value, sub, color }) {
 
 export default function CompanyPage({
   ticker, company, countryCode, yahooTicker,
-  watchlist, onBack, onInsiderClick, backLabel, access,
+  watchlist, onBack, onInsiderClick, backLabel, access, onWatch,
 }) {
+  const isWatched = !!watchlist?.some(w => w.ticker === ticker && w.country_code === countryCode);
+  const [watchBusy, setWatchBusy] = useState(false);
   const [chartData,     setChartData]     = useState([]);
   const [chartRange,    setChartRange]    = useState('1y');
   const [priceLoading,  setPriceLoading]  = useState(true);
@@ -704,7 +706,7 @@ export default function CompanyPage({
       <div style={{
         background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12,
         padding: '20px 24px', marginBottom: 24,
-        display: 'flex', alignItems: 'center', gap: 14,
+        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
       }}>
         <div style={{
           width: 48, height: 48, borderRadius: 10, flexShrink: 0,
@@ -723,6 +725,22 @@ export default function CompanyPage({
             <span style={{ fontSize: 13, color: '#9CA3AF' }}>{countryCode}</span>
           </div>
         </div>
+        {onWatch && (
+          <button
+            disabled={isWatched || watchBusy}
+            onClick={async () => { setWatchBusy(true); await onWatch(); setWatchBusy(false); }}
+            style={{
+              marginLeft: 'auto', padding: '8px 14px', borderRadius: 8,
+              border: isWatched ? '1px solid #BBF7D0' : 'none',
+              background: isWatched ? '#F0FDF4' : '#0f1117',
+              color: isWatched ? '#15803D' : '#fff',
+              fontSize: 13, fontWeight: 600, fontFamily: "'Inter', sans-serif",
+              cursor: isWatched || watchBusy ? 'default' : 'pointer', opacity: watchBusy ? 0.7 : 1,
+            }}
+          >
+            {isWatched ? '✓ On your watchlist' : `🔔 Get an email when someone buys ${ticker}`}
+          </button>
+        )}
       </div>
 
       {/* ── Section 1: Chart ──────────────────────────────────────────────── */}

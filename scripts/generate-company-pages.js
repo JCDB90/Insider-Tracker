@@ -3,7 +3,8 @@
 // Usage:  node scripts/generate-company-pages.js [--limit N]
 // Cron:   0 8 * * 0  cd /opt/insider-tracker && node scripts/generate-company-pages.js
 
-require('dotenv').config();
+// dotenv is optional: not installed in frontend/ when this runs in the Vercel build.
+try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -99,7 +100,10 @@ async function fetchAllTransactions() {
       .not('ticker', 'is', null)
       .neq('ticker', '')
       .range(from, from + 999);
-    if (error || !data || data.length === 0) break;
+    // A DB error must fail the run (build-pages.cjs then keeps the committed
+    // pages) — breaking here would publish pages built from partial data.
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < 1000) break;
     from += 1000;
@@ -499,6 +503,7 @@ function generateHTML(co, txns) {
   <a href="/terms">Terms</a>
   <a href="/contact">Contact</a>
 </footer>
+<script src="/ia-track.js" data-ticker="${esc(co.ticker)}" defer></script>
 </body>
 </html>`;
 }

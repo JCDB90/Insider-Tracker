@@ -3,7 +3,8 @@
 // Usage:  node scripts/generate-stock-pages.js [--limit N]
 // Cron:   0 8 * * 0  cd /opt/insider-tracker && node scripts/generate-stock-pages.js
 
-require('dotenv').config();
+// dotenv is optional: not installed in frontend/ when this runs in the Vercel build.
+try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -179,7 +180,10 @@ async function fetchAllTransactions() {
       .not('ticker', 'is', null)
       .neq('ticker', '')
       .range(from, from + 999);
-    if (error || !data || data.length === 0) break;
+    // A DB error must fail the run (build-pages.cjs then keeps the committed
+    // pages) — breaking here would publish pages built from partial data.
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < 1000) break;
     from += 1000;
@@ -226,10 +230,11 @@ function aggregateCompanies(rows, limit) {
   }
 
   const priorities = all.filter(c => c.isPriority);
-  // New markets get all companies included regardless of transaction count
-  const NEW_MARKETS = new Set(['PL', 'SG']);
+  // 3+ transactions for every market. PL and SG used to be exempt as "new
+  // markets", which published thin 1–2 transaction pages; pages that already
+  // exist stay on disk but are no longer regenerated or listed in the sitemap.
   const rest = all
-    .filter(c => !c.isPriority && (c.total >= 3 || NEW_MARKETS.has(c.country_code)))
+    .filter(c => !c.isPriority && c.total >= 3)
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
 
@@ -248,6 +253,9 @@ function aggregateCompanies(rows, limit) {
 
 function generateHTML(co, txns, insiderNameCompanyCount) {
   const cc    = co.country_code;
+  // Alert CTA deep link — the app remembers the ticker and adds it to the
+  // watchlist once the visitor has signed up/in (see captureSignupDeepLink).
+  const signupUrl = `/signup?ticker=${encodeURIComponent(co.ticker)}&amp;country=${encodeURIComponent(cc)}&amp;company=${encodeURIComponent(co.company || '')}`;
   // Real insider profile pages live at /insiders/{slug} (plural, no suffix) —
   // bare name-slug when the name maps to exactly one company among insider
   // pages actually generated, else disambiguated with the company slug (see
@@ -597,8 +605,8 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
     <h3>🔔 Get alerts for ${esc(co.company)}</h3>
     <p>Be notified when insiders buy or sell ${esc(co.company)}. Free for up to 3 stocks.</p>
     <div class="wl-actions">
-      <a href="/signup?ticker=${esc(co.ticker)}&country=${cc}" class="wl-primary">Sign up free →</a>
-      <span class="wl-secondary">Already a member? <a href="/#watchlist">Log in</a></span>
+      <a href="${signupUrl}" class="wl-primary">🔔 Get an email when someone buys ${esc(co.ticker)}</a>
+      <span class="wl-secondary">Already a member? <a href="${signupUrl}&amp;mode=signin">Log in</a></span>
     </div>
   </div>
   <script>
@@ -741,6 +749,7 @@ function generateHTML(co, txns, insiderNameCompanyCount) {
   <a href="/terms">Terms</a>
   <a href="/contact">Contact</a>
 </footer>
+<script src="/ia-track.js" data-ticker="${esc(co.ticker)}" defer></script>
 </body>
 </html>`;
 }

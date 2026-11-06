@@ -221,6 +221,24 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: node scrapers/daily-health-check.js
 
+      # ── Redeploy site ───────────────────────────────────────────────────────
+      # Triggers a Vercel production build, which regenerates the static SEO
+      # pages + sitemap from today's data (frontend/scripts/build-pages.cjs;
+      # keeps the committed pages if generation fails). Needs the
+      # VERCEL_DEPLOY_HOOK_URL repo secret (Vercel → Settings → Git → Deploy Hooks).
+      - name: 🚀 Redeploy site (regenerate SEO pages)
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "::warning::VERCEL_DEPLOY_HOOK_URL secret not set — skipping site redeploy"
+            exit 0
+          fi
+          curl -fsS -X POST --retry 3 --max-time 30 "$VERCEL_DEPLOY_HOOK_URL" -o /dev/null
+          echo "Vercel deploy hook triggered"
+
       # ── Summary ─────────────────────────────────────────────────────────────
       - name: 📊 Run summary
         if: always()

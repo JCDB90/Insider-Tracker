@@ -5,7 +5,8 @@
 //
 // Usage: node scripts/generate-signal-pages.js
 
-require('dotenv').config();
+// dotenv is optional: not installed in frontend/ when this runs in the Vercel build.
+try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -292,6 +293,7 @@ function pageShell({ slug, badge, emoji, title, metaTitle, metaDesc, lead, howIt
   <a href="/terms">Terms</a>
   <a href="/contact">Contact</a>
 </footer>
+<script src="/ia-track.js" defer></script>
 </body>
 </html>`;
 }

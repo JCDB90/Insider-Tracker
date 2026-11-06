@@ -55,6 +55,110 @@ function getStoredUTMs() {
 
 if (typeof window !== 'undefined') storeUTMs();
 
+// ─── Signup intent + first-touch attribution ─────────────────────────────────
+//
+// ia_first_touch: the first page (+ ticker) this browser ever visited, recorded
+// on every visit that finds it missing — by this app and by /ia-track.js on the
+// static SEO pages (same origin, same key, same shape). Written to
+// user_profiles.landing_page at signup; UTM visits alone covered 0 of 11 users.
+//
+// ia_pending_watch: a ticker the visitor asked to watch before having an
+// account (/signup?ticker=X&country=Y from a stock/insider page, or the watch
+// button in the company view). Added to their watchlist automatically once
+// they sign in — after email confirmation, possibly days later.
+
+const FIRST_TOUCH_KEY   = 'ia_first_touch';
+const PENDING_WATCH_KEY = 'ia_pending_watch';
+const PENDING_WATCH_TTL = 14 * 24 * 60 * 60 * 1000;
+
+function lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+}
+function lsSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage blocked */ }
+}
+function lsDel(key) {
+  try { localStorage.removeItem(key); } catch { /* storage blocked */ }
+}
+
+// Keep in sync with sourceType() in frontend/public/ia-track.js.
+function sourceTypeForPath(path) {
+  const m = /^\/(stocks|insiders|company|signals|market|articles)\//.exec(path || '');
+  if (!m) return path === '/' || path === '/signup' ? 'app' : 'page';
+  return { stocks: 'stock', insiders: 'insider', company: 'company', signals: 'signal', market: 'market', articles: 'article' }[m[1]];
+}
+
+function recordFirstTouch(page, ticker) {
+  if (lsGet(FIRST_TOUCH_KEY)) return;
+  lsSet(FIRST_TOUCH_KEY, { page, source_type: sourceTypeForPath(page), ticker: ticker || null, ts: Date.now() });
+}
+
+// Same-origin referrer path, e.g. "/stocks/2crsi-insider-transactions".
+function referrerPath() {
+  try {
+    const ref = new URL(document.referrer);
+    return ref.origin === window.location.origin ? ref.pathname : null;
+  } catch { return null; }
+}
+
+function getPendingWatch() {
+  const p = lsGet(PENDING_WATCH_KEY);
+  if (!p) return null;
+  if (!p.ts || Date.now() - p.ts > PENDING_WATCH_TTL) { lsDel(PENDING_WATCH_KEY); return null; }
+  return p;
+}
+
+function setPendingWatch({ ticker, country, company, source_page, source_type }) {
+  lsSet(PENDING_WATCH_KEY, {
+    ticker: ticker.toUpperCase(), country: country.toUpperCase(), company: company || null,
+    source_page, source_type, ts: Date.now(),
+  });
+}
+
+// /signup?ticker=X&country=Y[&company=Z][&mode=signin] — the static pages'
+// alert CTA. Remembers the ticker, then rewrites the URL to "/" before App
+// mounts so the ?country= dashboard pre-filter doesn't kick in. Returns the
+// modal mode to open ('signup' | 'signin'), or null when this isn't /signup.
+function captureSignupDeepLink() {
+  if (window.location.pathname !== '/signup') return null;
+  const params  = new URLSearchParams(window.location.search);
+  const ticker  = (params.get('ticker') || '').trim();
+  const country = (params.get('country') || '').trim();
+  const from    = referrerPath();
+  if (ticker && country) {
+    setPendingWatch({
+      ticker, country, company: (params.get('company') || '').trim(),
+      source_page: from || '/signup', source_type: sourceTypeForPath(from || '/signup'),
+    });
+  }
+  window.history.replaceState(null, '', '/');
+  return params.get('mode') === 'signin' ? 'signin' : 'signup';
+}
+
+let SIGNUP_DEEPLINK_MODE = null;
+if (typeof window !== 'undefined') {
+  const initialTicker = new URLSearchParams(window.location.search).get('ticker');
+  recordFirstTouch(window.location.pathname, initialTicker);
+  SIGNUP_DEEPLINK_MODE = captureSignupDeepLink();
+}
+
+// Where an auth/watchlist action started, for GA4 event params.
+function currentSource(appPage) {
+  const pending = getPendingWatch();
+  if (pending) return { source_page: pending.source_page, source_type: pending.source_type, ticker: pending.ticker };
+  return { source_page: `/app/${appPage || 'dashboard'}`, source_type: 'app', ticker: null };
+}
+
+// Turns a failed watchlist insert into the reason the UI explains to the user.
+// The free-plan cap is enforced by the enforce_watchlist_limit trigger
+// (migrations/018), which RAISEs "Watchlist limit reached…".
+function watchlistErrorReason(error) {
+  if (!error) return null;
+  if (/limit reached/i.test(error.message || '')) return 'limit';
+  if (error.code === '23505') return 'duplicate';
+  return 'error';
+}
+
 // ─── Dynamic meta tags ───────────────────────────────────────────────────────
 function useMetaTags(page, selectedCompany, selectedInsider) {
   useEffect(() => {
@@ -287,7 +391,7 @@ function TurnstileWidget({ onToken, resetKey }) {
 
 // ─── LoginModal ───────────────────────────────────────────────────────────────
 
-function LoginModal({ onClose, initialMode = 'signin' }) {
+function LoginModal({ onClose, initialMode = 'signin', appPage }) {
   const [mode, setMode]       = useState(initialMode);
   const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
@@ -296,6 +400,14 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
   const [done, setDone]       = useState('');
   const [captchaToken, setCaptchaToken] = useState('');
   const [captchaReset, setCaptchaReset] = useState(0);
+  const signupStartedRef = useRef(false);
+  const [pendingWatch] = useState(getPendingWatch);
+
+  useEffect(() => {
+    if (mode !== 'signup' || signupStartedRef.current) return;
+    signupStartedRef.current = true;
+    track('signup_started', currentSource(appPage));
+  }, [mode, appPage]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -317,9 +429,16 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
         setLoading(false);
         return;
       }
+      // The pending ticker also rides along in user_metadata so the auto-add
+      // still happens if the confirmation link is opened on another device.
+      const pending = getPendingWatch();
       const { error: err } = await supabase.auth.signUp({
         email, password,
-        options: { emailRedirectTo: 'https://www.insidersalpha.com', ...(captchaToken && { captchaToken }) },
+        options: {
+          emailRedirectTo: 'https://www.insidersalpha.com',
+          ...(captchaToken && { captchaToken }),
+          ...(pending && { data: { pending_watch: { ticker: pending.ticker, country: pending.country, company: pending.company } } }),
+        },
       });
       if (err) setError(err.message);
       else setDone('Check your email to confirm your account, then sign in.');
@@ -359,6 +478,15 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
         <h2 style={{ fontSize: 18, fontWeight: 700, color: '#111318', margin: '0 0 4px' }}>
           {mode === 'signin' ? 'Sign in to InsidersAlpha' : 'Create your free account'}
         </h2>
+        {pendingWatch && !done && (
+          <div style={{
+            fontSize: 12, color: '#15803D', background: '#F0FDF4', border: '1px solid #BBF7D0',
+            borderRadius: 7, padding: '8px 10px', margin: '10px 0 14px', lineHeight: 1.5,
+          }}>
+            🔔 {pendingWatch.company || pendingWatch.ticker} is added to your watchlist as soon as you
+            {mode === 'signup' ? ' confirm your email and sign in' : ' sign in'}.
+          </div>
+        )}
         {mode === 'signup' && (
           <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 18, lineHeight: 1.6 }}>
             ✓ Personal watchlist (up to 3 stocks)<br />
@@ -418,6 +546,42 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Watchlist add result ─────────────────────────────────────────────────────
+
+function WatchNotice({ notice, onClose, onUpgrade, onOpenWatchlist }) {
+  useEffect(() => {
+    if (notice.kind !== 'added') return;
+    const t = setTimeout(onClose, 8000);
+    return () => clearTimeout(t);
+  }, [notice, onClose]);
+
+  const ok = notice.kind === 'added';
+  const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, textDecoration: 'underline' };
+  return (
+    <div role="status" style={{
+      position: 'fixed', left: 16, right: 16, bottom: 20, margin: '0 auto', maxWidth: 520, zIndex: 1900,
+      background: ok ? '#F0FDF4' : '#FFFBEB', border: `1px solid ${ok ? '#BBF7D0' : '#FDE68A'}`,
+      color: ok ? '#166534' : '#92400E', borderRadius: 10, padding: '12px 40px 12px 16px',
+      fontSize: 13, lineHeight: 1.55, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', fontFamily: "'Inter', sans-serif",
+    }}>
+      <button onClick={onClose} aria-label="Close" style={{
+        position: 'absolute', top: 8, right: 10, background: 'none', border: 'none',
+        cursor: 'pointer', fontSize: 18, color: 'inherit', lineHeight: 1,
+      }}>×</button>
+      {ok && <>🔔 <strong>{notice.name}</strong> is on your watchlist. You'll get an email when insiders trade it.</>}
+      {notice.kind === 'limit' && <>
+        Your free watchlist already has 3 stocks, so <strong>{notice.name}</strong> wasn't added.{' '}
+        <button onClick={onUpgrade} style={{ ...linkBtn, color: '#92400E' }}>Upgrade to Pro</button> for unlimited stocks, or{' '}
+        <button onClick={onOpenWatchlist} style={{ ...linkBtn, color: '#92400E' }}>make room in your watchlist</button>.
+      </>}
+      {(notice.kind === 'duplicate' || notice.kind === 'error') && <>
+        We couldn't add <strong>{notice.name}</strong> to your watchlist just now.{' '}
+        <button onClick={onOpenWatchlist} style={{ ...linkBtn, color: '#92400E' }}>Open your watchlist</button> to try again.
+      </>}
     </div>
   );
 }
@@ -1880,7 +2044,9 @@ function WatchlistPage({ trades, tradesLoading, buybacks, watchlist, watchlistTi
     } else if (result.reason === 'limit') {
       setSaveError(`Watchlist limit reached (${access.watchlistLimit} stocks). Upgrade to Pro for unlimited stocks.`);
     } else {
-      setSaveError('Failed to save — ticker may already exist.');
+      setSaveError(result.reason === 'duplicate'
+        ? 'That stock could not be added — it may already be on your watchlist.'
+        : 'Failed to save — please try again.');
     }
   }
 
@@ -5586,6 +5752,8 @@ export default function App() {
   const [tradeSort, setTradeSort] = useState({ by: 'transaction_date', dir: 'desc' });
   const [buybackSort, setBuybackSort] = useState({ by: 'announced_date', dir: 'desc' });
   const [watchlist, setWatchlist] = useState([]);
+  const [watchlistLoaded, setWatchlistLoaded] = useState(false);
+  const [watchNotice, setWatchNotice] = useState(null); // { kind: 'added'|'limit'|'duplicate'|'error', name }
   const [selectedCompany, setSelectedCompany] = useState(null); // { ticker, company, countryCode, yahooTicker }
   const [tickerMeta, setTickerMeta] = useState([]);
 
@@ -5614,39 +5782,78 @@ export default function App() {
     }
   }, []); // intentionally runs once on mount — checkoutSuccess is stable at this point
 
-  async function fetchUserPlan(userId, userEmail) {
+  async function fetchUserPlan(user) {
+    const userId = user.id;
     const { data } = await supabase
       .from('user_profiles')
-      .select('plan, stripe_customer_id')
+      .select('plan, stripe_customer_id, landing_page')
       .eq('id', userId)
       .maybeSingle();
     if (!data) {
       const utms = getStoredUTMs();
+      const firstTouch = lsGet(FIRST_TOUCH_KEY);
       await supabase.from('user_profiles').insert({
-        id: userId, email: userEmail, plan: 'visitor',
+        id: userId, email: user.email, // plan: column default 'visitor' (not client-writable, migrations/024)
         utm_source:   utms.utm_source   || null,
         utm_medium:   utms.utm_medium   || null,
         utm_campaign: utms.utm_campaign || null,
         utm_content:  utms.utm_content  || null,
         utm_term:     utms.utm_term     || null,
-        landing_page: utms._landing_page || null,
+        landing_page: firstTouch?.page || utms._landing_page || null,
       });
+      recordSignupCompleted(user);
       setUserPlan('visitor');
       setStripeCustomerId(null);
     } else {
       setUserPlan(data.plan || 'visitor');
       setStripeCustomerId(data.stripe_customer_id || null);
+      // The on_auth_user_created trigger (migrations/004) creates the profile
+      // row at signup, so the insert branch above practically never runs. A
+      // new account is recognised instead by its first session: profile has
+      // no landing_page yet and the auth user is less than 14 days old.
+      const isNewUser = Date.now() - new Date(user.created_at).getTime() < 14 * 86400000;
+      if (!data.landing_page && isNewUser) {
+        const utms = getStoredUTMs();
+        const firstTouch = lsGet(FIRST_TOUCH_KEY);
+        await supabase.from('user_profiles').update({
+          landing_page: firstTouch?.page || utms._landing_page || '(unknown)',
+          utm_source:   utms.utm_source   || null,
+          utm_medium:   utms.utm_medium   || null,
+          utm_campaign: utms.utm_campaign || null,
+          utm_content:  utms.utm_content  || null,
+          utm_term:     utms.utm_term     || null,
+        }).eq('id', userId);
+        recordSignupCompleted(user);
+      }
     }
+  }
+
+  // Fires once per account per browser: fetchUserPlan runs twice on load
+  // (getSession + onAuthStateChange's INITIAL_SESSION).
+  function recordSignupCompleted(user) {
+    const flag = `ia_signup_completed_${user.id}`;
+    try { if (localStorage.getItem(flag)) return; localStorage.setItem(flag, '1'); } catch { /* storage blocked */ }
+    const firstTouch = lsGet(FIRST_TOUCH_KEY);
+    const pending = getPendingWatch() || user.user_metadata?.pending_watch;
+    track('signup_completed', {
+      source_page: firstTouch?.page || '(unknown)',
+      source_type: firstTouch?.source_type || 'unknown',
+      ticker:      pending?.ticker || firstTouch?.ticker || null,
+      method:      user.app_metadata?.provider || 'email',
+    });
   }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
-      if (s) fetchUserPlan(s.user.id, s.user.email);
+      if (s) fetchUserPlan(s.user);
+      // /signup deep link: signed-in visitors skip the modal — the pending
+      // ticker is added by the auto-add effect below instead.
+      else if (SIGNUP_DEEPLINK_MODE) setShowLoginModal(SIGNUP_DEEPLINK_MODE);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
-      if (s) fetchUserPlan(s.user.id, s.user.email);
+      if (s) fetchUserPlan(s.user);
       else setUserPlan('visitor');
     });
     return () => subscription.unsubscribe();
@@ -5663,13 +5870,36 @@ export default function App() {
   // (explaining the reported "6/3 stocks" — 6 is that fallback's length, not
   // real data). Logged-out visitors now get [] directly, no query at all.
   useEffect(() => {
+    setWatchlistLoaded(false);
     if (!session?.user?.id) { setWatchlist([]); return; }
     supabase.from('watchlist')
       .select('*')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: true })
-      .then(({ data }) => setWatchlist(data || []));
-  }, [session]);
+      .then(({ data }) => { setWatchlist(data || []); setWatchlistLoaded(true); });
+  }, [session?.user?.id]);
+
+  // Adds the ticker remembered from a /signup deep link or a logged-out watch
+  // click, once the user is signed in and their watchlist has loaded. One
+  // attempt only: the pending entry is cleared before the insert so a failure
+  // (e.g. free-plan limit) shows a message instead of retrying every load.
+  useEffect(() => {
+    if (!session?.user || !watchlistLoaded) return;
+    const meta = session.user.user_metadata?.pending_watch;
+    const pending = getPendingWatch() || (meta?.ticker && meta?.country
+      ? { ...meta, source_page: '(other device)', source_type: 'unknown' } : null);
+    if (!pending) return;
+    lsDel(PENDING_WATCH_KEY);
+    if (meta) supabase.auth.updateUser({ data: { pending_watch: null } });
+
+    (async () => {
+      const already = watchlist.some(w => w.ticker === pending.ticker && w.country_code === pending.country);
+      if (already) { setWatchNotice({ kind: 'added', name: pending.company || pending.ticker }); return; }
+      const stock = await resolveWatchStock(pending.ticker, pending.country, pending.company);
+      const result = await addToWatchlist(stock, { source_page: pending.source_page, source_type: pending.source_type });
+      setWatchNotice({ kind: result.ok ? 'added' : result.reason, name: stock.company || stock.ticker });
+    })();
+  }, [session?.user?.id, watchlistLoaded]);
 
   function handleSignOut() {
     supabase.auth.signOut();
@@ -5699,7 +5929,23 @@ export default function App() {
     });
   }, []);
 
-  async function addToWatchlist(stock) {
+  // Company name + Yahoo symbol for a ticker known only from a deep link.
+  async function resolveWatchStock(ticker, country, company) {
+    const [{ data: tx }, { data: meta }] = await Promise.all([
+      company ? Promise.resolve({ data: null }) : supabase.from('insider_transactions')
+        .select('company').eq('ticker', ticker).eq('country_code', country)
+        .order('transaction_date', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('ticker_metadata').select('yahoo_symbol')
+        .eq('ticker', ticker).eq('country_code', country).limit(1).maybeSingle(),
+    ]);
+    return {
+      ticker, country_code: country,
+      company: company || tx?.company || ticker,
+      yahoo_ticker: meta?.yahoo_symbol || null,
+    };
+  }
+
+  async function addToWatchlist(stock, source = { source_page: `/app/${page}`, source_type: 'app' }) {
     const userId = session?.user?.id;
 
     // Enforce the per-plan watchlist limit with a fresh count from the DB rather
@@ -5718,10 +5964,27 @@ export default function App() {
 
     const row = userId ? { ...stock, user_id: userId } : stock;
     const { error } = await supabase.from('watchlist').insert([row]);
-    if (error) return { ok: false, reason: 'error' };
+    if (error) return { ok: false, reason: watchlistErrorReason(error) };
     setWatchlist(prev => [...prev, stock]);
     track('add_to_watchlist', { ticker: stock.ticker, company: stock.company });
+    track('watchlist_added', { ...source, ticker: stock.ticker, country_code: stock.country_code });
     return { ok: true };
+  }
+
+  // Watch button in the company view. Logged-out visitors get the same
+  // remember-then-sign-up flow as the static pages' /signup deep link.
+  async function handleWatchCompany(sel) {
+    if (!session?.user) {
+      setPendingWatch({ ticker: sel.ticker, country: sel.countryCode, company: sel.company,
+        source_page: '/app/company', source_type: 'app' });
+      setShowLoginModal('signup');
+      return;
+    }
+    const result = await addToWatchlist(
+      { ticker: sel.ticker, company: sel.company, country_code: sel.countryCode, yahoo_ticker: sel.yahooTicker || null },
+      { source_page: '/app/company', source_type: 'app' },
+    );
+    setWatchNotice({ kind: result.ok ? 'added' : result.reason, name: sel.company || sel.ticker });
   }
 
   const watchlistTickers = useMemo(() => new Set(watchlist.map(w => w.ticker)), [watchlist]);
@@ -5868,7 +6131,10 @@ export default function App() {
         onLogin={() => setShowLoginModal(true)}
         onSignOut={handleSignOut}
       />
-      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} initialMode={showLoginModal === 'signup' ? 'signup' : 'signin'} />}
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} initialMode={showLoginModal === 'signup' ? 'signup' : 'signin'} appPage={page} />}
+      {watchNotice && <WatchNotice notice={watchNotice} onClose={() => setWatchNotice(null)}
+        onUpgrade={() => { setWatchNotice(null); setPage('pricing'); }}
+        onOpenWatchlist={() => { setWatchNotice(null); setPage('watchlist'); }} />}
       {checkoutSuccess && (
         <div style={{
           background: '#F0FDF4', borderBottom: '1px solid #BBF7D0',
@@ -5968,6 +6234,7 @@ export default function App() {
               backLabel={backLabel}
               onInsiderClick={handleInsiderClick}
               access={access}
+              onWatch={() => handleWatchCompany(selectedCompany)}
             />
           </Suspense>
         )}

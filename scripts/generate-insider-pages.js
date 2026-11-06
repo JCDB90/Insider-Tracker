@@ -2,7 +2,8 @@
 // Generates SEO insider profile pages at /insiders/{slug}
 // Usage:  node scripts/generate-insider-pages.js [--limit N]
 
-require('dotenv').config();
+// dotenv is optional: not installed in frontend/ when this runs in the Vercel build.
+try { require('dotenv').config(); } catch { /* env comes from the caller */ }
 const fs   = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -268,7 +269,10 @@ async function fetchAllTransactions() {
       .not('insider_name', 'is', null)
       .neq('insider_name', 'Not disclosed')
       .range(from, from + 999);
-    if (error || !data || data.length === 0) break;
+    // A DB error must fail the run (build-pages.cjs then keeps the committed
+    // pages) — breaking here would publish pages built from partial data.
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < 1000) break;
     from += 1000;
@@ -284,7 +288,10 @@ async function fetchAllPerformance() {
       .from('insider_performance')
       .select('transaction_id,return_30d,return_90d,return_180d,hit_rate_30d,hit_rate_90d,hit_rate_180d')
       .range(from, from + 999);
-    if (error || !data || data.length === 0) break;
+    // A DB error must fail the run (build-pages.cjs then keeps the committed
+    // pages) — breaking here would publish pages built from partial data.
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < 1000) break;
     from += 1000;
@@ -631,10 +638,12 @@ function generateHTML(ins) {
 
   <div class="cta-box">
     <div>
-      <strong>Track ${esc(ins.name)} and every other insider free</strong>
-      <p>Live filings with conviction scores, signal badges, and post-trade return tracking across 18 markets.</p>
+      <strong>Know when ${esc(ins.name)} or another ${esc(ins.company)} insider buys</strong>
+      <p>Free email alerts for up to 3 stocks, from official ${ctry.regulator} filings.</p>
     </div>
-    <a href="/" class="cta-btn">View live data →</a>
+    ${ins.ticker
+      ? `<a href="/signup?ticker=${encodeURIComponent(ins.ticker)}&amp;country=${encodeURIComponent(ins.cc)}&amp;company=${encodeURIComponent(ins.company || '')}" class="cta-btn">🔔 Get an email when someone buys ${esc(ins.ticker)}</a>`
+      : `<a href="/" class="cta-btn">View live data →</a>`}
   </div>
   ${perfSection}
 
@@ -675,6 +684,7 @@ function generateHTML(ins) {
   <a href="/terms">Terms</a>
   <a href="/contact">Contact</a>
 </footer>
+<script src="/ia-track.js"${ins.ticker ? ` data-ticker="${esc(ins.ticker)}"` : ''} defer></script>
 </body>
 </html>`;
 }
