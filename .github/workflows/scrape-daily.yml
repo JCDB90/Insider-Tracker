@@ -171,6 +171,14 @@ jobs:
         continue-on-error: true
         run: node scrapers/cleanup.js
 
+      # Deletes auth accounts matching the bot/disposable-email blocklist
+      # (scrapers/lib/blockedEmails.js) that got past the signup trigger and
+      # Turnstile. Paid (pro/elite) accounts are never deleted, only logged.
+      - name: 🤖 Delete bot signups
+        if: ${{ github.event.inputs.country == '' }}  # Only on full runs
+        continue-on-error: true
+        run: node scripts/delete-bot-signups.js --confirm
+
       # ── Scoring & Performance ────────────────────────────────────────────────
       # flag-signals MUST run before score-insiders (see scripts/run-daily.sh):
       # scoring only (re)scores rows with conviction_normalized IS NULL and

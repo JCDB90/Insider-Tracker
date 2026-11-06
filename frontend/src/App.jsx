@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
 
 // Lazy-loaded — lightweight-charts (~175KB) only downloads when first opened
@@ -223,6 +223,68 @@ const isBlockedEmail = (email) => {
 // user-facing error message + one less round trip for the common case), but
 // treat the migration as the actual enforcement layer, not this file.
 
+// ─── Turnstile captcha ────────────────────────────────────────────────────────
+//
+// Cloudflare Turnstile widget for email/password auth. The token is verified by
+// Supabase itself (Auth → Bot and Abuse Protection → Turnstile + secret key),
+// so a bot POSTing straight to /auth/v1/signup without a valid token is
+// rejected server-side — unlike isBlockedEmail above, which a direct REST call
+// skips. Once enabled, Supabase demands a token on password sign-in as well as
+// sign-up, so LoginModal sends one for both. Google OAuth is unaffected.
+// Without VITE_TURNSTILE_SITE_KEY nothing renders and no token is sent.
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const TURNSTILE_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+
+let turnstileScript;
+function loadTurnstile() {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  turnstileScript ??= new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = TURNSTILE_SRC;
+    el.async = true;
+    el.onload = () => resolve(window.turnstile);
+    el.onerror = () => { turnstileScript = null; reject(new Error('Turnstile failed to load')); };
+    document.head.appendChild(el);
+  });
+  return turnstileScript;
+}
+
+// Tokens are single-use: bump resetKey after every auth attempt to get a fresh one.
+function TurnstileWidget({ onToken, resetKey }) {
+  const containerRef = useRef(null);
+  const widgetIdRef  = useRef(null);
+  const onTokenRef   = useRef(onToken);
+  onTokenRef.current = onToken;
+
+  useEffect(() => {
+    let cancelled = false;
+    loadTurnstile().then(ts => {
+      if (cancelled || !containerRef.current) return;
+      widgetIdRef.current = ts.render(containerRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        callback: token => onTokenRef.current(token),
+        'expired-callback': () => onTokenRef.current(''),
+        'error-callback': () => onTokenRef.current(''),
+      });
+    }).catch(() => onTokenRef.current(''));
+    return () => {
+      cancelled = true;
+      if (widgetIdRef.current != null) window.turnstile?.remove(widgetIdRef.current);
+      widgetIdRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (resetKey && widgetIdRef.current != null) {
+      onTokenRef.current('');
+      window.turnstile?.reset(widgetIdRef.current);
+    }
+  }, [resetKey]);
+
+  return <div ref={containerRef} style={{ marginBottom: 12, minHeight: 65 }} />;
+}
+
 // ─── LoginModal ───────────────────────────────────────────────────────────────
 
 function LoginModal({ onClose, initialMode = 'signin' }) {
@@ -232,12 +294,21 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [done, setDone]       = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (TURNSTILE_SITE_KEY && !captchaToken) {
+      setError('Please complete the verification check.');
+      return;
+    }
     setLoading(true); setError('');
     if (mode === 'signin') {
-      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: err } = await supabase.auth.signInWithPassword({
+        email, password,
+        options: captchaToken ? { captchaToken } : undefined,
+      });
       if (err) setError(err.message);
       else onClose();
     } else {
@@ -248,11 +319,12 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
       }
       const { error: err } = await supabase.auth.signUp({
         email, password,
-        options: { emailRedirectTo: 'https://www.insidersalpha.com' },
+        options: { emailRedirectTo: 'https://www.insidersalpha.com', ...(captchaToken && { captchaToken }) },
       });
       if (err) setError(err.message);
       else setDone('Check your email to confirm your account, then sign in.');
     }
+    if (TURNSTILE_SITE_KEY) setCaptchaReset(n => n + 1);
     setLoading(false);
   }
 
@@ -327,6 +399,7 @@ function LoginModal({ onClose, initialMode = 'signin' }) {
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Password" required style={{ ...inputStyle, marginBottom: error ? 8 : 16 }} />
               {error && <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{error}</div>}
+              {TURNSTILE_SITE_KEY && <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />}
               <button type="submit" disabled={loading} style={{
                 width: '100%', padding: '10px', background: ACCENT, color: '#fff', border: 'none',
                 borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: loading ? 'default' : 'pointer',

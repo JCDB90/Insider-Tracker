@@ -4,7 +4,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 /**
  * Bulk-delete existing bot/disposable-email accounts from Supabase Auth.
  *
- * Uses the SAME blocklist as frontend/src/App.jsx (isBlockedEmail) and
+ * Uses the shared blocklist in scrapers/lib/blockedEmails.js (kept in sync
+ * with frontend/src/App.jsx's isBlockedEmail) and
  * migrations/019_block_bot_signups.sql — that migration stops NEW bot
  * signups going forward; this script cleans up accounts that were already
  * created before it's applied (or before this blocklist update).
@@ -16,6 +17,9 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
  * Usage:
  *   node scripts/delete-bot-signups.js              # dry run — lists matches only
  *   node scripts/delete-bot-signups.js --confirm     # actually deletes
+ *
+ * Runs daily with --confirm in .github/workflows/scrape-daily.yml. Accounts
+ * on a paid plan (pro/elite) are never deleted, only logged.
  *
  * Requires SUPABASE_SERVICE_ROLE_KEY in .env (Supabase → Settings → API →
  * service_role key) — the anon key cannot list or delete other users' auth
@@ -36,40 +40,7 @@ if (!SERVICE_KEY) {
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-// Kept in sync with frontend/src/App.jsx's BLOCKED_DOMAINS / BLOCKED_PATTERNS
-// and migrations/019_block_bot_signups.sql — update all three together.
-const BLOCKED_DOMAINS = new Set([
-  'mailinator.com', 'maildrop.cc', 'guerrillamail.com', 'guerrillamailblock.com',
-  'tempmail.com', 'yopmail.com', 'throwam.com', 'sharklasers.com',
-  'guerrillamail.info', 'guerrillamail.biz', 'guerrillamail.de',
-  'guerrillamail.net', 'guerrillamail.org', 'grr.la', 'spam4.me',
-  'trashmail.com', 'trashmail.me', 'trashmail.net', 'dispostable.com',
-  'example.com', 'example.org', 'example.net',
-  'test.com', 'fake.com', 'invalid.com',
-  'web-library.net', 'cursor.dev',
-]);
-
-const BLOCKED_PATTERNS = [
-  /security[.\-_]review/i,
-  /security\d+/i,
-  /test[.\-_]\d+/i,
-  /\d{10,}/,
-  /^appsec/i,
-  /appsec[-.]review/i,
-  /appsec\d+/i,
-  /^sec[.\-]review/i,
-  /^probe\d+/i,
-  /^test\d{5,}/i,
-  /^redir[-.]probe/i,
-  /^secmeta\d+/i,
-  /^appscan\d+/i,
-];
-
-function isBlockedEmail(email) {
-  const domain = (email || '').split('@')[1]?.toLowerCase();
-  return (!!domain && BLOCKED_DOMAINS.has(domain)) ||
-         BLOCKED_PATTERNS.some(p => p.test(email));
-}
+const { isBlockedEmail } = require('../scrapers/lib/blockedEmails');
 
 async function listAllUsers() {
   const PAGE = 1000;
@@ -90,8 +61,21 @@ async function main() {
   const users = await listAllUsers();
   console.log(`  ${users.length} total user(s) in auth.users`);
 
-  const matches = users.filter(u => isBlockedEmail(u.email));
+  let matches = users.filter(u => isBlockedEmail(u.email));
   console.log(`  ${matches.length} match(es) found\n`);
+
+  // Runs unattended in the daily workflow — never auto-delete a paying
+  // account, even if its address matches a bot pattern. Log it for review.
+  if (matches.length) {
+    const { data: paid, error } = await sb.from('user_profiles')
+      .select('id, plan').in('id', matches.map(u => u.id)).in('plan', ['pro', 'elite']);
+    if (error) throw new Error(`user_profiles plan check: ${error.message}`);
+    const paidIds = new Set((paid || []).map(p => p.id));
+    for (const u of matches.filter(u => paidIds.has(u.id))) {
+      console.warn(`  ⚠  ${u.email} matches the blocklist but is on a paid plan — skipped, review manually`);
+    }
+    matches = matches.filter(u => !paidIds.has(u.id));
+  }
 
   if (!matches.length) {
     console.log('Nothing to delete.');

@@ -14,6 +14,9 @@
  *   From: jelle@insidersalpha.com  (personal tone)
  *   Tracking: checkin_14d_sent_at
  *
+ * Bot/disposable addresses (scrapers/lib/blockedEmails.js) are never mailed —
+ * bounces and spam complaints from them hurt the Resend sender reputation.
+ *
  * DB columns required (migration 010 + 011):
  *   welcome_sent_at, checkin_14d_sent_at, onboarding_2d_sent_at
  */
@@ -21,6 +24,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 const { createClient } = require('@supabase/supabase-js');
+const { isBlockedEmail } = require('../lib/blockedEmails');
 
 const SUPABASE_URL     = process.env.SUPABASE_URL || 'https://loqmxllfjvdwamwicoow.supabase.co';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,6 +41,10 @@ const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 // ── Email sender ──────────────────────────────────────────────────────────────
 
 async function sendEmail(to, from, subject, html) {
+  if (isBlockedEmail(to)) {
+    console.log(`  ⛔ Blocked address — not mailing ${to}`);
+    return false;
+  }
   if (!RESEND_API_KEY) {
     console.warn(`  ⚠  RESEND_API_KEY not set — skipping email to ${to}`);
     return false;
