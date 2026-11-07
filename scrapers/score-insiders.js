@@ -156,7 +156,11 @@ async function fetchHighBefore(ticker, countryCode, txDate) {
     }
 
     if (data && data.length > 0) {
-      return Math.max(...data.map(d => d.price));
+      const high = Math.max(...data.map(d => d.price));
+      // Yahoo quotes LSE (.L) symbols in GBp; stored GB prices are GBP (same
+      // conversion as track-performance.js). Without it every GB buy looked like a
+      // ~99% drawdown — maxing its price-drop score and never qualifying as a dip.
+      return /\.L$/i.test(symbol) ? high / 100 : high;
     }
   }
   return null;
@@ -251,7 +255,9 @@ async function main() {
 
   // ── Phase 2: Find rows to score (unscored, or all if --force) ───────────────
   const force = process.argv.includes('--force');
-  if (force) console.log('  ⚡ --force mode: rescoring ALL transactions');
+  // --country=GB limits a --force rescore to one market
+  const onlyCountry = (process.argv.find(a => a.startsWith('--country=')) || '').split('=')[1]?.toUpperCase();
+  if (force) console.log(`  ⚡ --force mode: rescoring ALL ${onlyCountry || ''} transactions`);
 
   const toScore = [];
   let from2 = 0;
@@ -267,6 +273,7 @@ async function main() {
       .order('transaction_date', { ascending: false })
       .range(from2, from2 + 999);
     if (!force) q = q.is('conviction_normalized', null);
+    if (onlyCountry) q = q.eq('country_code', onlyCountry);
     const { data, error } = await q;
     if (error || !data || data.length === 0) break;
     toScore.push(...data);

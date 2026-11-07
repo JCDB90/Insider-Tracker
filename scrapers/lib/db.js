@@ -148,6 +148,16 @@ async function saveInsiderTransactions(rows, options = {}) {
     }
   }
 
+  // shares is a bigint column: one fractional value (a parse error, or a real fractional
+  // DRIP allocation) makes Postgres reject the ENTIRE batch — confirmed live: Eurofins'
+  // "280131.313" zeroed every LU run for 6+ weeks. Round it and say so instead.
+  for (const r of withEntityResolved) {
+    if (r.shares != null && !Number.isInteger(Number(r.shares))) {
+      console.warn(`  ⚠️  Fractional shares ${r.shares} rounded — ${r.company || '?'} (${r.country_code}, ${r.filing_id})`);
+      r.shares = Math.round(Number(r.shares));
+    }
+  }
+
   // Derive missing price or total_value from whichever of the three fields is known.
   // This prevents gaps when a scraper parses one but not both financial fields.
   for (const r of withEntityResolved) {

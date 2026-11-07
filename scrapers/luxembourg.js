@@ -405,15 +405,15 @@ function parsePdf(text) {
 
   if (isEnFormat) {
     // EN format: value columns are typically 5+ spaces after the label keyword
-    function getEnField(labelRe, minSpaces) {
+    function getEnField(labelRe, minSpaces, src = lines) {
       const sp = minSpaces || 5;
       const gapRe = new RegExp(`\\s{${sp},}(.+)$`);
-      for (let i = 0; i < lines.length; i++) {
-        if (!labelRe.test(lines[i])) continue;
-        const m = lines[i].match(gapRe);
+      for (let i = 0; i < src.length; i++) {
+        if (!labelRe.test(src[i])) continue;
+        const m = src[i].match(gapRe);
         let val = m ? m[1].trim() : '';
-        for (let j = i + 1; j < lines.length; j++) {
-          const nl = lines[j];
+        for (let j = i + 1; j < src.length; j++) {
+          const nl = src[j];
           if (!nl.trim()) continue;
           // Same page-break identifier-code leak as getField() above — reject bare
           // alphanumeric-code continuations (e.g. a stray LEI fragment).
@@ -432,97 +432,161 @@ function parsePdf(text) {
     }
     const issuerName  = getEnField(/Name of (?:the )?issuer/i) || getEnField(/^\s*d\)\s+Name\b/);
 
-    // Nature text: try b) label first, then bare label fallback
-    const natureTxt = getEnField(/^\s*b\)\s+Nature of the transaction/i)
-                   || getEnField(/\bNature of the transaction\b/i)
-                   || '';
-    let txType = 'UNKNOWN';
-    const natLow = natureTxt.toLowerCase();
-    if (/dispos|sale\b|sell/.test(natLow))                              txType = 'SELL';
-    else if (/acqui|purchas|subscri|exercise|award|grant|vest/.test(natLow)) txType = 'BUY';
+    // Section 4 is repeatable per transaction — each repeat opens with "Details of the
+    // transaction(s) section to be repeated…" (Eurofins prints "4." on the line after it).
+    // Parsing only the first block silently dropped every later one, and when the first
+    // block was a warrant (Eurofins ref LU-OAM-272183: Warrant @ EUR 529.65, then two
+    // share sales @ EUR 88) it got saved as if it were a share trade.
+    const enStarts = [];
+    for (let i = 0; i < lines.length; i++) if (/Details of the transaction/i.test(lines[i])) enStarts.push(i);
+    const enBlocks = enStarts.length > 1
+      ? enStarts.map((st, idx) => lines.slice(st, enStarts[idx + 1] ?? lines.length))
+      : [lines];
 
-    // Final fallback: broad scan for transaction type keywords
-    if (txType === 'UNKNOWN') {
-      for (const line of lines) {
-        const ll = line.toLowerCase();
-        if (/\bdisposal\b|\bsale of\b|\bselling\b/.test(ll)) { txType = 'SELL'; break; }
-        if (/\bacquisition\b|\bpurchase of\b|\bexercise of\b/.test(ll)) { txType = 'BUY'; break; }
+    function parseEnBlock(blk) {
+      // Non-share instruments (warrants, options, bonds) have prices unrelated to the share
+      const instr = getEnField(/instrument, type of instrument/i, undefined, blk) || '';
+      if (!/\bshares?\b/i.test(instr) && /warrant|option|bond|note|derivative|certificate/i.test(instr)) return null;
+
+      // Nature text: try b) label first, then bare label fallback
+      const natureTxt = getEnField(/^\s*b\)\s+Nature of the transaction/i, undefined, blk)
+                     || getEnField(/\bNature of the transaction\b/i, undefined, blk)
+                     || '';
+      let txType = 'UNKNOWN';
+      const natLow = natureTxt.toLowerCase();
+      if (/dispos|sale\b|sell/.test(natLow))                              txType = 'SELL';
+      else if (/acqui|purchas|subscri|exercise|award|grant|vest/.test(natLow)) txType = 'BUY';
+
+      // Final fallback: broad scan for transaction type keywords — this block first,
+      // then the whole document
+      if (txType === 'UNKNOWN') {
+        for (const line of [...blk, ...lines]) {
+          const ll = line.toLowerCase();
+          if (/\bdisposal\b|\bsale of\b|\bselling\b/.test(ll)) { txType = 'SELL'; break; }
+          if (/\bacquisition\b|\bpurchase of\b|\bexercise of\b/.test(ll)) { txType = 'BUY'; break; }
+        }
       }
-    }
 
-    let shares = null;
-    for (let i = 0; i < lines.length; i++) {
-      if (/[—–-]\s*Aggregated volume/i.test(lines[i])) {
-        const m = lines[i].match(/([\d,]+(?:\.\d+)?)\s*$/);
-        if (m) shares = parseFloat(m[1].replace(/,/g, '')) || null;
-        break;
+      const CCY = '(?:EUR|USD|PLN|GBP|CHF|SEK|NOK|DKK)';
+      const num = s => parseFloat(s.replace(/,/g, '')) || null;
+      let currency = null;
+
+      // "— Aggregated volume" is normally a share count, but some filers put the
+      // aggregate EUR amount there instead (confirmed live: Eurofins, "Aggregated volume
+      // EUR 280,131.313" for 3,257 shares @ EUR 86.009, ref LU-OAM-272144). A
+      // currency-tagged value is money, not shares — reading it as shares stored
+      // 280131.313 "shares", which the bigint column rejected, failing the whole LU batch.
+      let shares = null, aggAmount = null;
+      for (let i = 0; i < blk.length; i++) {
+        if (/[—–-]\s*Aggregated volume/i.test(blk[i])) {
+          const mCcy = blk[i].match(new RegExp(`(${CCY})\\s*([\\d,]+(?:\\.\\d+)?)\\s*$`, 'i'));
+          const m = blk[i].match(/([\d,]+(?:\.\d+)?)\s*$/);
+          if (mCcy) { aggAmount = num(mCcy[2]); currency = mCcy[1].toUpperCase(); }
+          else if (m) shares = num(m[1]);
+          break;
+        }
       }
-    }
 
-    // — Price = aggregate total value in EN format (same semantics as HOS-2 Price11).
-    // Some filers label this row "— Aggregated Price" instead of the more common bare
-    // "— Price" (confirmed live: ArcelorMittal filing ref LU-OAM-227188, a 5-execution
-    // multi-day aggregate) — the (?:Aggregated\s+)? tolerates both.
-    // pricePerShare derived as totalValue / shares
-    let totalValue = null;
-    for (let i = 0; i < lines.length; i++) {
-      if (/[—–-]\s*(?:Aggregated\s+)?Price\b/i.test(lines[i])) {
-        const mEur = lines[i].match(/EUR\s+([\d,]+\.?\d*)/i);
-        const mNum = lines[i].match(/([\d,]+\.?\d*)\s*(?:EUR|USD)?\s*$/i);
-        const raw = mEur ? mEur[1] : (mNum ? mNum[1] : null);
-        if (raw) totalValue = parseFloat(raw.replace(/,/g, '')) || null;
-        break;
-      }
-    }
-
-    let pricePerShare = null;
-    if (totalValue && shares && shares > 0) {
-      const pps = totalValue / shares;
-      pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
-    }
-
-    const dateTxt = getEnField(/^\s*e\)\s+Date of the transaction/i) || '';
-    let txDate = null;
-    const dmIso = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
-    if (dmIso) txDate = dmIso[1];
-    if (!txDate) {
-      const dmDmy = dateTxt.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
-      if (dmDmy) {
-        let [, first, second, year] = dmDmy;
-        let day = first, month = second;
-        // When the second component is >12 it cannot be a month under a D/M/Y reading,
-        // so it must actually be the day — this filer used M/D/Y instead. Swap rather
-        // than emit an invalid date (month 13+) a DATE column would reject.
-        if (parseInt(second, 10) > 12 && parseInt(first, 10) <= 12) { day = second; month = first; }
-        else {
-          // Otherwise both readings are individually valid (e.g. "3/12/2026") — genuinely
-          // ambiguous from the digits alone. Some filers (confirmed live: an ArcelorMittal
-          // template signed by "Henk Scheffer, Company Secretary") use M/D/Y throughout,
-          // which a blind D/M/Y default gets silently wrong — e.g. "3/12/2026" read as
-          // 3 December instead of the correct 12 March, in one real case producing a
-          // transaction date months in the future relative to the filing itself.
-          // Disambiguate against the unambiguous "Date and signature" line (format
-          // "D-MMM-YY", e.g. "17-Mar-26") printed on every one of this template's filings:
-          // a transaction is always signed/notified ON OR AFTER it happens (MAR requires
-          // filing within 3 business days), so whichever reading doesn't produce a date
-          // AFTER the signature date — and is the closer of the two — wins.
-          const sigMatch = body.match(/\b(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2,4})\b/i);
-          if (sigMatch) {
-            const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-            const sigYear = sigMatch[3].length === 2 ? `20${sigMatch[3]}` : sigMatch[3];
-            const sigDate = new Date(`${sigYear}-${String(months.indexOf(sigMatch[2].toLowerCase()) + 1).padStart(2,'0')}-${sigMatch[1].padStart(2,'0')}`);
-            const asDmy = new Date(`${year}-${second.padStart(2,'0')}-${first.padStart(2,'0')}`);
-            const asMdy = new Date(`${year}-${first.padStart(2,'0')}-${second.padStart(2,'0')}`);
-            const dmyOk = asDmy <= sigDate, mdyOk = asMdy <= sigDate;
-            if (mdyOk && (!dmyOk || asMdy > asDmy)) { day = second; month = first; }
+      // "c) Price(s) and volume(s)" row — per-share price and volume, either on the label
+      // line itself ("EUR 86.009      3257", Eurofins) or on the next line ("19.93 PLN
+      // 174,923", Kernel Holding). Only used to interpret the aggregated fields below.
+      let tablePrice = null, tableVolume = null;
+      for (let i = 0; i < blk.length; i++) {
+        if (!/Price\(s\) and volume\(s\)/i.test(blk[i])) continue;
+        for (let j = i; j < Math.min(i + 3, blk.length); j++) {
+          const ln = j === i ? blk[i].replace(/^.*Price\(s\) and volume\(s\)\d*/i, '') : blk[j];
+          const m = ln.match(new RegExp(`^\\s*(${CCY})\\s*([\\d,]+\\.?\\d*)\\s{2,}([\\d,]+)\\s*$`, 'i'))
+                 || ln.match(new RegExp(`^\\s*([\\d,]+\\.?\\d*)\\s*(${CCY})\\s{2,}([\\d,]+)\\s*$`, 'i'));
+          if (m) {
+            const [ccy, p] = /^[A-Z]/i.test(m[1]) ? [m[1], m[2]] : [m[2], m[1]];
+            tablePrice = num(p); tableVolume = num(m[3]); currency = currency || ccy.toUpperCase();
+            break;
           }
         }
-        txDate = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+        break;
       }
+      if (!shares && tableVolume) shares = tableVolume;
+
+      // — Price = aggregate total value in EN format (same semantics as HOS-2 Price11).
+      // Some filers label this row "— Aggregated Price" instead of the more common bare
+      // "— Price" (confirmed live: ArcelorMittal filing ref LU-OAM-227188, a 5-execution
+      // multi-day aggregate) — the (?:Aggregated\s+)? tolerates both.
+      // pricePerShare derived as totalValue / shares
+      let totalValue = null, priceLine = null;
+      for (let i = 0; i < blk.length; i++) {
+        if (/[—–-]\s*(?:Aggregated\s+)?Price\b/i.test(blk[i])) {
+          const mPre = blk[i].match(new RegExp(`${CCY}\\s+([\\d,]+\\.?\\d*)`, 'i'));
+          const mNum = blk[i].match(new RegExp(`([\\d,]+\\.?\\d*)\\s*${CCY}?\\s*$`, 'i'));
+          const raw = mPre ? mPre[1] : (mNum ? mNum[1] : null);
+          if (raw) priceLine = num(raw);
+          break;
+        }
+      }
+
+      let pricePerShare = null;
+      if (priceLine && tablePrice && Math.abs(priceLine / tablePrice - 1) < 0.01 && shares > 0) {
+        // "— Price" repeats the per-share price from the c) row (Eurofins, Kernel) —
+        // it is not an aggregate total here.
+        pricePerShare = parseFloat(priceLine.toFixed(6));
+        totalValue    = aggAmount || Math.round(priceLine * shares);
+      } else if (aggAmount && shares > 0) {
+        totalValue = aggAmount;
+        const pps = aggAmount / shares;
+        pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
+      } else {
+        totalValue = priceLine;
+        if (totalValue && shares && shares > 0) {
+          const pps = totalValue / shares;
+          pricePerShare = pps >= MIN_PRICE_PER_SHARE ? parseFloat(pps.toFixed(6)) : null;
+        }
+      }
+
+      // Some blocks drop the "e)" marker (Eurofins ref LU-OAM-272280, first block)
+      const dateTxt = getEnField(/^\s*e\)\s+Date of the transaction/i, undefined, blk)
+                   || getEnField(/^\s*Date of the transaction/i, undefined, blk) || '';
+      let txDate = null;
+      const dmIso = dateTxt.match(/(\d{4}-\d{2}-\d{2})/);
+      if (dmIso) txDate = dmIso[1];
+      if (!txDate) {
+        const dmDmy = dateTxt.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+        if (dmDmy) {
+          let [, first, second, year] = dmDmy;
+          let day = first, month = second;
+          // When the second component is >12 it cannot be a month under a D/M/Y reading,
+          // so it must actually be the day — this filer used M/D/Y instead. Swap rather
+          // than emit an invalid date (month 13+) a DATE column would reject.
+          if (parseInt(second, 10) > 12 && parseInt(first, 10) <= 12) { day = second; month = first; }
+          else {
+            // Otherwise both readings are individually valid (e.g. "3/12/2026") — genuinely
+            // ambiguous from the digits alone. Some filers (confirmed live: an ArcelorMittal
+            // template signed by "Henk Scheffer, Company Secretary") use M/D/Y throughout,
+            // which a blind D/M/Y default gets silently wrong — e.g. "3/12/2026" read as
+            // 3 December instead of the correct 12 March, in one real case producing a
+            // transaction date months in the future relative to the filing itself.
+            // Disambiguate against the unambiguous "Date and signature" line (format
+            // "D-MMM-YY", e.g. "17-Mar-26") printed on every one of this template's filings:
+            // a transaction is always signed/notified ON OR AFTER it happens (MAR requires
+            // filing within 3 business days), so whichever reading doesn't produce a date
+            // AFTER the signature date — and is the closer of the two — wins.
+            const sigMatch = body.match(/\b(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2,4})\b/i);
+            if (sigMatch) {
+              const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+              const sigYear = sigMatch[3].length === 2 ? `20${sigMatch[3]}` : sigMatch[3];
+              const sigDate = new Date(`${sigYear}-${String(months.indexOf(sigMatch[2].toLowerCase()) + 1).padStart(2,'0')}-${sigMatch[1].padStart(2,'0')}`);
+              const asDmy = new Date(`${year}-${second.padStart(2,'0')}-${first.padStart(2,'0')}`);
+              const asMdy = new Date(`${year}-${first.padStart(2,'0')}-${second.padStart(2,'0')}`);
+              const dmyOk = asDmy <= sigDate, mdyOk = asMdy <= sigDate;
+              if (mdyOk && (!dmyOk || asMdy > asDmy)) { day = second; month = first; }
+            }
+          }
+          txDate = `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+        }
+      }
+      return { txType, shares, totalValue, pricePerShare, txDate, currency };
     }
 
     return { insiderName, issuerName, isin, role: null,
-      transactions: [{ txType, shares, totalValue, pricePerShare, txDate }] };
+      transactions: enBlocks.map(parseEnBlock).filter(Boolean) };
   }
 
   // Standard HOS-2 form
@@ -765,7 +829,7 @@ async function scrapeLU() {
         shares:           tx.shares,
         price_per_share:  tx.pricePerShare,
         total_value:      total,
-        currency:         CURRENCY,
+        currency:         tx.currency || CURRENCY,
         filing_url:       pdfUrl,
         source:           SOURCE,
       });

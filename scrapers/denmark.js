@@ -208,6 +208,8 @@ function parseNotificationText(text) {
     /\be\)\s+Dato\s+for[^\n]*(\d{4}-\d{2}-\d{2})/im,
     // Danish: "e)   Dato for transaktionen\n                      2026-04-16"
     /\be\)\s+Dato\s+for\s+transaktionen\s*\n\s*(\d{4}-\d{2}-\d{2})/im,
+    // Finanstilsynet OAM form copy: "e) Dato for transaktionen\n\n  04-11-2026" (DK-1475776)
+    /\be\)\s+Dato\s+for\s+transaktionen\s*\n\s*(\d{2}-\d{2}-\d{4})/im,
     /\btoday\b.*?(\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/i,
   );
   let txDate = null;
@@ -252,6 +254,20 @@ function parseNotificationText(text) {
     if (priceVolLine) {
       const pv = parseNum(priceVolLine[1]);
       const sv = parseShares(priceVolLine[2]);
+      if (sv != null && sv > 0) shares = sv;
+      if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
+    }
+  }
+
+  // Finanstilsynet OAM form copy (Danish): "c) Pris(er)   Mængde(r)" header, then after
+  // blank lines "594,36      275" with no currency on the line (Strategic Partners,
+  // DK-1475776). The form's own guidance text later says "c) Pris(er) og Mængde(r)" —
+  // the "og" keeps this from matching there.
+  if (!shares) {
+    const daPv = text.match(/\bc\)\s+Pris\(er\)[ \t]+M\S*ngde\(r\)[ \t]*\n(?:[ \t]*\n)*[ \t]*([\d.,]+)[ \t]{3,}([\d.,]+)[ \t]*$/im);
+    if (daPv) {
+      const pv = parseNum(daPv[1]);
+      const sv = parseShares(daPv[2]);
       if (sv != null && sv > 0) shares = sv;
       if (!isNaN(pv) && pv > 0) _pdfPriceFromVol = pv;
     }

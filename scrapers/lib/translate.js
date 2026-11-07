@@ -136,8 +136,9 @@ const ROLE_RULES = [
   [/\bchairwoman\b/i,                           'Chairman'],
 
   // ── Board Member ─────────────────────────────────────────────────────────────
-  [/non.executive\s+chair(?:man)?/i,             'Non-Executive Chairman'],
-  [/non.executive\s+director/i,                 'Non-Executive Director'],
+  // \W{0,3} not "." — RNS filings also write "Non – Executive" / "Non - Executive"
+  [/non\W{0,3}executive\s+chair(?:man)?/i,       'Non-Executive Chairman'],
+  [/non\W{0,3}executive\s+director/i,           'Non-Executive Director'],
   [/independent\s+director/i,                   'Independent Director'],
   [/administrateur?\s+ind[eé]pendant/i,         'Independent Director'],   // FR: administrateur indépendant
   [/administratrice?\s+ind[eé]pendant/i,        'Independent Director'],   // FR: female form

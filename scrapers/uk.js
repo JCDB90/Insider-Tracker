@@ -155,6 +155,9 @@ function parsePrice(priceStr) {
   // digits only, with no currency symbol at all).
   m = s.match(/€\s*([\d,\.]+)/);
   if (m) return parseFloat(m[1].replace(/,/g, ''));
+  // Euro cents with no € symbol: "81.5 cent" (Irish issuers)
+  m = s.match(/^([\d,\.]+)\s*cents?$/i);
+  if (m) return parseFloat(m[1].replace(/,/g, '')) / 100;
   // Dollar: "$0.970" — same gap, same fix, for USD-denominated ADR-style lines
   // (confirmed live: BIOPHARMA CREDIT PLC).
   m = s.match(/\$\s*([\d,\.]+)/);
@@ -423,7 +426,9 @@ function parseDocumentContent(content, meta) {
       // start with a digit), falling all the way to the last-resort "any 3+ digit
       // number" regex below — which matches "8576" (the DECIMAL DIGITS of the
       // price!) as if it were the share count.
-      const perShareM = pvStr.match(/([A-Z]{0,3}[£$€]?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b)?)\s*per\s+share\s+([\d,]+)/i);
+      // "€ 0.815 cent per share 25,000" (Greencoat Renewables, confirmed live) — space
+      // after the symbol plus a redundant "cent" unit; parsePrice lets the € win.
+      const perShareM = pvStr.match(/([A-Z]{0,3}[£$€]?\s?[\d,\.]+\s*(?:p\b|pence\b|GBp\b|GBX\b|GBP\b|EUR\b|USD\b|cents?\b)?)\s*per\s+share\s+([\d,]+)/i);
       if (perShareM) {
         price = parsePrice(perShareM[1].trim());
         volume = parseVolume(perShareM[2].trim());
@@ -603,6 +608,14 @@ function parseDocumentContent(content, meta) {
 
   const company = issuerSec || meta.company || null;
 
+  // Prices are parsed at face value, so a €/$ price must not be labelled GBP
+  // (Greencoat Renewables trades in EUR on Euronext Dublin; Unilever's EUR line).
+  const sterling = /£|\bGBP\b|\bGBp\b|\bGBX\b|\bpence\b|\d\s*p\b/i.test(priceVolBlock);
+  const currency = sterling ? 'GBP'
+    : /€|\bEUR\b|\bcents?\b/i.test(priceVolBlock) ? 'EUR'
+    : /\$|\bUSD\b/.test(priceVolBlock) ? 'USD'
+    : 'GBP';
+
   // Fall back to filing submission date if transaction date couldn't be parsed
   const effectiveDate = transDate || meta.submitted_date?.slice(0, 10) || null;
   if (!effectiveDate) return [];  // Cannot determine date — skip row
@@ -620,7 +633,7 @@ function parseDocumentContent(content, meta) {
     transaction_type: txType,
     transaction_date: effectiveDate,
     price_per_share:  price,
-    currency:         'GBP',
+    currency,
     shares:           volume,
     total_value:      (price && volume) ? Math.round(price * volume) : null,
     filing_url:       meta.download_link ? `https://data.fca.org.uk/artefacts/${meta.download_link}` : null,
